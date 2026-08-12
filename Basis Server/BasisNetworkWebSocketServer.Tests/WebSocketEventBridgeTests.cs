@@ -45,6 +45,46 @@ public sealed class WebSocketEventBridgeTests
     }
 
     [Fact]
+    public async Task AcceptedConnection_RaisesPeerConnectedBeforeReceivingData()
+    {
+        EventBasedNetListener listener = new();
+        WebSocketEventBridge bridge = new(listener, maximumPayloadLength: 1024);
+        List<string> events = new();
+        listener.ConnectionRequestEvent += request =>
+        {
+            events.Add("request");
+            request.Accept();
+        };
+        listener.PeerConnectedEvent += peer => events.Add($"connected:{peer.Id}");
+        listener.NetworkReceiveEvent += (peer, reader, channel, method) =>
+        {
+            events.Add($"data:{peer.Id}");
+            reader.Recycle();
+        };
+
+        FakeWebSocket socket = new(
+            Frame(WebSocketFrameKind.Hello, Array.Empty<byte>()),
+            WebSocketFrameCodec.Encode(
+                WebSocketFrameKind.Data,
+                0,
+                DeliveryMethod.ReliableOrdered,
+                new byte[] { 1 },
+                1024),
+            Frame(WebSocketFrameKind.Disconnect, Array.Empty<byte>()));
+        await using WebSocketServerSession session = new(
+            socket,
+            bridge,
+            1024,
+            new IPEndPoint(IPAddress.Loopback, 12345),
+            60002,
+            pendingSendCapacity: 4);
+
+        await session.RunAsync(CancellationToken.None);
+
+        Assert.Equal(new[] { "request", "connected:60002", "data:60002" }, events);
+    }
+
+    [Fact]
     public async Task DataAndDisconnect_RaiseExistingListenerEvents()
     {
         EventBasedNetListener listener = new();
