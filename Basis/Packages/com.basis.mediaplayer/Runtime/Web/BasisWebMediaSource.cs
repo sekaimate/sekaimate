@@ -39,6 +39,10 @@ public sealed class BasisWebMediaSource : IBasisPcmSource, IDisposable
     private bool readyRaised;
     private bool endedRaised;
     private ulong decodedFrameCount;
+    private float volume = 1;
+    private bool mute;
+    private float playbackRate = 1;
+    private bool loop;
 
     public BasisWebMediaSource(
         string url,
@@ -68,6 +72,7 @@ public sealed class BasisWebMediaSource : IBasisPcmSource, IDisposable
         {
             handle = BasisWebMediaCreate(Url);
             if (handle < 0) throw new InvalidOperationException("The browser could not create the media element.");
+            ApplyPlaybackSettings();
         }
 
         started = true;
@@ -111,10 +116,42 @@ public sealed class BasisWebMediaSource : IBasisPcmSource, IDisposable
 
     public void SetPlaybackSettings(float volume, bool mute, float playbackRate, bool loop)
     {
-        if (handle >= 0)
-        {
-            BasisWebMediaSetPlaybackSettings(handle, Mathf.Clamp01(volume), mute ? 1 : 0, Mathf.Clamp(playbackRate, 0.25f, 4f), loop ? 1 : 0);
-        }
+        this.volume = Mathf.Clamp01(volume);
+        this.mute = mute;
+        this.playbackRate = Mathf.Clamp(playbackRate, 0.25f, 4f);
+        this.loop = loop;
+        ApplyPlaybackSettings();
+    }
+
+    public void SetSpatialSettings(AudioSource audioSource, AudioListener audioListener)
+    {
+        if (handle < 0) return;
+        Transform sourceTransform = audioSource != null ? audioSource.transform : null;
+        Transform listenerTransform = audioListener != null ? audioListener.transform : null;
+        Vector3 sourcePosition = sourceTransform != null ? sourceTransform.position : Vector3.zero;
+        Vector3 listenerPosition = listenerTransform != null ? listenerTransform.position : sourcePosition;
+        Vector3 listenerForward = listenerTransform != null ? listenerTransform.forward : Vector3.forward;
+        Vector3 listenerUp = listenerTransform != null ? listenerTransform.up : Vector3.up;
+        BasisWebMediaSetSpatialSettings(
+            handle,
+            audioSource != null ? audioSource.spatialBlend : 0,
+            audioSource != null ? audioSource.volume : 1,
+            audioSource != null && audioSource.mute ? 1 : 0,
+            audioSource != null ? audioSource.minDistance : 1,
+            audioSource != null ? audioSource.maxDistance : 500,
+            audioSource != null && audioSource.rolloffMode == AudioRolloffMode.Linear ? 1 : 0,
+            sourcePosition.x,
+            sourcePosition.y,
+            sourcePosition.z,
+            listenerPosition.x,
+            listenerPosition.y,
+            listenerPosition.z,
+            listenerForward.x,
+            listenerForward.y,
+            listenerForward.z,
+            listenerUp.x,
+            listenerUp.y,
+            listenerUp.z);
     }
 
     public void SetBuffer(BasisVideoBufferMode mode, int milliseconds) { }
@@ -195,6 +232,12 @@ public sealed class BasisWebMediaSource : IBasisPcmSource, IDisposable
         OnVideoSizeChanged?.Invoke(width, height);
     }
 
+    private void ApplyPlaybackSettings()
+    {
+        if (handle >= 0)
+            BasisWebMediaSetPlaybackSettings(handle, volume, mute ? 1 : 0, playbackRate, loop ? 1 : 0);
+    }
+
     private static string WebErrorMessage(int errorCode)
     {
         return errorCode switch
@@ -234,5 +277,26 @@ public sealed class BasisWebMediaSource : IBasisPcmSource, IDisposable
     private static extern int BasisWebMediaUpdateTexture(int mediaId, int textureId);
     [DllImport("__Internal")]
     private static extern void BasisWebMediaSetPlaybackSettings(int mediaId, float volume, int mute, float playbackRate, int loop);
+    [DllImport("__Internal")]
+    private static extern void BasisWebMediaSetSpatialSettings(
+        int mediaId,
+        float spatialBlend,
+        float sourceVolume,
+        int sourceMuted,
+        float minDistance,
+        float maxDistance,
+        int rolloffMode,
+        float sourceX,
+        float sourceY,
+        float sourceZ,
+        float listenerX,
+        float listenerY,
+        float listenerZ,
+        float forwardX,
+        float forwardY,
+        float forwardZ,
+        float upX,
+        float upY,
+        float upZ);
 }
 #endif

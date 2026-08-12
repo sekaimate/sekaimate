@@ -504,6 +504,9 @@ public sealed class BasisMediaPlayer : MonoBehaviour
     private const int RestartMaxRechecks = 5;
     private const float RestartRecheckIntervalSeconds = 1f;
     private BasisMediaPlayerAudio audioComponent;
+#if UNITY_WEBGL && !UNITY_EDITOR
+    private AudioListener webAudioListener;
+#endif
     private long lastEnqueuedPtsUs;
     private BasisMediaSource activeMediaSource;
     private BasisMediaMetadata metadata;
@@ -752,6 +755,7 @@ public sealed class BasisMediaPlayer : MonoBehaviour
     private void StartWebEngineForSource(BasisMediaSource media)
     {
         if (!ReferenceEquals(activeMediaSource, media)) return;
+        bool engineCreated = false;
 
         try
         {
@@ -763,15 +767,26 @@ public sealed class BasisMediaPlayer : MonoBehaviour
             bool hasCustomHeaders = media.Headers != null && media.Headers.Count > 0;
             if (!BasisWebMediaPolicy.TryValidate(media.Uri, media.AudioUri, pageUsesHttps, hasCustomHeaders, out string webReason))
                 throw new NotSupportedException(webReason);
+            AudioSource webAudioSource = GetWebAudioSource();
+            bool usesAudioMixer = webAudioSource != null && webAudioSource.outputAudioMixerGroup != null;
+            if (!BasisWebMediaPolicy.TryValidateAudioOutput(usesAudioMixer, out string audioReason))
+                throw new NotSupportedException(audioReason);
+            if (webAudioSource != null && webAudioSource.rolloffMode == AudioRolloffMode.Custom)
+                throw new NotSupportedException("Custom AudioSource rolloff is not supported by the Web media backend.");
 
             SetNativeEngine(new BasisPlatformMediaSource(media.Uri, null, media.Delivery));
+            engineCreated = true;
         }
         catch (Exception ex)
         {
             if (ReferenceEquals(activeMediaSource, media)) HandleError(ex);
         }
 
-        if (ReferenceEquals(activeMediaSource, media)) ApplyMediaSourceSettings(media);
+        if (ReferenceEquals(activeMediaSource, media))
+        {
+            ApplyMediaSourceSettings(media);
+            if (engineCreated && AutoPlayOnSourceAssigned) Play();
+        }
     }
 #else
     private async System.Threading.Tasks.Task StartNativeEngineForSourceAsync(BasisMediaSource media)
@@ -1174,7 +1189,11 @@ public sealed class BasisMediaPlayer : MonoBehaviour
         // frame lands; the real texture arrives via OnOutputTextureChanged in Update.
         OnOutputTextureChanged?.Invoke(OutputTexture);
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+        // Web settings must be applied before play so muted autoplay is classified correctly.
+#else
         if (AutoPlayOnSourceAssigned && nativeEngine != null) Play();
+#endif
     }
 
     private void TeardownNativeEngine()
@@ -1368,6 +1387,8 @@ public sealed class BasisMediaPlayer : MonoBehaviour
         {
 #if UNITY_WEBGL && !UNITY_EDITOR
             nativeEngine.SetPlaybackSettings(Volume, Mute, PlaybackRate, Loop);
+            if (webAudioListener == null) webAudioListener = FindAnyObjectByType<AudioListener>();
+            nativeEngine.SetSpatialSettings(GetWebAudioSource(), webAudioListener);
 #else
             // Feed the audio sink's measured output latency to the backend so it
             // paces video to match (low-latency A/V sync; desktop ignores it).
@@ -1532,6 +1553,18 @@ public sealed class BasisMediaPlayer : MonoBehaviour
                 break;
         }
     }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+    private AudioSource GetWebAudioSource()
+    {
+        if (audioComponent == null || audioComponent.Outputs == null) return null;
+        foreach (AudioSource output in audioComponent.Outputs)
+        {
+            if (output != null) return output;
+        }
+        return null;
+    }
+#endif
 
     // Records a failure message (drives the Error status and the Media Players panel) and
     // raises OnError. Main thread only.
