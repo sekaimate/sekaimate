@@ -596,7 +596,12 @@ public partial class BasisHandHeldCameraUI
         {
             string json = JsonUtility.ToJson(settingsToSave, true);
             string path = Path.Combine(Application.persistentDataPath, CameraSettingsJson);
+#if UNITY_WEBGL && !UNITY_EDITOR
+            File.WriteAllText(path, json);
+            await BasisWebPersistence.FlushAsync();
+#else
             await File.WriteAllTextAsync(path, json);
+#endif
         }
         catch (Exception ex)
         {
@@ -715,7 +720,12 @@ public partial class BasisHandHeldCameraUI
             var defaultSettings = new CameraSettings();
             string json = JsonUtility.ToJson(defaultSettings, true);
             string path = Path.Combine(Application.persistentDataPath, CameraSettingsJson);
+#if UNITY_WEBGL && !UNITY_EDITOR
+            File.WriteAllText(path, json);
+            await BasisWebPersistence.FlushAsync();
+#else
             await File.WriteAllTextAsync(path, json);
+#endif
             BasisDebug.Log("Default camera settings saved.");
         }
         catch (Exception ex)
@@ -750,7 +760,11 @@ public partial class BasisHandHeldCameraUI
 
         try
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            string json = File.ReadAllText(path);
+#else
             string json = await File.ReadAllTextAsync(path);
+#endif
             var loaded = JsonUtility.FromJson<CameraSettings>(json);
             MigrateSettings(loaded);
             ApplySettings(loaded);
