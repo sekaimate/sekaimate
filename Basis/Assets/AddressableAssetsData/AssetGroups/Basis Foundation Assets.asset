@@ -327,7 +327,8 @@ MonoBehaviour:
   - m_GUID: 856976bf03357524b9a73466df6c0e5f
     m_Address: Adaptive Circle Display.prefab
     m_ReadOnly: 0
-    m_SerializedLabels: []
+    m_SerializedLabels:
+    - basis-ui
     FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 8674930eb67f1e14d888a299de4ac419
     m_Address: Packages/com.basis.sdk/Fonts/Inter_24pt-SemiBoldItalic.ttf
