@@ -935,11 +935,11 @@ namespace Basis.Scripts.Device_Management
         /// Event handler invoked after initialization to bring up the static
         /// network manager + nameplate driver, replacing what the prefab bootstrap MBs used to do.
         /// </summary>
-        private void RunAfterInitialized()
+        private async void RunAfterInitialized()
         {
             if (FireOffNetwork)
             {
-                BasisNetworkLifeCycle.Initialize();
+                await BasisNetworkLifeCycle.Initialize();
             }
         }
 

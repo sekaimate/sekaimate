@@ -10,6 +10,7 @@ using Basis.Scripts.UI.NamePlate;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
@@ -114,7 +115,7 @@ public static class BasisNetworkPIPCameraDriver
     /// Initialize native containers and subscribe to the simulation loop.
     /// Called from BasisNetworkLifeCycle.Initialize().
     /// </summary>
-    public static void Create()
+    public static async Task CreateAsync()
     {
         if (initialized) return;
 
@@ -128,7 +129,7 @@ public static class BasisNetworkPIPCameraDriver
 
         // Preload the remote PIP prefab
         prefabHandle = Addressables.LoadAssetAsync<GameObject>(RemotePIPPrefabPath);
-        loadedPrefab = prefabHandle.WaitForCompletion();
+        loadedPrefab = await prefabHandle.Task;
 
         BasisLocalPlayer.AfterSimulateOnLate.AddAction(SimulatePriority, Simulate);
         lastPipMenuOpenState = BasisMainMenu.Instance != null;

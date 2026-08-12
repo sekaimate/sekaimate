@@ -15,12 +15,12 @@ public static class BasisNetworkLifeCycle
     /// <summary>
     /// boots up the network management
     /// </summary>
-    public static void Initialize()
+    public static async Task Initialize()
     {
         BasisDebug.Log($"Initializing Network Connection", BasisDebug.LogTag.Networking);
         BasisNetworkManagement.mainThreadId = Thread.CurrentThread.ManagedThreadId;
         BasisRemoteNetworkDriver.Initialize(Unity.Collections.Allocator.Persistent);
-        BasisAudioRemoteSource.Initialize();
+        await BasisAudioRemoteSource.InitializeAsync();
         BasisNetworkIdResolver.KnownIdMap.Clear();
         BasisNetworkIdResolver.PendingResolutions.Clear();
         // Remote players spawn as scene roots (null parent) so each avatar's bone hierarchy has its
@@ -46,7 +46,7 @@ public static class BasisNetworkLifeCycle
         BasisNetworkHandleChatTyping.Initialize();
         Basis.Scripts.BasisSdk.Interactions.BasisJiggleGrabDriver.Initialize();
 #if !UNITY_SERVER
-        BasisNetworkPIPCameraDriver.Create();
+        await BasisNetworkPIPCameraDriver.CreateAsync();
 #endif
         BasisNetworkManagement.IsInitialized = true;
         BasisNetworkManagement.OnEnableInstanceCreate?.Invoke();

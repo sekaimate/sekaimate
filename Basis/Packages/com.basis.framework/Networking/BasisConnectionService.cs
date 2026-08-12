@@ -113,7 +113,7 @@ namespace Basis.Scripts.Networking
                     Task rebootWait = BasisNetworkConnection.WaitForRebootCompleteAsync(cts.Token);
                     await BasisNetworkLifeCycle.Destroy();
                     await rebootWait;
-                    BasisNetworkLifeCycle.Initialize();
+                    await BasisNetworkLifeCycle.Initialize();
                 }
 
                 if (!BasisNetworkManagement.IsInitialized)
