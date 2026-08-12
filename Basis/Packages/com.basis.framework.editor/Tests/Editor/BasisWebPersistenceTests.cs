@@ -134,6 +134,20 @@ public class BasisWebPersistenceTests
     }
 
     [Test]
+    public void WebActionBindingsUseSynchronousIoAndFlushWrites()
+    {
+        string source = File.ReadAllText(
+            "Packages/com.basis.framework/Device Management/Devices/Base/BasisActionDriver.cs");
+
+        StringAssert.Contains(
+            "string json = File.ReadAllText(SavePath);\n#else\n            string json = await File.ReadAllTextAsync(SavePath);",
+            source);
+        StringAssert.Contains(
+            "File.WriteAllText(SavePath, json);\n            await BasisWebPersistence.FlushAsync();\n#else\n            await File.WriteAllTextAsync(SavePath, json);",
+            source);
+    }
+
+    [Test]
     public void NativePreloadContentKeepsAsynchronousAtomicWrite()
     {
         string source = File.ReadAllText(
