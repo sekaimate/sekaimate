@@ -3,6 +3,7 @@
     "rootNamespace": "",
     "references": [
         "BasisEditor",
+        "Unity.Addressables.Editor",
         "UnityEngine.TestRunner"
     ],
     "includePlatforms": [
