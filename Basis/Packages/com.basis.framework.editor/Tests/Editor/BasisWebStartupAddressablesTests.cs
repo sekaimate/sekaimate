@@ -85,4 +85,14 @@ public class BasisWebStartupAddressablesTests
 
         StringAssert.Contains("await UiStyleSettings.InitializeAsync()", source);
     }
+
+    [Test]
+    public void WebInputBindingsAvoidAsyncFileOperations()
+    {
+        string source = File.ReadAllText("Packages/com.basis.framework/Device Management/Devices/Base/BasisActionDriver.cs");
+
+        StringAssert.Contains("#if UNITY_WEBGL && !UNITY_EDITOR", source);
+        StringAssert.Contains("string json = File.ReadAllText(SavePath)", source);
+        StringAssert.Contains("File.WriteAllText(SavePath, json)", source);
+    }
 }
