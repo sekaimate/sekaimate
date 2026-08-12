@@ -36,6 +36,17 @@ public class BasisWebEncryptionTests
     }
 
     [Test]
+    public void WebGlDecryptionDoesNotAwaitCryptoStreamIo()
+    {
+        string source = File.ReadAllText("Packages/com.basis.sdk/Scripts/BasisEncryptionWrapper.cs");
+
+        StringAssert.Contains(
+            "#if UNITY_WEBGL && !UNITY_EDITOR\n                    int bytesRead = cryptoStream.Read(buffer, 0, bufferSize);",
+            source);
+        StringAssert.Contains("await Task.Yield();", source);
+    }
+
+    [Test]
     public void WebGlBeeCacheUsesSynchronousFileOperations()
     {
         string ioSource = File.ReadAllText("Packages/com.basis.bundlemanagement/BasisIOManagement.cs");
