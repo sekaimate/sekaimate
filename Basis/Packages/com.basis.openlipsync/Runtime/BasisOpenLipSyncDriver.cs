@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using OpenLipSync.Inference;
 using OpenLipSync.Inference.OVRCompat;
 using UnityEngine;
@@ -34,15 +35,7 @@ public static class BasisOpenLipSyncDriver
 
     public static AsyncOperationHandle<TextAsset> modelAsset;
     public static AsyncOperationHandle<TextAsset> configAsset;
-    public static void BeginInitialize()
-    {
-        if (_initialized || modelAsset.IsValid()) return;
-
-        modelAsset = Addressables.LoadAssetAsync<TextAsset>(ModelAddress);
-        configAsset = Addressables.LoadAssetAsync<TextAsset>(ConfigAddress);
-    }
-
-    public static void EndInitialize()
+    public static async Task InitializeAsync()
     {
         if (_initialized) return;
 
@@ -50,13 +43,14 @@ public static class BasisOpenLipSyncDriver
         {
             if (!modelAsset.IsValid())
             {
-                BeginInitialize();
+                modelAsset = Addressables.LoadAssetAsync<TextAsset>(ModelAddress);
+                configAsset = Addressables.LoadAssetAsync<TextAsset>(ConfigAddress);
             }
 
-            modelAsset.WaitForCompletion();
+            await modelAsset.Task;
             if (configAsset.IsValid())
             {
-                configAsset.WaitForCompletion();
+                await configAsset.Task;
             }
 
             if (!modelAsset.IsValid() || modelAsset.Status != AsyncOperationStatus.Succeeded || modelAsset.Result == null)
@@ -93,12 +87,6 @@ public static class BasisOpenLipSyncDriver
             BasisDebug.LogWarning($"[OpenLipSync] Initialization exception: {ex.Message}");
             Shutdown();
         }
-    }
-
-    public static void Initialize()
-    {
-        BeginInitialize();
-        EndInitialize();
     }
 
     private static void ReleaseHandles()

@@ -347,6 +347,10 @@ namespace Basis.Scripts.Device_Management
             }
 
             await BasisPlayerFactory.CreateLocalPlayer(new InstantiationParameters(transform, true));
+            if (FireOffNetwork)
+            {
+                await BasisRemoteNamePlateDriver.InitializeAsync();
+            }
             StartAllStartIfPermanentlyExists();
             await SwitchSetModeToDefault();
 
@@ -933,7 +937,6 @@ namespace Basis.Scripts.Device_Management
         {
             if (FireOffNetwork)
             {
-                BasisRemoteNamePlateDriver.Initialize();
                 BasisNetworkLifeCycle.Initialize();
             }
         }

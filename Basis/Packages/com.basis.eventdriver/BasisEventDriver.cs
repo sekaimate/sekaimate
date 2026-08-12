@@ -149,18 +149,17 @@ namespace Basis.EventDriver
         /// <summary>
         /// Unity enable hook. Subscribes render callbacks (client), initializes scene and network drivers.
         /// </summary>
-        public void OnEnable()
+        public async void OnEnable()
         {
             Instance = this;
             if (!IsHeadlessClient)
             {
                 Application.onBeforeRender += OnBeforeRender;
             }
-            BasisOpenLipSyncDriver.BeginInitialize();
             BasisSceneFactory.Initialize();
             Basis.Scripts.Networking.Sync.BasisSyncDriver.Initialize();
             RemoteBoneJobSystem.Initialize();
-            BasisOpenLipSyncDriver.EndInitialize();
+            await BasisOpenLipSyncDriver.InitializeAsync();
         }
 
         /// <summary>

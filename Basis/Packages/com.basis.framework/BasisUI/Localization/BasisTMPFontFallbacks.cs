@@ -292,6 +292,12 @@ namespace Basis.BasisUI
             for (int i = 0; i < FallbackGroups.Length; i++)
             {
                 var group = FallbackGroups[i];
+#if UNITY_WEBGL && !UNITY_EDITOR
+                if (group.Label != JaJpLabel)
+                {
+                    continue;
+                }
+#endif
                 if (ContainsByName(fallbacks, group.Label))
                 {
                     continue;

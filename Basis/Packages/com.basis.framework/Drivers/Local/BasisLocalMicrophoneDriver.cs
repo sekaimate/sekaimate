@@ -22,7 +22,7 @@ public static class BasisLocalMicrophoneDriver
     // AutoResetEvent so WaitOne consumes the signal atomically. Avoids a lost-wakeup
     // race where MicrophoneUpdate.Set() lands between the worker's WaitOne return and
     // a manual Reset(), stalling one tick of processing.
-    private static AutoResetEvent processingEvent = new AutoResetEvent(false);
+    private static AutoResetEvent processingEvent;
     private static readonly object processingLock = new object();
     private static readonly object ringLock = new object();
 
@@ -66,7 +66,7 @@ public static class BasisLocalMicrophoneDriver
     public static int rmsIndex = 0;
     public static float averageRms;
 
-    public static RNNoise.NET.Denoiser Denoiser = new RNNoise.NET.Denoiser();
+    public static RNNoise.NET.Denoiser Denoiser;
     public static int minFreq = 48000;
     public static int maxFreq = 48000;
 
@@ -203,6 +203,12 @@ public static class BasisLocalMicrophoneDriver
     public static bool Initialize()
     {
         if (IsInitialize) return true;
+#if UNITY_WEBGL && !UNITY_EDITOR
+        isPaused = true;
+        IsInitialize = true;
+        OnInitializedAction?.Invoke(false);
+        return true;
+#else
         try
         {
             isPaused = ResolvePausedFromSettings();
@@ -224,6 +230,7 @@ public static class BasisLocalMicrophoneDriver
             DeInitialize();
             return false;
         }
+#endif
     }
 
     public static void DeInitialize()
@@ -320,6 +327,9 @@ public static class BasisLocalMicrophoneDriver
 
     public static bool ResetMicrophones(string newMicrophone)
     {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        return false;
+#else
         lock (processingLock)
         {
             processingEvent.Reset();
@@ -461,6 +471,7 @@ public static class BasisLocalMicrophoneDriver
             MicrophoneDevice = newMicrophone;
             return true;
         }
+#endif
     }
 
     private static void StopSelectedMicrophone_Internal()
@@ -739,6 +750,7 @@ public static class BasisLocalMicrophoneDriver
 
     private static void StartProcessingThread()
     {
+        processingEvent ??= new AutoResetEvent(false);
         processingTokenSource = new CancellationTokenSource();
         processingThread = new Thread(() =>
         {

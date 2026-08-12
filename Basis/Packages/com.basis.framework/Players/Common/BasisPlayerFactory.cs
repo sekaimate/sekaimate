@@ -36,11 +36,14 @@ namespace Basis.Scripts.Player
         /// Tpose Handle
         /// </summary>
         public static UnityEngine.ResourceManagement.AsyncOperations.AsyncOperationHandle<RuntimeAnimatorController> TposeHandle;
+        public static UnityEngine.ResourceManagement.AsyncOperations.AsyncOperationHandle<RuntimeAnimatorController> LocomotionHandle;
 
         public static RuntimeAnimatorController TposeController;
+        public static RuntimeAnimatorController LocomotionController;
 
         /// <summary>Addressable path to the T-Pose animator controller asset.</summary>
         public const string TPose = "Assets/Animator/Animated TPose.controller";
+        public const string Locomotion = "Locomotion";
         /// <summary>
         /// Loads the local and remote player prefabs from Addressables and caches them for instantiation.
         /// </summary>
@@ -57,6 +60,12 @@ namespace Basis.Scripts.Player
                 TposeHandle = Addressables.LoadAssetAsync<RuntimeAnimatorController>(TPose);
             }
             TposeController = await TposeHandle.Task;
+
+            if (!LocomotionHandle.IsValid())
+            {
+                LocomotionHandle = Addressables.LoadAssetAsync<RuntimeAnimatorController>(Locomotion);
+            }
+            LocomotionController = await LocomotionHandle.Task;
         }
 
         /// <summary>
@@ -78,8 +87,14 @@ namespace Basis.Scripts.Player
                 Addressables.Release(TposeHandle);
                 TposeHandle = default;
             }
+            if (LocomotionHandle.IsValid())
+            {
+                Addressables.Release(LocomotionHandle);
+                LocomotionHandle = default;
+            }
             LocalPlayerReadyToSpawn = null;
             TposeController = null;
+            LocomotionController = null;
         }
 
         /// <summary>
