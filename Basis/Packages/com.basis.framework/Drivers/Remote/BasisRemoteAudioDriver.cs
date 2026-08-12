@@ -35,6 +35,14 @@ namespace Basis.Scripts.Drivers
         /// </summary>
         public bool Initialized = false;
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+        private const int WebPlaybackFrameSize = 960;
+        private const float WebPlaybackFrameSeconds = 0.02f;
+        private readonly float[] webPlaybackFrame = new float[WebPlaybackFrameSize];
+        private float webPlaybackElapsed;
+        private int webPlaybackSinkId;
+#endif
+
         /// <summary>
         /// True on the driver <see cref="Basis.Scripts.Networking.Receivers.BasisShoutAudioDriver"/>
         /// creates for a shouting player. See <see cref="OwnsVisemeTap"/>.
@@ -68,6 +76,7 @@ namespace Basis.Scripts.Drivers
         /// </summary>
         /// <param name="data">Interleaved PCM buffer provided by Unity.</param>
         /// <param name="channels">Number of channels in <paramref name="data"/>.</param>
+#if !UNITY_WEBGL || UNITY_EDITOR
         private void OnAudioFilterRead(float[] data, int channels)
         {
             if (Initialized == false)
@@ -94,8 +103,31 @@ namespace Basis.Scripts.Drivers
             receiver.ApplySpatialTone(data, channels, length);
             AudioData?.Invoke(data, channels);
         }
+#else
+        private void Update()
+        {
+            if (!Initialized || BasisAudioReceiver == null)
+            {
+                return;
+            }
+
+            webPlaybackElapsed = Mathf.Min(webPlaybackElapsed + Time.unscaledDeltaTime, WebPlaybackFrameSeconds * 3f);
+            while (webPlaybackElapsed >= WebPlaybackFrameSeconds)
+            {
+                Array.Clear(webPlaybackFrame, 0, webPlaybackFrame.Length);
+                BasisAudioReceiver.OnAudioFilterRead(webPlaybackFrame, 1, webPlaybackFrame.Length);
+                BasisAudioAndVisemeDriver.ProcessAudioSamples(webPlaybackFrame, 1, webPlaybackFrame.Length);
+                AudioData?.Invoke(webPlaybackFrame, 1);
+                BasisWebAudioPlaybackBridge.Push(webPlaybackSinkId, webPlaybackFrame, webPlaybackFrame.Length);
+                webPlaybackElapsed -= WebPlaybackFrameSeconds;
+            }
+        }
+#endif
         public void OnDestroy()
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            RemoveWebPlaybackSink();
+#endif
             if (BasisAudioAndVisemeDriver != null)
             {
                 BasisAudioAndVisemeDriver.OnDestroy();
@@ -109,6 +141,9 @@ namespace Basis.Scripts.Drivers
         public void ResetForPool()
         {
             Initialized = false;
+#if UNITY_WEBGL && !UNITY_EDITOR
+            RemoveWebPlaybackSink();
+#endif
             if (BasisAudioAndVisemeDriver != null)
             {
                 BasisAudioAndVisemeDriver.OnDestroy();
@@ -127,8 +162,28 @@ namespace Basis.Scripts.Drivers
         {
             BasisAudioAndVisemeDriver = basisVisemeDriver;
             RegisterDriver(BasisAudioAndVisemeDriver);
+#if UNITY_WEBGL && !UNITY_EDITOR
+            BasisAudioReceiver.outputSampleRate = BasisWebAudioCaptureBridge.SampleRate;
+            RemoveWebPlaybackSink();
+            webPlaybackSinkId = BasisWebAudioPlaybackBridge.CreateSink();
+            webPlaybackElapsed = 0f;
+#endif
             Initialized = true;
         }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+        private void RemoveWebPlaybackSink()
+        {
+            if (webPlaybackSinkId == 0)
+            {
+                return;
+            }
+
+            BasisWebAudioPlaybackBridge.RemoveSink(webPlaybackSinkId);
+            webPlaybackSinkId = 0;
+            webPlaybackElapsed = 0f;
+        }
+#endif
         public static void Simulate(float DeltaTime)
         {
             // ActiveDrivers only holds in-range drivers, so the per-tick cost

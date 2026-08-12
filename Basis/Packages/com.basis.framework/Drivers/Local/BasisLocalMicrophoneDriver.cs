@@ -158,6 +158,16 @@ public static class BasisLocalMicrophoneDriver
             isPaused = value;
             PlayerPrefs.SetInt(MicrophoneState, isPaused ? 1 : 0);
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+            if (isPaused)
+            {
+                BasisWebAudioCaptureBridge.Stop();
+            }
+            else
+            {
+                BasisWebAudioCaptureBridge.RequestFromUserGesture();
+            }
+#else
             bool suppress = IsSuppressMuteMode;
 
             if (isPaused)
@@ -176,6 +186,7 @@ public static class BasisLocalMicrophoneDriver
 
                 _pendingDeviceWhenPaused = null;
             }
+#endif
 
             OnPausedAction?.Invoke(isPaused);
 
@@ -204,9 +215,23 @@ public static class BasisLocalMicrophoneDriver
     {
         if (IsInitialize) return true;
 #if UNITY_WEBGL && !UNITY_EDITOR
-        isPaused = true;
+        isPaused = ResolvePausedFromSettings();
+        LocalOpusSettings.EnsureProcessBuffer(ref processBufferArray, out ProcessFrameLength);
+        LocalOpusSettings.CreateOrResizeArray(LocalOpusSettings.rmsWindowSize, ref rmsValues);
+        Array.Clear(rmsValues, 0, rmsValues.Length);
+        rmsIndex = 0;
+        averageRms = 0f;
+        ChangeMicrophoneVolume(SMDMicrophone.Current.Volume01);
+        PacketSize = ProcessFrameLength * sizeof(float);
+        BasisWebAudioCaptureBridge.PcmFrameReady += HandleWebPcmFrame;
+        BasisWebAudioCaptureBridge.CaptureStateChanged += HandleWebCaptureState;
+        BasisWebAudioCaptureBridge.EnsureInitialized();
         IsInitialize = true;
-        OnInitializedAction?.Invoke(false);
+        OnInitializedAction?.Invoke(true);
+        if (!isPaused)
+        {
+            BasisWebAudioCaptureBridge.RequestFromUserGesture();
+        }
         return true;
 #else
         try
@@ -237,6 +262,14 @@ public static class BasisLocalMicrophoneDriver
     {
         if (!IsInitialize) return;
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+        BasisWebAudioCaptureBridge.PcmFrameReady -= HandleWebPcmFrame;
+        BasisWebAudioCaptureBridge.CaptureStateChanged -= HandleWebCaptureState;
+        BasisWebAudioCaptureBridge.Stop();
+        MicrophoneIsStarted = false;
+        processBufferArray = null;
+        rmsValues = null;
+#else
         StopProcessingThread();
         UnregisterEvents();
         StopSelectedMicrophone();
@@ -255,6 +288,7 @@ public static class BasisLocalMicrophoneDriver
         _denoiseDry = null;
 
         channels = 1;
+#endif
         IsInitialize = false;
         OnInitializedAction?.Invoke(false);
         BasisDebug.Log("Microphone Driver Deinitialized.");
@@ -328,7 +362,7 @@ public static class BasisLocalMicrophoneDriver
     public static bool ResetMicrophones(string newMicrophone)
     {
 #if UNITY_WEBGL && !UNITY_EDITOR
-        return false;
+        return !IsPaused && BasisWebAudioCaptureBridge.RequestFromUserGesture();
 #else
         lock (processingLock)
         {
@@ -624,6 +658,9 @@ public static class BasisLocalMicrophoneDriver
     /// </summary>
     public static void PumpCapture()
     {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        return;
+#else
         PollDeviceChanges();
 
         if (Interlocked.Exchange(ref _scheduleMainHasAudio, 0) == 1)
@@ -634,7 +671,6 @@ public static class BasisLocalMicrophoneDriver
         {
             MainThreadOnHasSilence?.Invoke();
         }
-
         if (!MicrophoneIsStarted || string.IsNullOrEmpty(MicrophoneDevice) || clip == null) return;
 
         int currentPosition = Microphone.GetPosition(MicrophoneDevice);
@@ -699,7 +735,57 @@ public static class BasisLocalMicrophoneDriver
         {
             processingEvent.Set();
         }
+#endif
     }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+    private static void HandleWebCaptureState(BasisWebAudioCaptureState state)
+    {
+        MicrophoneIsStarted = state == BasisWebAudioCaptureState.Running;
+        if (state == BasisWebAudioCaptureState.PermissionDenied || state == BasisWebAudioCaptureState.Unavailable)
+        {
+            isPaused = true;
+            PlayerPrefs.SetInt(MicrophoneState, 1);
+            OnPausedAction?.Invoke(true);
+            BasisDebug.LogError($"Browser microphone unavailable: {state}", BasisDebug.LogTag.Voice);
+        }
+    }
+
+    private static void HandleWebPcmFrame(float[] frame)
+    {
+        if (isPaused || !MicrophoneIsStarted || frame == null || frame.Length != ProcessFrameSize)
+        {
+            return;
+        }
+
+        if (processBufferArray == null || processBufferArray.Length != ProcessFrameSize)
+        {
+            processBufferArray = new float[ProcessFrameSize];
+        }
+        Array.Copy(frame, processBufferArray, ProcessFrameSize);
+
+        float gain = Volume;
+        if (!Mathf.Approximately(gain, 1f))
+        {
+            for (int index = 0; index < ProcessFrameSize; index++)
+            {
+                processBufferArray[index] *= gain;
+            }
+        }
+
+        RollingRMS();
+        if (IsTransmitWorthy())
+        {
+            OnHasAudio?.Invoke();
+            MainThreadOnHasAudio?.Invoke();
+        }
+        else
+        {
+            OnHasSilence?.Invoke();
+            MainThreadOnHasSilence?.Invoke();
+        }
+    }
+#endif
 
     /// <summary>
     /// Downmix an interleaved delta buffer (frames 0..frameCount in srcDelta) into the
