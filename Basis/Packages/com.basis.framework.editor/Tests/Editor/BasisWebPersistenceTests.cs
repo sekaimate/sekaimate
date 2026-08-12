@@ -47,6 +47,42 @@ public class BasisWebPersistenceTests
     }
 
     [Test]
+    public void WebKeyStoresWriteFinalFilesSynchronouslyBeforeFlush()
+    {
+        string itemKeys = File.ReadAllText(
+            "Packages/com.basis.framework/UI Panels/BasisDataStoreItemKeys.cs");
+        string avatarKeys = File.ReadAllText(
+            "Packages/com.basis.framework/UI Panels/BasisDataStoreAvatarKeys.cs");
+
+        StringAssert.Contains(
+            "#if UNITY_WEBGL && !UNITY_EDITOR\n                File.WriteAllBytes(FilePath, byteData);\n                await BasisWebPersistence.FlushAsync();",
+            itemKeys);
+        StringAssert.Contains(
+            "#if UNITY_WEBGL && !UNITY_EDITOR\n                File.WriteAllBytes(FilePath, byteData);\n                await BasisWebPersistence.FlushAsync();",
+            avatarKeys);
+    }
+
+    [Test]
+    public void NativeItemKeyStoreRetainsAtomicAsyncWrite()
+    {
+        string itemKeys = File.ReadAllText(
+            "Packages/com.basis.framework/UI Panels/BasisDataStoreItemKeys.cs");
+
+        StringAssert.Contains("await File.WriteAllBytesAsync(tempPath, byteData);", itemKeys);
+        StringAssert.Contains("File.Replace(tempPath, FilePath, null);", itemKeys);
+        StringAssert.Contains("File.Move(tempPath, FilePath);", itemKeys);
+    }
+
+    [Test]
+    public void NativeAvatarKeyStoreRetainsAsyncWrite()
+    {
+        string avatarKeys = File.ReadAllText(
+            "Packages/com.basis.framework/UI Panels/BasisDataStoreAvatarKeys.cs");
+
+        StringAssert.Contains("await File.WriteAllBytesAsync(FilePath, byteData);", avatarKeys);
+    }
+
+    [Test]
     public void WebBuildEnablesAutomaticPersistentDataSync()
     {
         const string html = "<script>\nvar config = {\n  dataUrl: buildUrl + '/build.data',\n};\n</script>";
