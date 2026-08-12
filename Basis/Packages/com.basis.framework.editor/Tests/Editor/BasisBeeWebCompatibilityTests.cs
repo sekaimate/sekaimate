@@ -14,7 +14,7 @@ public class BasisBeeWebCompatibilityTests
             new string[0],
             new[] { shaderName });
 
-        Assert.That(errors, Has.Exactly(1).Contains(shaderName));
+        Assert.That(errors, Is.EqualTo(new[] { $"Shader: {shaderName}" }));
     }
 
     [TestCase("UnityEngine.VFX.VisualEffect")]
@@ -27,7 +27,7 @@ public class BasisBeeWebCompatibilityTests
             new[] { componentTypeName },
             new string[0]);
 
-        Assert.That(errors, Has.Exactly(1).Contains(componentTypeName));
+        Assert.That(errors, Is.EqualTo(new[] { $"Component: {componentTypeName}" }));
     }
 
     [TestCase(BuildTarget.StandaloneWindows64)]
@@ -53,10 +53,12 @@ public class BasisBeeWebCompatibilityTests
             new[] { "BasisMediaPlayer", "UnityEngine.VFX.VFXRenderer" },
             new[] { "Hidden/VoxelizeShader" });
 
-        Assert.That(errors, Has.Count.EqualTo(3));
-        Assert.That(errors, Has.Exactly(1).Contains("BasisMediaPlayer"));
-        Assert.That(errors, Has.Exactly(1).Contains("UnityEngine.VFX.VFXRenderer"));
-        Assert.That(errors, Has.Exactly(1).Contains("Hidden/VoxelizeShader"));
+        Assert.That(errors, Is.EqualTo(new[]
+        {
+            "Component: UnityEngine.VFX.VFXRenderer",
+            "Component: BasisMediaPlayer",
+            "Shader: Hidden/VoxelizeShader",
+        }));
     }
 
     [Test]
