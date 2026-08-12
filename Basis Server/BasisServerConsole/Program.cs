@@ -95,7 +95,7 @@ namespace Basis
 #endif
                 BasisServerReductionSystemEvents.Shutdown();
                 if (config.EnableStatistics) BasisStatistics.StopWorkerThread();
-                if (WebSocketTransport != null) await WebSocketTransport.DisposeAsync();
+                StopNetworkTransports();
                 await BasisServerSideLogging.ShutdownAsync();
                 BNL.Log("Server shut down successfully.");
             };
@@ -139,6 +139,20 @@ namespace Basis
             WebSocketTransport = new BasisWebSocketServerTransport(options, bridge, peerIdAllocator);
             WebSocketTransport.StartAsync().GetAwaiter().GetResult();
             BNL.Log($"Listening for WebSocket upgrades on port {options.Port} at {options.Path}");
+        }
+
+        private static void StopNetworkTransports()
+        {
+            if (WebSocketTransport != null)
+            {
+                WebSocketTransport.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                WebSocketTransport = null;
+            }
+            if (NetworkServer.Server is LNLNetManager udpServer)
+            {
+                udpServer.manager.PeerIdUnavailable = null;
+            }
+            NetworkServer.StopServer();
         }
 
         private static void CurrentDomain_UnhandledException(object sender, UnhandledExceptionEventArgs e)
