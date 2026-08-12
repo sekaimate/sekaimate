@@ -27,6 +27,7 @@ public static class BasisHeadlessBuild
     public static void BuildWeb()
     {
         string buildPath = RequireArgument("customBuildPath");
+        EnsureActiveBuildTarget(BuildTarget.WebGL);
         BuildPlayer(BuildTarget.WebGL, CreateWebBuildPlayerOptions(buildPath));
     }
 
@@ -38,7 +39,7 @@ public static class BasisHeadlessBuild
             locationPathName = buildPath,
             target = BuildTarget.WebGL,
             targetGroup = BuildTargetGroup.WebGL,
-            options = BuildOptions.Development
+            options = BuildOptions.None
         };
     }
 
@@ -49,11 +50,7 @@ public static class BasisHeadlessBuild
         string linuxArchitectureArg = GetArgument("linuxArchitecture");
 
         BuildTargetGroup targetGroup = BuildPipeline.GetBuildTargetGroup(target);
-        if (EditorUserBuildSettings.activeBuildTarget != target)
-        {
-            bool switched = EditorUserBuildSettings.SwitchActiveBuildTarget(targetGroup, target);
-            Debug.Log($"[BasisHeadlessBuild] SwitchActiveBuildTarget({target}) => {switched}");
-        }
+        EnsureActiveBuildTarget(target);
 
         StandaloneBuildSubtarget standaloneSubtarget = ParseStandaloneSubtarget(standaloneSubtargetArg);
         EditorUserBuildSettings.standaloneBuildSubtarget = standaloneSubtarget;
@@ -133,6 +130,20 @@ public static class BasisHeadlessBuild
                 addressableSettings.BuildAddressablesWithPlayerBuild = originalBuildAddressablesWithPlayerBuild;
                 Debug.Log($"[BasisHeadlessBuild] Restored BuildAddressablesWithPlayerBuild={addressableSettings.BuildAddressablesWithPlayerBuild}");
             }
+        }
+    }
+
+    private static void EnsureActiveBuildTarget(BuildTarget target)
+    {
+        if (EditorUserBuildSettings.activeBuildTarget == target)
+        {
+            return;
+        }
+
+        BuildTargetGroup targetGroup = BuildPipeline.GetBuildTargetGroup(target);
+        if (!EditorUserBuildSettings.SwitchActiveBuildTarget(targetGroup, target))
+        {
+            throw new BuildFailedException($"Failed to switch active build target to {target}.");
         }
     }
 

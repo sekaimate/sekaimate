@@ -3,6 +3,7 @@ using System.IO;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 public class BasisWebPlatformSettingsTests
 {
@@ -22,7 +23,7 @@ public class BasisWebPlatformSettingsTests
     [TestCase("Packages/com.steam.steamaudio/Binaries/HTML5/libmysofa.a")]
     [TestCase("Packages/com.steam.steamaudio/Binaries/HTML5/libpffft.a")]
     [TestCase("Packages/com.steam.steamaudio/Binaries/HTML5/libz.a")]
-    public void SteamAudioDependencyIsEnabledForWebGl(string pluginPath)
+    public void NativeWebDependencyIsEnabledForWebGl(string pluginPath)
     {
         PluginImporter importer = AssetImporter.GetAtPath(pluginPath) as PluginImporter;
 
@@ -30,12 +31,46 @@ public class BasisWebPlatformSettingsTests
         Assert.That(importer.GetCompatibleWithPlatform(BuildTarget.WebGL), Is.True);
     }
 
-    [TestCase("Universal Render Pipeline/Lit", true, true)]
-    [TestCase("Universal Render Pipeline/Lit", false, false)]
-    [TestCase("Jiggle/ProceduralPrimitiveURP", false, true)]
-    public void WebShaderStripperRemovesUnsupportedVariants(string shaderName, bool usesDotsInstancing, bool expected)
+    [Test]
+    public void WebQualityLevelUsesWebRenderPipeline()
     {
-        Assert.That(BasisWebShaderStripper.ShouldStrip(shaderName, usesDotsInstancing), Is.EqualTo(expected));
+        const string pipelinePath = "Assets/Basis/Settings/Quality Settiings/Modified - Web.asset";
+        int webQualityLevel = Array.IndexOf(QualitySettings.names, "WEB");
+        RenderPipelineAsset expectedPipeline = AssetDatabase.LoadAssetAtPath<RenderPipelineAsset>(pipelinePath);
+
+        Assert.That(webQualityLevel, Is.GreaterThanOrEqualTo(0));
+        Assert.That(expectedPipeline, Is.Not.Null);
+        Assert.That(QualitySettings.GetRenderPipelineAssetAt(webQualityLevel), Is.SameAs(expectedPipeline));
+    }
+
+    [Test]
+    public void QualityLevelsAreLimitedToTheirPlatforms()
+    {
+        int desktopQualityLevel = Array.IndexOf(QualitySettings.names, "DESKTOP");
+        int webQualityLevel = Array.IndexOf(QualitySettings.names, "WEB");
+
+        Assert.That(QualitySettings.IsPlatformIncluded("Standalone", desktopQualityLevel), Is.True);
+        Assert.That(QualitySettings.IsPlatformIncluded("WebGL", desktopQualityLevel), Is.False);
+        Assert.That(QualitySettings.IsPlatformIncluded("Standalone", webQualityLevel), Is.False);
+        Assert.That(QualitySettings.IsPlatformIncluded("WebGL", webQualityLevel), Is.True);
+    }
+
+    [Test]
+    public void GlobalGraphicsSettingsRemainDesktopDefaults()
+    {
+        const string pipelinePath = "Assets/Basis/Settings/Quality Settiings/Modified - Desktop.asset";
+        RenderPipelineAsset expectedPipeline = AssetDatabase.LoadAssetAtPath<RenderPipelineAsset>(pipelinePath);
+        SerializedObject graphicsSettings = new SerializedObject(GraphicsSettings.GetGraphicsSettings());
+
+        Assert.That(GraphicsSettings.defaultRenderPipeline, Is.SameAs(expectedPipeline));
+        Assert.That(graphicsSettings.FindProperty("m_BrgStripping").intValue, Is.EqualTo(2));
+    }
+
+    [TestCase("Universal Render Pipeline/Lit", false)]
+    [TestCase("Jiggle/ProceduralPrimitiveURP", true)]
+    public void WebShaderStripperRemovesUnsupportedVariants(string shaderName, bool expected)
+    {
+        Assert.That(BasisWebShaderStripper.ShouldStrip(shaderName), Is.EqualTo(expected));
     }
 
     [Serializable]

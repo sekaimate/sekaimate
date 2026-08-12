@@ -4,7 +4,7 @@ using UnityEditor;
 public class BasisHeadlessBuildTests
 {
     [Test]
-    public void CreateWebBuildPlayerOptionsUsesWebTargetAndDevelopmentBuild()
+    public void CreateWebBuildPlayerOptionsUsesWebTargetAndReleaseBuild()
     {
         const string buildPath = "Build/Web";
 
@@ -14,7 +14,7 @@ public class BasisHeadlessBuildTests
         Assert.That(options.target, Is.EqualTo(BuildTarget.WebGL));
         Assert.That(options.targetGroup, Is.EqualTo(BuildTargetGroup.WebGL));
         Assert.That(options.subtarget, Is.Zero);
-        Assert.That(options.options, Is.EqualTo(BuildOptions.Development));
+        Assert.That(options.options, Is.EqualTo(BuildOptions.None));
     }
 
     [Test]

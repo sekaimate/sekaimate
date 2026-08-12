@@ -3,13 +3,10 @@ using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Rendering;
 using UnityEngine;
-using UnityEngine.Rendering;
 
 public sealed class BasisWebShaderStripper : IPreprocessShaders
 {
     private const string JiggleShaderName = "Jiggle/ProceduralPrimitiveURP";
-    private static readonly ShaderKeyword DotsInstancingKeyword = new ShaderKeyword("DOTS_INSTANCING_ON");
-
     public int callbackOrder => 0;
 
     public void OnProcessShader(Shader shader, ShaderSnippetData snippet, IList<ShaderCompilerData> variants)
@@ -21,15 +18,15 @@ public sealed class BasisWebShaderStripper : IPreprocessShaders
 
         for (int index = variants.Count - 1; index >= 0; index--)
         {
-            if (ShouldStrip(shader.name, variants[index].shaderKeywordSet.IsEnabled(DotsInstancingKeyword)))
+            if (ShouldStrip(shader.name))
             {
                 variants.RemoveAt(index);
             }
         }
     }
 
-    public static bool ShouldStrip(string shaderName, bool usesDotsInstancing)
+    public static bool ShouldStrip(string shaderName)
     {
-        return usesDotsInstancing || shaderName == JiggleShaderName;
+        return shaderName == JiggleShaderName;
     }
 }
