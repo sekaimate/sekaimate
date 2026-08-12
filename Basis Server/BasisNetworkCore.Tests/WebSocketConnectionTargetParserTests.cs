@@ -8,7 +8,7 @@ public sealed class WebSocketConnectionTargetParserTests
     private readonly WebSocketConnectionTargetParser _parser = new();
 
     [Theory]
-    [InlineData("ws://example.com/basis", "ws", "example.com", "80", "/basis", "false")]
+    [InlineData("ws://localhost/basis", "ws", "localhost", "80", "/basis", "false")]
     [InlineData("wss://example.com:8443/basis?room=one", "wss", "example.com", "8443", "/basis?room=one", "true")]
     [InlineData("wss://[2001:db8::1]/basis", "wss", "2001:db8::1", "443", "/basis", "true")]
     public void Parse_StoresExplicitConnectionProperties(
@@ -33,6 +33,7 @@ public sealed class WebSocketConnectionTargetParserTests
     [InlineData("ftp://example.com/basis")]
     [InlineData("wss:///basis")]
     [InlineData("wss://user@example.com/basis")]
+    [InlineData("ws://example.com/basis")]
     public void Parse_RejectsInvalidOrUnsupportedTarget(string raw)
     {
         ConnectionTarget target = new("websocket", raw);
@@ -51,7 +52,7 @@ public sealed class WebSocketConnectionTargetParserTests
     }
 
     [Theory]
-    [InlineData("ws://example.com/basis")]
+    [InlineData("ws://localhost/basis")]
     [InlineData("wss://example.com:8443/basis?room=one")]
     [InlineData("wss://[2001:db8::1]/basis")]
     public void Format_RoundTripsParsedTarget(string raw)
