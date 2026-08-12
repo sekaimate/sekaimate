@@ -10,6 +10,7 @@ namespace Basis.BasisUI
     public class PanelButton : PanelComponent, IPointerDownHandler, IPointerUpHandler
     {
         private bool _isHovered;
+        private PanelIconHover _iconHover;
 
         public override void OnPointerEnter(PointerEventData eventData)
         {
@@ -17,6 +18,7 @@ namespace Basis.BasisUI
             if (_isHovered) return;
             _isHovered = true;
             UIAnimations.HoverLift(transform);
+            _iconHover?.SetHovered(true);
         }
 
         public override void OnPointerExit(PointerEventData eventData)
@@ -25,6 +27,24 @@ namespace Basis.BasisUI
             if (!_isHovered) return;
             _isHovered = false;
             UIAnimations.HoverReset(transform);
+            _iconHover?.SetHovered(false);
+        }
+
+        /// <summary>
+        /// Adds the <see cref="PanelIconHover"/> pop to this button's icon. Opt-in, so buttons that
+        /// are built around their icon can use it without every dense panel row moving as well.
+        /// </summary>
+        public void EnableIconHoverAnimation()
+        {
+            _iconHover ??= new PanelIconHover();
+            _iconHover.Bind(Descriptor);
+        }
+
+        protected override void OnDisable()
+        {
+            base.OnDisable();
+            _isHovered = false;
+            _iconHover?.Cancel();
         }
         public static class ButtonStyles
         {
@@ -49,7 +69,19 @@ namespace Basis.BasisUI
         public Action OnClicked;
         public Action OnPressed;
         public Action OnReleased;
+
+        /// <summary>
+        /// Optional "put this back" action. Assigning it opts the button into the shared reset
+        /// gesture — right click on desktop, thumbstick click in VR — the same way a slider or
+        /// toggle offers its default back. See <see cref="BasisPanelResetGesture"/>.
+        /// </summary>
+        public Action OnResetRequested;
+
         protected bool _iconIsAddressable;
+
+        public override bool HasResetDefault => OnResetRequested != null;
+
+        public override void RequestReset() => OnResetRequested?.Invoke();
 
 
         public static PanelButton CreateNew(Component parent)
@@ -128,7 +160,7 @@ namespace Basis.BasisUI
         }
 
         public void SetHeight(float height) => SetSize(new Vector2(rectTransform.sizeDelta.x, height));
-        public void SetWidth(float width) => SetSize(new Vector2(rectTransform.sizeDelta.x, width));
+        public void SetWidth(float width) => SetSize(new Vector2(width, rectTransform.sizeDelta.y));
 
     }
 }

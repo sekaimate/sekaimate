@@ -26,6 +26,9 @@ public struct JiggleJobSimulate : IJobFor {
     [ReadOnly] public NativeHashMap<int2,JiggleGridCell> broadPhaseMap;
     [ReadOnly] public NativeReference<JiggleGridCell> globalCell;
 
+    [ReadOnly] public NativeParallelMultiHashMap<int, JiggleGrabConstraint> grabConstraints;
+    public int grabConstraintCount;
+
     public NativeArray<JiggleTreeJobData> jiggleTrees;
 
     private float deltaTimeSquared;
@@ -42,6 +45,8 @@ public struct JiggleJobSimulate : IJobFor {
         timeStamp = Time.timeAsDouble;
         broadPhaseMap = bus.broadPhaseMap;
         globalCell = bus.globalCell;
+        grabConstraints = bus.grabConstraints;
+        grabConstraintCount = bus.grabConstraintCount;
         gravity = Physics.gravity;
         sceneColliderCount = 0;
         deltaTimeSquared = fixedDeltaTime * fixedDeltaTime;
@@ -59,6 +64,8 @@ public struct JiggleJobSimulate : IJobFor {
         sceneColliderCount = bus.sceneColliderCount;
         broadPhaseMap = bus.broadPhaseMap;
         globalCell = bus.globalCell;
+        grabConstraints = bus.grabConstraints;
+        grabConstraintCount = bus.grabConstraintCount;
     }
     
     public void SetFixedDeltaTime(float fixedDeltaTime) {
@@ -70,49 +77,52 @@ public struct JiggleJobSimulate : IJobFor {
         float3 min = new float3(float.MaxValue);
         float3 max = new float3(float.MinValue);
         
+        // Everything here addresses points through the buffer rather than copying them out and back:
+        // a by-value read-modify-write moved the whole struct twice to update five float3s, and each
+        // parent and child read cost another copy. Same arithmetic, same order, same results.
         for (int i = 0; i < tree.pointCount; i++) {
-            var point = tree.points[i];
-            var parameters = tree.parameters[i];
-            if (point.parentIndex == -1) {
+            var point = tree.points + i;
+            var parameters = tree.parameters + i;
+            if (point->parentIndex == -1) {
                 // virtual root particles
-                var child = tree.points[point.childrenIndices[0]];
-                var childChild = tree.points[child.childrenIndices[0]];
-                var childPose = tree.GetInputPose(inputPoses, point.childrenIndices[0]);
-                var childChildPose = tree.GetInputPose(inputPoses, child.childrenIndices[0]);
-                if (!childChild.hasTransform) {
+                var childSlot = tree.GetChild(i, 0);
+                var child = tree.points + childSlot;
+                var childChild = tree.points + tree.GetChild(childSlot, 0);
+                var childPose = tree.GetInputPose(inputPoses, childSlot);
+                var childChildPose = tree.GetInputPose(inputPoses, tree.GetChild(childSlot, 0));
+                if (!childChild->hasTransform) {
                     // edge case where it's a singular isolated root bone
-                    point.pose = childPose.position - new float3(0f, 0.25f, 0f);
-                    point.parentPose = childPose.position - new float3(0f, 0.5f, 0f);
-                    point.desiredLengthToParent = 0.25f;
+                    point->pose = childPose.position - new float3(0f, 0.25f, 0f);
+                    point->parentPose = childPose.position - new float3(0f, 0.5f, 0f);
+                    point->desiredLengthToParent = 0.25f;
                 } else {
                     var diff = childPose.position - childChildPose.position;
-                    point.pose = childPose.position + diff;
-                    point.parentPose = childPose.position + diff * 2f;
-                    point.desiredLengthToParent = math.length(diff);
+                    point->pose = childPose.position + diff;
+                    point->parentPose = childPose.position + diff * 2f;
+                    point->desiredLengthToParent = math.length(diff);
                 }
 
-                point.worldRadius = 0f;
-                point.workingPosition = point.pose;
-            } else if (point.hasTransform) {
+                point->worldRadius = 0f;
+                point->workingPosition = point->pose;
+            } else if (point->hasTransform) {
                 // "real" particles
                 var inputPose = tree.GetInputPose(inputPoses, i);
-                var parent = tree.points[point.parentIndex];
-                point.pose = inputPose.position;
-                point.parentPose = parent.pose;
-                point.desiredLengthToParent = math.distance(point.pose, parent.pose);
+                var parent = tree.points + point->parentIndex;
+                point->pose = inputPose.position;
+                point->parentPose = parent->pose;
+                point->desiredLengthToParent = math.distance(point->pose, parent->pose);
                 var averagePointScale = (math.abs(inputPose.scale.x) + math.abs(inputPose.scale.y) + math.abs(inputPose.scale.z)) / 3f;
-                point.worldRadius = parameters.collisionRadius * averagePointScale;
-                min = math.min(min, point.position-new float3(point.worldRadius));
-                max = math.max(max, point.position+new float3(point.worldRadius));
+                point->worldRadius = parameters->collisionRadius * averagePointScale;
+                min = math.min(min, point->position-new float3(point->worldRadius));
+                max = math.max(max, point->position+new float3(point->worldRadius));
             } else {
                 // virtual end particles
-                var parent = tree.points[point.parentIndex];
-                point.pose = (parent.pose * 2f - parent.parentPose);
-                point.parentPose = parent.pose;
-                point.desiredLengthToParent = math.distance(point.pose, point.parentPose);
-                point.worldRadius = 0f;
+                var parent = tree.points + point->parentIndex;
+                point->pose = (parent->pose * 2f - parent->parentPose);
+                point->parentPose = parent->pose;
+                point->desiredLengthToParent = math.distance(point->pose, point->parentPose);
+                point->worldRadius = 0f;
             }
-            tree.points[i] = point;
         }
 
         minExtentPosition = JiggleGridCell.GetKeyForPosition(min, inverseCellSize);
@@ -120,39 +130,37 @@ public struct JiggleJobSimulate : IJobFor {
     }
 
     private unsafe void VerletIntegrate(JiggleTreeJobData tree) {
-        
+
         var rootPosition = tree.points[0].workingPosition;
         var rootLastPosition = tree.points[0].position;
         var rootDelta = rootPosition - rootLastPosition;
 
+        // One pass, not two. The root-motion shift used to walk every point before the integration
+        // walked them again to read the shifted values. Points are stored parent before child — Cache
+        // and Constrain both already depend on that, reading a parent that was updated earlier in the
+        // same loop — so by the time a point integrates, its parent carries exactly the values the
+        // second pass used to read. Same arithmetic on the same inputs, one walk of the point buffer
+        // instead of two, and no by-value copy in or out.
         for (int i = 0; i < tree.pointCount; i++) {
-            var point = tree.points[i];
-            var parameters = tree.parameters + i;
-            if (point.parentIndex == -1) {
+            var point = tree.points + i;
+            if (point->parentIndex == -1) {
                 continue;
             }
-            point.lastPosition += rootDelta * parameters->ignoreRootMotion;
-            point.position += rootDelta * parameters->ignoreRootMotion;
-            tree.points[i] = point;
-        }
-        
-        for (int i = 0; i < tree.pointCount; i++) {
-            var point = tree.points[i];
-            if (point.parentIndex == -1) {
-                continue;
-            }
-            var parent = tree.points[point.parentIndex];
+            var ownParameters = tree.parameters + i;
+            var rootShift = rootDelta * ownParameters->ignoreRootMotion;
+            point->lastPosition += rootShift;
+            point->position += rootShift;
 
-            var delta = point.position - point.lastPosition;
-            var parentDelta = parent.position - parent.lastPosition;
+            var parent = tree.points + point->parentIndex;
+            var delta = point->position - point->lastPosition;
+            var parentDelta = parent->position - parent->lastPosition;
             var localSpaceVelocity = delta - parentDelta;
             var velocity = delta - localSpaceVelocity;
-            var parameters = parent.parentIndex != -1 ? tree.parameters + point.parentIndex : tree.parameters + i;
-            point.workingPosition = point.position
+            var parameters = parent->parentIndex != -1 ? tree.parameters + point->parentIndex : ownParameters;
+            point->workingPosition = point->position
                                      + velocity * (1f - parameters->airDrag)
                                      +localSpaceVelocity * (1f - parameters->drag)
                                      + gravity * parameters->gravityMultiplier * deltaTimeSquared;
-            tree.points[i] = point;
         }
     }
 
@@ -354,12 +362,40 @@ public struct JiggleJobSimulate : IJobFor {
         return segmentPoint1 + tValue * segment;
     }
 
-    private unsafe void DepenetrateCollider(JiggleTreeJobData tree, JiggleSimulatedPoint* point, JiggleSimulatedPoint* parent, JigglePointParameters* pointParameters, JigglePointParameters* parentParameters, JiggleCollider collider) {
+    /// <param name="reach">
+    /// Upper bound on the distance from this point to the far end of every segment it is tested
+    /// against — its parent and each of its children. Carried by reference because a depenetration
+    /// moves the point, which loosens the bound by exactly the distance moved.
+    /// </param>
+    private unsafe void DepenetrateCollider(JiggleTreeJobData tree, JiggleSimulatedPoint* point, JiggleSimulatedPoint* parent, JigglePointParameters* pointParameters, JigglePointParameters* parentParameters, JiggleCollider collider, ref float reach) {
+        // DoDepenetration rejects a disabled collider on entry, so without this the children loop
+        // below still ran a full pass per child to accumulate zeroes. Disabled colliders are the
+        // common case while the distance LOD has a crowd trimmed down.
+        if (!collider.enabled) {
+            return;
+        }
+
+        // Conservative reject. Every segment tested below starts at this point and ends no further
+        // than `reach` away, so no part of any of them is closer to the collider than
+        // (gap - reach); if that already exceeds the combined radii, every test returns zero. This
+        // skips work whose answer is known rather than approximating it: a zero contribution leaves
+        // both the running sum (adding zero is exact) and the running max (max with zero) untouched,
+        // so the result is bit-identical. Planes are unbounded and are never rejected.
+        if (collider.type != JiggleCollider.JiggleColliderType.Plane) {
+            var colliderCentre = collider.localToWorldMatrix.c3.xyz;
+            var bound = collider.worldRadius + point->worldRadius + reach
+                + (collider.type == JiggleCollider.JiggleColliderType.Capsule ? collider.worldHeight * 0.5f : 0f);
+            if (math.distancesq(colliderCentre, point->workingPosition) > bound * bound) {
+                return;
+            }
+        }
+
         var collisionDepenetration = new float3(0f, 0f, 0f);
         collisionDepenetration = DoDepenetration(point, parent, parentParameters, collider);
         var maxDepenetrationMagnitude = math.length(collisionDepenetration);
+        var pointIndex = (int)(point - tree.points);
         for (int childIndex = 0; childIndex < point->childrenCount; childIndex++) {
-            var child = tree.points + point->childrenIndices[childIndex];
+            var child = tree.points + tree.GetChild(pointIndex, childIndex);
             var newCollisionDepenetration = DoDepenetration(point, child, pointParameters, collider);
             maxDepenetrationMagnitude = math.max(maxDepenetrationMagnitude, math.length(newCollisionDepenetration));
             collisionDepenetration += newCollisionDepenetration;
@@ -367,7 +403,61 @@ public struct JiggleJobSimulate : IJobFor {
         if (maxDepenetrationMagnitude > 0f) {
             collisionDepenetration = math.normalizesafe(collisionDepenetration, new float3(0,0,1)) * maxDepenetrationMagnitude;
             point->workingPosition += collisionDepenetration;
+            reach += maxDepenetrationMagnitude;
         }
+    }
+
+    /// <summary>
+    /// Upper bound on the per-tree candidate list. A tree spanning a handful of cells with a handful
+    /// of colliders in each sits far under this; anything over it falls back to the per-point walk,
+    /// so this bounds job stack use rather than capping collision.
+    /// </summary>
+    private const int MaxGatheredColliders = 1024;
+
+    /// <summary>
+    /// Collects every scene collider the tree can reach — the always-on global cell, then each broad
+    /// phase cell its extent covers — in exactly the order Constrain used to walk them per point.
+    /// The extent is fixed by Cache before the substep loop and the broad phase map is read only for
+    /// the life of the job, so the answer is the same for every point of every substep.
+    /// Returns -1 if the tree reaches more colliders than the buffer holds, which tells Constrain to
+    /// walk the grid per point instead.
+    /// </summary>
+    private unsafe int GatherColliders(int2 minExtentPosition, int2 maxExtentPosition, int* buffer) {
+        var count = 0;
+        var global = globalCell.Value;
+        for (int index = 0; index < global.count; index++) {
+            if (count >= MaxGatheredColliders) {
+                return -1;
+            }
+            buffer[count++] = global.colliderIndices[index];
+        }
+
+        int2 min = minExtentPosition;
+        int2 max = maxExtentPosition;
+        // Corrupt or runaway point positions produce extents spanning millions of cells; walking
+        // them would hang the sim for seconds. A healthy tree spans a handful of cells, so skip the
+        // grid walk (global colliders above still applied) when the extent is implausible. long
+        // math: garbage extents overflow int subtraction.
+        long cellSpanX = (long)max.x - min.x + 1;
+        long cellSpanY = (long)max.y - min.y + 1;
+        if (cellSpanX > 0 && cellSpanY > 0
+            && cellSpanX <= maxTreeCellSpan && cellSpanY <= maxTreeCellSpan
+            && cellSpanX * cellSpanY <= maxTreeCellSpan) {
+            for (int x = min.x; x <= max.x; x++) {
+                for (int y = min.y; y <= max.y; y++) {
+                    int2 grid = new int2(x, y);
+                    if (broadPhaseMap.TryGetValue(grid, out var gridCell)) {
+                        for (int index = 0; index < gridCell.count; index++) {
+                            if (count >= MaxGatheredColliders) {
+                                return -1;
+                            }
+                            buffer[count++] = gridCell.colliderIndices[index];
+                        }
+                    }
+                }
+            }
+        }
+        return count;
     }
 
     private unsafe bool ContainsIndex(int* array, int arrayCount, int index) {
@@ -378,11 +468,11 @@ public struct JiggleJobSimulate : IJobFor {
         }
         return false;
     }
-    private unsafe void Constrain(JiggleTreeJobData tree, int2 minExtentPosition, int2 maxExtentPosition) {
+    private unsafe void Constrain(JiggleTreeJobData tree, int2 minExtentPosition, int2 maxExtentPosition, JiggleGrabConstraint* treeGrabs, int treeGrabCount, int* gatheredColliders, int gatheredColliderCount) {
         for (int i = 0; i < tree.pointCount; i++) {
             var point = tree.points+i;
             var pointParameters = tree.parameters + i;
-            
+
             if (point->parentIndex == -1) {
                 continue;
             }
@@ -392,53 +482,83 @@ public struct JiggleJobSimulate : IJobFor {
 
             #region Collisions
 
-            var global = globalCell.Value;
-            for (int index = 0; index < global.count; index++) {
-                var sceneCollider = sceneColliders[global.colliderIndices[index]];
-                DepenetrateCollider(tree, point, parent, pointParameters, parentParameters, sceneCollider);
-            }
+            // Every depenetration test starts by rejecting a point with no transform or no radius,
+            // so a point that fails that can skip the whole collider walk instead of paying for the
+            // broad phase and discarding every result. Virtual points — the root and every chain tip
+            // — always fail it, and Cache zeroes worldRadius for them.
+            if (point->hasTransform && point->worldRadius != 0f) {
+                // How far this point's segments extend, computed once for the whole collider walk so
+                // each collider costs one squared distance to reject instead of a full test per
+                // segment. DepenetrateCollider grows it by whatever it moves the point.
+                var pointPosition = point->workingPosition;
+                var reachSq = math.distancesq(pointPosition, parent->workingPosition);
+                for (int childIndex = 0; childIndex < point->childrenCount; childIndex++) {
+                    var child = tree.points + tree.GetChild(i, childIndex);
+                    reachSq = math.max(reachSq, math.distancesq(pointPosition, child->workingPosition));
+                }
+                var reach = math.sqrt(reachSq);
 
-            int2 min = minExtentPosition;
-            int2 max = maxExtentPosition;
-            // Corrupt or runaway point positions produce extents spanning millions of cells;
-            // walking them would hang the sim for seconds. A healthy tree spans a handful of
-            // cells, so skip the grid walk (global colliders above still applied) when the
-            // extent is implausible. long math: garbage extents overflow int subtraction.
-            long cellSpanX = (long)max.x - min.x + 1;
-            long cellSpanY = (long)max.y - min.y + 1;
-            if (cellSpanX > 0 && cellSpanY > 0
-                && cellSpanX <= maxTreeCellSpan && cellSpanY <= maxTreeCellSpan
-                && cellSpanX * cellSpanY <= maxTreeCellSpan) {
-                for (int x = min.x; x <= max.x; x++) {
-                    for (int y = min.y; y <= max.y; y++) {
-                        int2 grid = new int2(x, y);
-                        if (broadPhaseMap.TryGetValue(grid, out var gridCell)) {
-                            for (int index = 0; index < gridCell.count; index++) {
-                                var sceneCollider = sceneColliders[gridCell.colliderIndices[index]];
-                                DepenetrateCollider(tree, point, parent, pointParameters, parentParameters, sceneCollider);
+                if (gatheredColliderCount >= 0) {
+                    // Pre-walked candidate list: same colliders, same order, gathered once per tree
+                    // in Execute rather than re-walked per point per substep. Duplicates are kept —
+                    // a collider straddling two cells is applied twice today.
+                    for (int index = 0; index < gatheredColliderCount; index++) {
+                        DepenetrateCollider(tree, point, parent, pointParameters, parentParameters, sceneColliders[gatheredColliders[index]], ref reach);
+                    }
+                } else {
+                    // The tree reaches more colliders than the gather buffer holds, so walk the grid
+                    // per point exactly as before.
+                    var global = globalCell.Value;
+                    for (int index = 0; index < global.count; index++) {
+                        var sceneCollider = sceneColliders[global.colliderIndices[index]];
+                        DepenetrateCollider(tree, point, parent, pointParameters, parentParameters, sceneCollider, ref reach);
+                    }
+
+                    int2 min = minExtentPosition;
+                    int2 max = maxExtentPosition;
+                    long cellSpanX = (long)max.x - min.x + 1;
+                    long cellSpanY = (long)max.y - min.y + 1;
+                    if (cellSpanX > 0 && cellSpanY > 0
+                        && cellSpanX <= maxTreeCellSpan && cellSpanY <= maxTreeCellSpan
+                        && cellSpanX * cellSpanY <= maxTreeCellSpan) {
+                        for (int x = min.x; x <= max.x; x++) {
+                            for (int y = min.y; y <= max.y; y++) {
+                                int2 grid = new int2(x, y);
+                                if (broadPhaseMap.TryGetValue(grid, out var gridCell)) {
+                                    for (int index = 0; index < gridCell.count; index++) {
+                                        var sceneCollider = sceneColliders[gridCell.colliderIndices[index]];
+                                        DepenetrateCollider(tree, point, parent, pointParameters, parentParameters, sceneCollider, ref reach);
+                                    }
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            var endIndex = tree.colliderIndexOffset + tree.colliderCount;
-            for (int index = (int)tree.colliderIndexOffset; index < endIndex; index++) {
-                DepenetrateCollider(tree, point, parent, pointParameters, parentParameters, personalColliders[index]);
+                var endIndex = tree.colliderIndexOffset + tree.colliderCount;
+                for (int index = (int)tree.colliderIndexOffset; index < endIndex; index++) {
+                    DepenetrateCollider(tree, point, parent, pointParameters, parentParameters, personalColliders[index], ref reach);
+                }
             }
 
             #endregion
-            
+
             #region Special root particle solve
 
             if (parent->parentIndex == -1) {
-                var child = tree.points[point->childrenIndices[0]];
+                var child = tree.points + tree.GetChild(i, 0);
                 point->workingPosition = point->workingPosition = math.lerp(point->workingPosition, point->pose,
                     pointParameters->rootElasticity * pointParameters->rootElasticity);
+                // Grabs apply here too, after the root pin: this branch continues past the regions
+                // below, and on a single bone rig (a breast chain, say) this is the ONLY real point,
+                // so skipping it would make the whole rig ungrabbable.
+                ApplyGrabs(point, i, treeGrabs, treeGrabCount);
                 var head = point->pose;
-                var tail = child.pose;
+                var tail = child->pose;
                 var diffasdf = head - tail;
                 parent->workingPosition = point->workingPosition + diffasdf;
+                point->lastPosition = point->position;
+                point->position = point->workingPosition;
                 continue;
             }
 
@@ -448,7 +568,7 @@ public struct JiggleJobSimulate : IJobFor {
 
             if (point->childrenCount > 0) {
                 // Back-propagated motion specifically for collision enabled chains
-                var child = tree.points+point->childrenIndices[0];
+                var child = tree.points + tree.GetChild(i, 0);
                 if (child->hasTransform) {
                     var child_length_elasticity = pointParameters->lengthElasticity * pointParameters->lengthElasticity;
                     var parentToChildPose = child->pose - parent->pose;
@@ -495,18 +615,30 @@ public struct JiggleJobSimulate : IJobFor {
             var parentAimPose = math.normalizesafe(point->parentPose - parent->parentPose, new float3(0,0,1));
             var parentAim = math.normalizesafe(parent->workingPosition - parentParentWorkingPosition, new float3(0,0,1));
 
-            var currentLength = math.length(point->workingPosition - parent->workingPosition);
             var from_to_rot = FromToRotationFromNormalizedVectors(parentAimPose, parentAim);
             var constraintTarget = math.rotate(from_to_rot, point->pose - point->parentPose);
 
             var desiredPosition = parent->workingPosition + constraintTarget;
 
-            var error = math.distance(point->workingPosition, desiredPosition);
-            if (currentLength != 0) {
-                error /= currentLength;
+            // pow(x, 0) is 1 for every x — including 0 and NaN — and the error term feeds nothing
+            // else, so when elasticitySoften is 0 the whole term is the constant 1 and the two square
+            // roots, the divide, the min and the pow that produce it are dead work. That is the
+            // default case rather than an edge case: ToJigglePointParameters only emits a non-zero
+            // soften under the advanced toggle. Not an approximation — this returns exactly what the
+            // arithmetic below it would have returned.
+            var softenExponent = parentParameters->elasticitySoften;
+            float error;
+            if (softenExponent == 0f) {
+                error = 1f;
+            } else {
+                var currentLength = math.length(point->workingPosition - parent->workingPosition);
+                error = math.distance(point->workingPosition, desiredPosition);
+                if (currentLength != 0) {
+                    error /= currentLength;
+                }
+                error = math.min(error, 1.0f);
+                error = math.pow(error, softenExponent);
             }
-            error = math.min(error, 1.0f);
-            error = math.pow(error, parentParameters->elasticitySoften);
             point->workingPosition = math.lerp(point->workingPosition, desiredPosition, parentParameters->angleElasticity * error);
 
             #endregion
@@ -555,19 +687,56 @@ public struct JiggleJobSimulate : IJobFor {
                         (correctionDir * angleCorrectionDistance) * (1f - parentParameters->angleLimitSoften * 0.5f);
                     point->workingPosition += angleCorrection;
                 }
-                
+
             }
 
             #endregion
-            
+
+            #region Grab Constraint
+
+            // Last region on purpose: the pin wins for this point, and children (higher indices)
+            // solve against the pinned position in this same pass.
+            ApplyGrabs(point, i, treeGrabs, treeGrabCount);
+
+            #endregion
+
+            // What FinishStep used to do in a pass of its own. Constrain never reads position or
+            // lastPosition — only workingPosition, pose, parentPose and the structural fields — so
+            // rolling the step forward here rather than in a second walk cannot be observed by any
+            // later point, and it lands while the point is still in L1. The root is finished after
+            // the loop instead: it is skipped above, and the special root solve writes its
+            // workingPosition while solving the first real point.
+            point->lastPosition = point->position;
+            point->position = point->workingPosition;
+        }
+
+        if (tree.pointCount > 0) {
+            var root = tree.points;
+            root->lastPosition = root->position;
+            root->position = root->workingPosition;
         }
     }
 
-    private unsafe void FinishStep(JiggleTreeJobData tree) {
-        for (int i = 0; i < tree.pointCount; i++) {
-            var point = tree.points+i;
-            point->lastPosition = point->position;
-            point->position = point->workingPosition;
+    private unsafe void ApplyGrabs(JiggleSimulatedPoint* point, int pointIndex, JiggleGrabConstraint* treeGrabs, int treeGrabCount) {
+        for (int g = 0; g < treeGrabCount; g++) {
+            if (treeGrabs[g].pointIndex != pointIndex) {
+                continue;
+            }
+            var grabTarget = treeGrabs[g].targetPosition;
+            // Reach is bounded against the animated pose and scaled by how far down the chain this
+            // point sits, so the same authored factor gives a long chain more travel than a short
+            // one and neither can be dragged into a rubber band. The root particle has no distance
+            // from root, so its own bone length stands in - otherwise it would be unbounded.
+            var stretchScale = math.max(point->distanceFromRoot, point->desiredLengthToParent);
+            var maxStretch = treeGrabs[g].maxStretchFactor * stretchScale;
+            if (maxStretch > 0f) {
+                var stretch = grabTarget - point->pose;
+                var stretchLength = math.length(stretch);
+                if (stretchLength > maxStretch) {
+                    grabTarget = point->pose + stretch * (maxStretch / stretchLength);
+                }
+            }
+            point->workingPosition = math.lerp(point->workingPosition, grabTarget, treeGrabs[g].strength);
         }
     }
 
@@ -575,12 +744,12 @@ public struct JiggleJobSimulate : IJobFor {
         if (tree.pointCount < 2) {
             return;
         }
-        var rootPoint = tree.points[1];
-        var rootSimulationPosition = rootPoint.position;
-        var rootPose = rootPoint.pose;
-        var rootParameters = tree.parameters[1];
-        var rootParameterElasticity = 1f-(1f-rootParameters.rootElasticity) * rootParameters.airDrag;
-        
+        var rootPoint = tree.points + 1;
+        var rootSimulationPosition = rootPoint->position;
+        var rootPose = rootPoint->pose;
+        var rootParameters = tree.parameters + 1;
+        var rootParameterElasticity = 1f-(1f-rootParameters->rootElasticity) * rootParameters->airDrag;
+
         for (int i = 0; i < tree.pointCount; i++) {
             var point = tree.points+i;
             var parameters = tree.parameters + i;
@@ -588,11 +757,11 @@ public struct JiggleJobSimulate : IJobFor {
                 continue;
             }
 
-            var child = tree.points[point->childrenIndices[0]];
+            var child = tree.points + tree.GetChild(i, 0);
 
             var local_pose = point->pose;
-            var local_child_pose = child.pose;
-            var local_child_working_position = child.workingPosition;
+            var local_child_pose = child->pose;
+            var local_child_working_position = child->workingPosition;
             var local_working_position = point->workingPosition;
 
             if (point->parentIndex == -1) {
@@ -609,9 +778,9 @@ public struct JiggleJobSimulate : IJobFor {
                 var cachedAnimatedVectorSum = new float3(0f);
                 var simulatedVectorSum = cachedAnimatedVectorSum;
                 for (var j = 0; j < point->childrenCount; j++) {
-                    var child_also = tree.points[point->childrenIndices[j]];
-                    var local_child_pose_also = child_also.pose;
-                    var local_child_working_position_also = child_also.workingPosition;
+                    var child_also = tree.points + tree.GetChild(i, j);
+                    var local_child_pose_also = child_also->pose;
+                    var local_child_working_position_also = child_also->workingPosition;
                     cachedAnimatedVectorSum += math.normalizesafe(local_child_pose_also - local_pose, new float3(0,0,1));
                     simulatedVectorSum +=
                         math.normalizesafe(local_child_working_position_also - local_working_position, new float3(0,0,1));
@@ -646,7 +815,7 @@ public struct JiggleJobSimulate : IJobFor {
     }
     #endif
 
-    public void Execute(int index) {
+    public unsafe void Execute(int index) {
         var tree = jiggleTrees[index];
         #if UNITY_EDITOR && JIGGLE_VALIDATE
         if (!Validate(tree)) {
@@ -657,14 +826,37 @@ public struct JiggleJobSimulate : IJobFor {
         // the substep loop. Each substep is then a whole fixed step: two of them advance the sim by
         // exactly as much as two frames would, which is what makes the result frame rate independent.
         Cache(tree, out var minExtentPosition, out var maxExtentPosition);
+        var treeGrabs = stackalloc JiggleGrabConstraint[JiggleGrabConstraint.MaxGrabsPerTree];
+        var treeGrabCount = 0;
+        if (grabConstraintCount > 0 && grabConstraints.IsCreated && grabConstraints.TryGetFirstValue(tree.rootID, out var grab, out var grabIterator)) {
+            do {
+                if (grab.pointIndex > 0 && grab.pointIndex < tree.pointCount && treeGrabCount < JiggleGrabConstraint.MaxGrabsPerTree) {
+                    treeGrabs[treeGrabCount++] = grab;
+                }
+            } while (grabConstraints.TryGetNextValue(out grab, ref grabIterator));
+        }
+        // Hoisted out of both the point loop and the substep loop: the candidate colliders follow
+        // from the extent Cache just computed, which no substep changes.
+        var gatheredColliders = stackalloc int[MaxGatheredColliders];
+        var gatheredColliderCount = GatherColliders(minExtentPosition, maxExtentPosition, gatheredColliders);
         var stepCount = math.max(substeps, 1);
         for (int step = 0; step < stepCount; step++) {
             VerletIntegrate(tree);
-            Constrain(tree, minExtentPosition, maxExtentPosition);
-            FinishStep(tree);
+            // Constrain rolls the step forward itself; there is no separate FinishStep pass.
+            Constrain(tree, minExtentPosition, maxExtentPosition, treeGrabs, treeGrabCount, gatheredColliders, gatheredColliderCount);
         }
-        ApplyPose(tree);
+        // Repair BEFORE the pose write, not after: a NaN step otherwise leaks one frame of NaN
+        // into the bone transforms, and because the next frame's animated pose is read back off
+        // those same transforms, the corruption feeds itself and never heals — one bad step
+        // permanently explodes the avatar (and its NaN render bounds then fail every culling
+        // test, so a culled tree stops being re-posed at all). Sanitized state degrades the
+        // same event to a one-frame snap back to the animated pose instead.
+        // This is also the ingest guard: a tree committed with garbage build-time measurements
+        // (rebuilt off a mid-swap skeleton) gets its state clamped here, on workers, before its
+        // first write — Cache above re-derives lengths from live poses, so no main-thread
+        // sanitize pass at commit is needed.
         jiggleTrees[index].Sanitize();
+        ApplyPose(tree);
     }
 }
 

@@ -54,8 +54,16 @@ public struct BasisPlayerSettingsData
     /// When true, this player's incoming voice is normalised to a common loudness on the
     /// local client, independent of whatever gain their own microphone chain applied.
     /// <see cref="VolumeLevel"/> is applied on top, so the slider still works as a trim.
+    /// Off by default — opt in per player from the individual player panel.
     /// </summary>
     public bool NormalizeLoudness;
+
+    /// <summary>
+    /// Whether jiggle grab-and-pull is allowed between the local player and this player,
+    /// in both directions: when false they cannot grab our jiggle and we will not grab
+    /// theirs. Blocking always denies regardless of this value.
+    /// </summary>
+    public bool JiggleGrabAllowed;
 
     /// <summary>
     /// Version number of the settings schema. Used to upgrade old files gracefully.
@@ -64,7 +72,7 @@ public struct BasisPlayerSettingsData
     public int Version;
 
     /// <summary>Schema version written by this build.</summary>
-    public const int CurrentVersion = 6;
+    public const int CurrentVersion = 8;
 
     /// <summary>
     /// Default settings (volume 1.0, avatar visible, avatar interaction enabled, chat visible, not blocked).
@@ -79,9 +87,16 @@ public struct BasisPlayerSettingsData
     /// </summary>
     public void UpgradeSchema()
     {
-        if (Version < 6)
+        if (Version < 7)
         {
-            NormalizeLoudness = true;
+            JiggleGrabAllowed = true;
+        }
+        // v6 and v7 forced normalisation on for every player; v8 turns it back off across the
+        // board. Anyone still on those versions inherited the old default rather than choosing
+        // it, so there is no opt-in here worth preserving — they can re-enable it per player.
+        if (Version < 8)
+        {
+            NormalizeLoudness = false;
         }
 
         Version = CurrentVersion;
@@ -106,7 +121,8 @@ public struct BasisPlayerSettingsData
         ChatVisible = chatVisible;
         IsBlocked = isBlocked;
         AlwaysShowAvatar = alwaysShowAvatar;
-        NormalizeLoudness = true;
+        NormalizeLoudness = false;
+        JiggleGrabAllowed = true;
         Version = CurrentVersion;
     }
 

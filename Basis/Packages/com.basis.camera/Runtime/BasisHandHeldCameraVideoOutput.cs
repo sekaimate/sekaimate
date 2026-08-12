@@ -206,7 +206,7 @@ public partial class BasisHandHeldCamera
 
         webPacing = default;
         IsWebStreamActive = true;
-        VisibilityFlag(Renderer != null && Renderer.isVisible);
+        UpdateRenderGate();
         BasisDebug.Log($"Web stream started at {webSink.Url} — open it in a browser, or add it to OBS as a Browser source.", BasisDebug.LogTag.Camera);
         return true;
     }
@@ -263,7 +263,7 @@ public partial class BasisHandHeldCamera
             Destroy(webStreamTexture);
             webStreamTexture = null;
         }
-        if (wasActive) VisibilityFlag(Renderer != null && Renderer.isVisible);
+        if (wasActive) UpdateRenderGate();
     }
 
     private void TickWebStream()
@@ -282,7 +282,8 @@ public partial class BasisHandHeldCamera
         if (source == null) return;
         if (!webPacing.AllowThisFrame(Time.unscaledDeltaTime, VideoOutputSettings.FrameRate, true)) return;
 
-        Graphics.Blit(source, webStreamTexture);
+        GetStreamBlitCrop(source, webStreamTexture, out Vector2 scale, out Vector2 offset);
+        Graphics.Blit(source, webStreamTexture, scale, offset);
         webSink.PushFrame(webStreamTexture, VideoOutputSettings.WebQuality);
     }
 
@@ -325,7 +326,7 @@ public partial class BasisHandHeldCamera
         }
         videoPacing = default;
         IsVideoOutputActive = true;
-        VisibilityFlag(Renderer != null && Renderer.isVisible);
+        UpdateRenderGate();
         BasisDebug.Log($"{VideoOutputBackendName} output started as '{settings.SenderName}': {settings.Width}x{settings.Height} @ {settings.FrameRate}fps", BasisDebug.LogTag.Camera);
         return true;
 #else
@@ -351,7 +352,7 @@ public partial class BasisHandHeldCamera
             Destroy(videoStreamTexture);
             videoStreamTexture = null;
         }
-        if (wasActive) VisibilityFlag(Renderer != null && Renderer.isVisible);
+        if (wasActive) UpdateRenderGate();
 #endif
     }
 
@@ -383,14 +384,47 @@ public partial class BasisHandHeldCamera
         Texture source = renderTexture;
         if (source == null) return;
         if (!videoPacing.AllowThisFrame(Time.unscaledDeltaTime, VideoOutputSettings.FrameRate, true)) return;
+
+        GetStreamBlitCrop(source, videoStreamTexture, out Vector2 scale, out Vector2 offset);
 #if BASIS_VIDEO_OUTPUT_V4L2
-        // Readback of Unity RTs is bottom-up; V4L2 wants rows top-down.
-        Graphics.Blit(source, videoStreamTexture, new Vector2(1f, -1f), new Vector2(0f, 1f));
+        // Readback of Unity RTs is bottom-up; V4L2 wants rows top-down. Flipping the crop means
+        // negating its scale and moving the offset to the far edge of the same band.
+        Graphics.Blit(source, videoStreamTexture, new Vector2(scale.x, -scale.y), new Vector2(offset.x, offset.y + scale.y));
 #else
-        Graphics.Blit(source, videoStreamTexture);
+        Graphics.Blit(source, videoStreamTexture, scale, offset);
 #endif
         videoSink.PushFrame(videoStreamTexture);
 #endif
+    }
+
+    /// <summary>
+    /// Source-to-target UV crop for the stream blits. The feed's aspect is no longer fixed — Direct
+    /// To Screen sizes it to the screen — while the stream's is whatever resolution the user set,
+    /// and a plain blit stretches one onto the other, which a receiver has no way to undo. Meeting
+    /// in the middle of the frame keeps the stream undistorted at the size receivers were told to
+    /// expect. Identity whenever the two already agree, which is the usual case.
+    /// </summary>
+    private static void GetStreamBlitCrop(Texture source, RenderTexture destination, out Vector2 scale, out Vector2 offset)
+    {
+        scale = Vector2.one;
+        offset = Vector2.zero;
+
+        if (source == null || destination == null) return;
+        if (source.width <= 0 || source.height <= 0 || destination.width <= 0 || destination.height <= 0) return;
+
+        float sourceAspect = (float)source.width / source.height;
+        float destinationAspect = (float)destination.width / destination.height;
+
+        if (sourceAspect > destinationAspect)
+        {
+            scale.x = destinationAspect / sourceAspect;
+            offset.x = (1f - scale.x) * 0.5f;
+        }
+        else if (sourceAspect < destinationAspect)
+        {
+            scale.y = sourceAspect / destinationAspect;
+            offset.y = (1f - scale.y) * 0.5f;
+        }
     }
 }
 

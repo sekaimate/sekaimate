@@ -51,6 +51,16 @@ namespace Basis.Scripts.BasisSdk.Interactions
         public bool WeldToHand = true;
 
         /// <summary>
+        /// Optional authored grip: the transform on this object that should coincide with the player's hand while
+        /// it is held. When set, a welded hand grab seats the object so this transform lands on the palm with the
+        /// hand's orientation — the only way an object can arrive the right way up, since without it a grab can
+        /// pull the nearest collider surface in but has nothing to say about which way the object should point.
+        /// Ignored for desktop holds, whose follow frame is the view rather than a hand.
+        /// </summary>
+        [Tooltip("Optional: child transform that should sit in the hand when held. Empty = seat the nearest collider surface and keep the object's current angle.")]
+        public Transform GripPoint;
+
+        /// <summary>
         /// Show Highlight on haver. does not effect on hover exit.
         /// </summary>
         public bool ShowHighlightOnHover = true;
@@ -103,6 +113,19 @@ namespace Basis.Scripts.BasisSdk.Interactions
         /// Multiplier applied to angular velocity when interaction ends.
         /// </summary>
         public float interactEndAngularVelocityMultiplier = 1.0f;
+
+        /// <summary>
+        /// Length of the motion window averaged into the release velocity. Longer smooths tracking noise,
+        /// shorter preserves sharp flicks.
+        /// </summary>
+        [Space(5)]
+        public float throwWindowSeconds = 0.05f;
+
+        /// <summary>
+        /// How far back from the release frame the throw estimate may place its window, covering the delay
+        /// between the peak of the swing and the release input registering.
+        /// </summary>
+        public float throwLookbackSeconds = 0.15f;
         #endregion
 
         #region Inspector: References
@@ -197,8 +220,17 @@ namespace Basis.Scripts.BasisSdk.Interactions
         /// </summary>
         public List<Func<BasisInput, bool>> CanInteractInjected = new();
 
-        private Vector3 linearVelocity;
-        private Vector3 angularVelocity;
+        private struct BasisThrowSample
+        {
+            public Vector3 Linear;
+            public Vector3 Angular;
+            public float Delta;
+        }
+
+        private const int k_ThrowSampleCapacity = 16;
+        private readonly BasisThrowSample[] _throwSamples = new BasisThrowSample[k_ThrowSampleCapacity];
+        private int _throwSampleCount;
+        private int _throwSampleHead;
         private Vector3 _previousPosition;
         private Quaternion _previousRotation;
 
@@ -297,6 +329,17 @@ namespace Basis.Scripts.BasisSdk.Interactions
         private const float lerpToHandDuration = 0.05f;
         private float _lerpElapsed;
         private bool _lerping;
+        private bool _weldedHold;
+        private bool _gripAlignedHold;
+
+        /// <summary>
+        /// True while this hold is actually driven by <see cref="GripPoint"/> — a welded hand hold whose
+        /// grip solve succeeded, and past the pick-up ease so the object has arrived on it. The networked
+        /// hold reads this before telling remotes to re-solve the grip from their own copy of the prefab:
+        /// an authored GripPoint that the local hold never aligned to (weld off, a desktop grab, still
+        /// easing in) would otherwise have every observer hold the object by a handle the owner is not.
+        /// </summary>
+        internal bool HoldIsGripAligned => _gripAlignedHold && !_lerping;
 
         private Vector3 magicNumberHandOffsetRight = new(0.26f, -0.14f, 0.24f); // right, down, forward
         private Quaternion magicNumberHandRotationRight = Quaternion.Euler(00, 010, -100);
@@ -526,6 +569,11 @@ namespace Basis.Scripts.BasisSdk.Interactions
                 return;
             }
 
+            if (BasisNetworkModeration.PropGrabbingBlockedLocally)
+            {
+                return;
+            }
+
             // Clean up interacting ourselves (system won't do this for us) when self-steal is allowed.
             if (CanSelfStealResolved)
                 Inputs.ForEachWithState(OnInteractEnd, BasisInteractInputState.Interacting);
@@ -537,7 +585,8 @@ namespace Basis.Scripts.BasisSdk.Interactions
                 {
                     Vector3 inPos = wrapper.BoneControl.OutgoingWorldData.position;
                     Quaternion inRot = wrapper.BoneControl.OutgoingWorldData.rotation;
-                    if (TryGetWeldHandPose(wrapper, out Vector3 weldHandPos, out Quaternion weldHandRot))
+                    _weldedHold = TryGetWeldHandPose(wrapper, out Vector3 weldHandPos, out Quaternion weldHandRot);
+                    if (_weldedHold)
                     {
                         inPos = weldHandPos;
                         inRot = weldHandRot;
@@ -568,35 +617,47 @@ namespace Basis.Scripts.BasisSdk.Interactions
                     transform.GetPositionAndRotation(out Vector3 ActivePosition, out Quaternion ActiveRotation);
                     _previousPosition = ActivePosition;
                     _previousRotation = ActiveRotation;
-                    linearVelocity = Vector3.zero;
-                    angularVelocity = Vector3.zero;
+                    _throwSampleCount = 0;
+                    _throwSampleHead = 0;
 
                     Vector3 offsetPos;
+                    Quaternion offsetRot;
                     bool inDesktop = BasisDeviceManagement.IsUserInDesktop();
                     if (inDesktop)
                     {
                         EnableDesktopHandTracking();
                     }
 
-                    if (LerpToHandOnPickup)
+                    if (_weldedHold && TryGetGripOffsets(ActivePosition, ActiveRotation, out offsetPos, out offsetRot))
                     {
-                        Vector3 lerpTarget = inPos;
-                        if (inDesktop)
-                        {
-                            lerpTarget = inPos + inRot * (useMagicNumberHandOffset * BasisHeightDriver.ScaledToMatchValue);
-                        }
-                        offsetPos = ComputeClosestBoundsOffset(lerpTarget, inRot, ActivePosition);
-                        InputConstraint.GlobalWeight = 0f;
+                        _gripAlignedHold = true;
+                        InputConstraint.GlobalWeight = LerpToHandOnPickup ? 0f : 1f;
                         _lerpElapsed = 0f;
-                        _lerping = true;
+                        _lerping = LerpToHandOnPickup;
                     }
                     else
                     {
-                        offsetPos = Quaternion.Inverse(inRot) * (ActivePosition - inPos);
-                        InputConstraint.GlobalWeight = 1f;
-                    }
+                        _gripAlignedHold = false;
+                        if (LerpToHandOnPickup)
+                        {
+                            Vector3 lerpTarget = inPos;
+                            if (inDesktop)
+                            {
+                                lerpTarget = inPos + inRot * (useMagicNumberHandOffset * BasisHeightDriver.ScaledToMatchValue);
+                            }
+                            offsetPos = ComputeClosestBoundsOffset(lerpTarget, inRot, ActivePosition);
+                            InputConstraint.GlobalWeight = 0f;
+                            _lerpElapsed = 0f;
+                            _lerping = true;
+                        }
+                        else
+                        {
+                            offsetPos = Quaternion.Inverse(inRot) * (ActivePosition - inPos);
+                            InputConstraint.GlobalWeight = 1f;
+                        }
 
-                    Quaternion offsetRot = Quaternion.Inverse(inRot) * ActiveRotation;
+                        offsetRot = Quaternion.Inverse(inRot) * ActiveRotation;
+                    }
 
                     InputConstraint.SetOffsetPositionAndRotation(0, offsetPos, offsetRot);
 
@@ -660,6 +721,8 @@ namespace Basis.Scripts.BasisSdk.Interactions
 
                     InputConstraint.Enabled = false;
                     _lerping = false;
+                    _weldedHold = false;
+                    _gripAlignedHold = false;
                     InputConstraint.sources = new BasisConstraintSourceData[] { new() { weight = 1f } };
 
                     if (RigidRef != null)
@@ -691,13 +754,12 @@ namespace Basis.Scripts.BasisSdk.Interactions
         }
 
         /// <summary>
-        /// Applies cached linear and angular velocities to the rigidbody on drop,
+        /// Applies the recorded release velocities to the rigidbody on drop,
         /// zeroing components that are below configured thresholds.
         /// </summary>
         private void OnDropVelocity()
         {
-            Vector3 linear = linearVelocity;
-            Vector3 angular = angularVelocity;
+            EvaluateThrow(out Vector3 linear, out Vector3 angular);
 
             if (linear.magnitude >= minLinearVelocity)
             {
@@ -720,25 +782,118 @@ namespace Basis.Scripts.BasisSdk.Interactions
         }
 
         /// <summary>
-        /// Computes instantaneous linear and angular velocity based on current and previous pose.
+        /// Records instantaneous linear and angular velocity for this frame into the release history,
+        /// based on current and previous pose. Samples taken while lerping to the hand are discarded,
+        /// since that motion is the pickup closing on the grip rather than the player moving it.
         /// </summary>
         /// <param name="pos">Current world position.</param>
         /// <param name="rot">Current world rotation.</param>
         private void CalculateVelocity(Vector3 pos, Quaternion rot)
         {
-            // Instant linear velocity
-            linearVelocity = (pos - _previousPosition) / Time.deltaTime;
+            float delta = Time.deltaTime;
+            if (delta <= 0f)
+            {
+                return;
+            }
 
-            // Instant angular velocity
+            Vector3 linear = (pos - _previousPosition) / delta;
+
             Quaternion deltaRotation = rot * Quaternion.Inverse(_previousRotation);
             deltaRotation.ToAngleAxis(out float angle, out Vector3 axis);
 
-            angle = NormalizeAngle360(angle);
+            angle = NormalizeAngle180(angle);
 
-            angularVelocity = axis * (angle * Mathf.Deg2Rad) / Time.deltaTime;
+            Vector3 angular = axis * (angle * Mathf.Deg2Rad) / delta;
 
             _previousPosition = pos;
             _previousRotation = rot;
+
+            if (_lerping)
+            {
+                return;
+            }
+
+            _throwSamples[_throwSampleHead] = new BasisThrowSample { Linear = linear, Angular = angular, Delta = delta };
+            _throwSampleHead = (_throwSampleHead + 1) % k_ThrowSampleCapacity;
+            if (_throwSampleCount < k_ThrowSampleCapacity)
+            {
+                _throwSampleCount++;
+            }
+        }
+
+        /// <summary>
+        /// Picks the strongest short motion window out of the recorded hold samples. Releasing is a button
+        /// press that lands after the swing has peaked, so the frame the drop is detected on is usually the
+        /// slowest of the throw; scanning back over <see cref="throwLookbackSeconds"/> recovers the actual
+        /// swing instead of the follow-through.
+        /// </summary>
+        /// <param name="linear">Outputs the windowed linear velocity, or zero when no motion was recorded.</param>
+        /// <param name="angular">Outputs the windowed angular velocity, or zero when no motion was recorded.</param>
+        private void EvaluateThrow(out Vector3 linear, out Vector3 angular)
+        {
+            linear = Vector3.zero;
+            angular = Vector3.zero;
+
+            int count = _throwSampleCount;
+            if (count == 0)
+            {
+                return;
+            }
+
+            float window = Mathf.Max(throwWindowSeconds, 0.0001f);
+            float lookback = Mathf.Max(throwLookbackSeconds, window);
+            float bestSpeed = -1f;
+            float endAge = 0f;
+
+            for (int end = count - 1; end >= 0; end--)
+            {
+                if (end < count - 1)
+                {
+                    endAge += GetThrowSample(end + 1).Delta;
+                }
+                if (endAge > lookback)
+                {
+                    break;
+                }
+
+                Vector3 sumLinear = Vector3.zero;
+                Vector3 sumAngular = Vector3.zero;
+                float span = 0f;
+                for (int start = end; start >= 0; start--)
+                {
+                    BasisThrowSample sample = GetThrowSample(start);
+                    sumLinear += sample.Linear * sample.Delta;
+                    sumAngular += sample.Angular * sample.Delta;
+                    span += sample.Delta;
+                    if (span < window && start > 0)
+                    {
+                        continue;
+                    }
+
+                    Vector3 candidate = sumLinear / span;
+                    float speed = candidate.sqrMagnitude;
+                    if (speed > bestSpeed)
+                    {
+                        bestSpeed = speed;
+                        linear = candidate;
+                        angular = sumAngular / span;
+                    }
+                    break;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Reads a recorded release sample, where index 0 is the oldest retained sample.
+        /// </summary>
+        private BasisThrowSample GetThrowSample(int index)
+        {
+            int slot = (_throwSampleHead - _throwSampleCount + index) % k_ThrowSampleCapacity;
+            if (slot < 0)
+            {
+                slot += k_ThrowSampleCapacity;
+            }
+            return _throwSamples[slot];
         }
 
         private static Vector3 SnapPositionToGrid(Vector3 position, float size)
@@ -763,14 +918,17 @@ namespace Basis.Scripts.BasisSdk.Interactions
         }
 
         /// <summary>
-        /// Normalizes an angle into the [0, 360) range.
+        /// Normalizes an angle into the (-180, 180] range, so a small rotation the short way round is not
+        /// read as a near-full rotation the long way round.
         /// </summary>
         /// <param name="angle">Angle in degrees.</param>
-        /// <returns>Angle normalized to [0, 360).</returns>
-        private float NormalizeAngle360(float angle)
+        /// <returns>Angle normalized to (-180, 180].</returns>
+        private static float NormalizeAngle180(float angle)
         {
             angle %= 360f;
-            if (angle < 0)
+            if (angle > 180f)
+                angle -= 360f;
+            else if (angle < -180f)
                 angle += 360f;
             return angle;
         }
@@ -811,10 +969,18 @@ namespace Basis.Scripts.BasisSdk.Interactions
                 inPos = interactingInput.BoneControl.OutgoingWorldData.position;
             }
 
-            if (TryGetWeldHandPose(interactingInput, out Vector3 weldHandPos, out Quaternion weldHandRot))
+            bool weldLost = false;
+            if (_weldedHold)
             {
-                inPos = weldHandPos;
-                inRot = weldHandRot;
+                if (TryGetWeldHandPose(interactingInput, out Vector3 weldHandPos, out Quaternion weldHandRot))
+                {
+                    inPos = weldHandPos;
+                    inRot = weldHandRot;
+                }
+                else
+                {
+                    weldLost = true;
+                }
             }
 
             if (inDesktop)
@@ -907,6 +1073,11 @@ namespace Basis.Scripts.BasisSdk.Interactions
                 _pickupUseLastEffectiveState = effectiveState;
             }
 
+            if (weldLost)
+            {
+                return;
+            }
+
             InputConstraint.UpdateSourcePositionAndRotation(0, inPos, inRot);
 
             if (InputConstraint.Evaluate(out Vector3 pos, out Quaternion rot))
@@ -987,31 +1158,57 @@ namespace Basis.Scripts.BasisSdk.Interactions
         }
 
         /// <summary>
-        /// VR weld source: when <see cref="WeldToHand"/> is enabled and a hand holds the object, returns that
-        /// hand's post-IK world pose (<see cref="BasisLocalBoneControl.IKWorldData"/>, the rendered hand) to
-        /// follow in place of the pre-IK hand target. False for desktop (center-eye) holds or before the first solve.
+        /// VR weld source: when <see cref="WeldToHand"/> is enabled and a hand holds the object, returns the pose
+        /// the object is welded to — the canonical hand frame from <see cref="BasisHandGrip"/>, anchored on the
+        /// post-IK wrist so it tracks the rendered hand rather than the pre-IK target.
+        ///
+        /// The humanoid hand bone sits at the WRIST, so welding to it directly seats every object a palm-length
+        /// behind the hand, sunk into the back of the wrist, and orients it by whatever bind rotation the avatar
+        /// was rigged with. The hand frame is at the palm and built from joint positions instead.
+        ///
+        /// False for desktop (center-eye) holds, for an avatar the rig has no hand bone for, and before the first solve.
         /// </summary>
         private bool TryGetWeldHandPose(BasisInputWrapper wrapper, out Vector3 position, out Quaternion rotation)
         {
             position = default;
             rotation = default;
             BasisBoneTrackedRole role = wrapper.Role;
-            if (!WeldToHand || (role != BasisBoneTrackedRole.LeftHand && role != BasisBoneTrackedRole.RightHand))
+            bool left = role == BasisBoneTrackedRole.LeftHand;
+            if (!WeldToHand || (!left && role != BasisBoneTrackedRole.RightHand))
             {
                 return false;
             }
-            BasisLocalBoneControl bone = wrapper.BoneControl;
-            if (bone == null)
+            if (!BasisHandGrip.TryGetLocalFrame(wrapper.BoneControl, left, out BasisHandFrame frame))
             {
                 return false;
             }
-            var ik = bone.IKWorldData;
-            if (ik.rotation.x == 0f && ik.rotation.y == 0f && ik.rotation.z == 0f && ik.rotation.w == 0f)
+            position = frame.Position;
+            rotation = frame.Rotation;
+            return true;
+        }
+
+        /// <summary>
+        /// Constraint offsets that land <see cref="GripPoint"/> exactly on the weld pose, so the object arrives
+        /// gripped rather than merely nearby: solving <c>hand = (hand * offset) * grip</c> for the offset gives
+        /// <c>offsetRot = inverse(gripLocalRot)</c> and <c>offsetPos = offsetRot * -gripLocalPos</c>. The grip
+        /// vector is taken in the object's rotation frame rather than through <see cref="Transform.InverseTransformPoint"/>
+        /// because the constraint applies it back without a scale term.
+        ///
+        /// Both ends of a networked hold solve this from the same prefab against their own copy of the hand
+        /// frame, which is why an authored grip needs no pose on the wire at all.
+        /// </summary>
+        internal bool TryGetGripOffsets(Vector3 objectPos, Quaternion objectRot, out Vector3 offsetPos, out Quaternion offsetRot)
+        {
+            offsetPos = default;
+            offsetRot = default;
+            if (GripPoint == null)
             {
                 return false;
             }
-            position = ik.position;
-            rotation = ik.rotation;
+            GripPoint.GetPositionAndRotation(out Vector3 gripPos, out Quaternion gripRot);
+            Quaternion inverseObject = Quaternion.Inverse(objectRot);
+            offsetRot = Quaternion.Inverse(inverseObject * gripRot);
+            offsetPos = offsetRot * -(inverseObject * (gripPos - objectPos));
             return true;
         }
 
@@ -1240,6 +1437,11 @@ namespace Basis.Scripts.BasisSdk.Interactions
             {
                 InputConstraint = new BasisParentConstraint();
             }
+            if (GripPoint != null && !GripPoint.IsChildOf(transform))
+            {
+                Debug.LogWarning("Pickup Interactable Grip Point must be on this object or a child of it, " +
+                    "otherwise it does not move with the object and the grab will seat somewhere arbitrary.", gameObject);
+            }
         }
 #endif
 
@@ -1287,15 +1489,16 @@ namespace Basis.Scripts.BasisSdk.Interactions
         {
             Collider[] colliders = GetColliders();
             if (colliders == null || colliders.Length == 0)
-                return Vector3.zero;
+                return Quaternion.Inverse(handRot) * (objectPos - inPos);
 
-            Vector3 bestPoint = objectPos;
+            Vector3 bestPoint = inPos;
             float bestDistSq = float.MaxValue;
             for (int i = 0; i < colliders.Length; i++)
             {
                 Collider col = colliders[i];
                 if (col == null || !col.enabled || !col.gameObject.activeInHierarchy) continue;
-                Vector3 point = col.ClosestPoint(inPos);
+                if (col.isTrigger) continue;
+                if (!TryClosestSurfacePoint(col, inPos, out Vector3 point)) continue;
                 float distSq = (point - inPos).sqrMagnitude;
                 if (distSq < bestDistSq)
                 {
@@ -1304,6 +1507,33 @@ namespace Basis.Scripts.BasisSdk.Interactions
                 }
             }
             return Quaternion.Inverse(handRot) * (objectPos - bestPoint);
+        }
+
+        /// <summary>
+        /// Nearest point on a collider's surface, or false when it cannot supply one — a hand already
+        /// inside the collider, which <see cref="Collider.ClosestPoint"/> answers by handing the query
+        /// point straight back. Non-convex MeshColliders are unsupported there and answer the same way,
+        /// so they project onto the mesh's local bounds instead; a distance grab then still seats the
+        /// object rather than scoring a zero distance and cancelling the seat.
+        /// </summary>
+        private static bool TryClosestSurfacePoint(Collider col, Vector3 query, out Vector3 point)
+        {
+            const float epsilonSq = 1e-8f;
+            if (col is MeshCollider mesh && !mesh.convex)
+            {
+                Mesh shared = mesh.sharedMesh;
+                if (shared == null)
+                {
+                    point = query;
+                    return false;
+                }
+                Transform ct = col.transform;
+                point = ct.TransformPoint(shared.bounds.ClosestPoint(ct.InverseTransformPoint(query)));
+                return (point - query).sqrMagnitude > epsilonSq;
+            }
+
+            point = col.ClosestPoint(query);
+            return (point - query).sqrMagnitude > epsilonSq;
         }
 
         /// <summary>

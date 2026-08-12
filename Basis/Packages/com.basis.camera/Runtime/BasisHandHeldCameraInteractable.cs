@@ -14,7 +14,7 @@ using Basis.Scripts.TransformBinders.BoneControl;
 /// - Provides a desktop “fly” mode with smoothed movement/rotation, momentum, and auto-leveling
 /// - Locks/unlocks player controls while interacting
 /// </summary>
-public abstract class BasisHandHeldCameraInteractable : BasisPickupInteractable
+public abstract partial class BasisHandHeldCameraInteractable : BasisPickupInteractable
 {
     /// <summary>Owning handheld camera component and metadata.</summary>
     public BasisHandHeldCamera HHC;
@@ -156,6 +156,7 @@ public abstract class BasisHandHeldCameraInteractable : BasisPickupInteractable
     private struct FollowSubject
     {
         public bool Valid;
+        public bool IsRemote;       // resolved from a remote player rather than the local one
         public Vector3 AnchorPos;   // where the camera is placed relative to (centre of mass or root)
         public Vector3 GroundPos;   // the subject's feet, for the feet-relative aim helper
         public Quaternion Yaw;      // yaw-only facing of the subject
@@ -198,6 +199,9 @@ public abstract class BasisHandHeldCameraInteractable : BasisPickupInteractable
     /// <summary>Previous frame's follow anchor, for measuring how fast the subject strafes.</summary>
     private Vector3 lastFollowAnchor;
     private bool hasLastFollowAnchor;
+
+    /// <summary>Who <see cref="lastFollowAnchor"/> was measured on — 0 for the local player.</summary>
+    private ushort lastFollowAnchorSubject;
 
     /// <summary>Lateral speed above which the camera pulls in fully, in metres/second at default scale.</summary>
     private const float LateralTrackingReferenceSpeed = 1.5f;
@@ -244,6 +248,19 @@ public abstract class BasisHandHeldCameraInteractable : BasisPickupInteractable
         {
             hasLastFollowAnchor = false;
             return;
+        }
+
+        // The lateral history belongs to whoever it was measured on. Carried across a change of
+        // subject, the gap between the two reads as a single-frame strafe of tens of metres per
+        // second: the close-in below saturates and the camera lurches sideways before easing back
+        // out. That fires on every target switch, and again on every fallback to the local player
+        // while a remote is between avatars, which is most of what "follow is temperamental" was.
+        ushort subjectId = subject.IsRemote ? followTargetPlayerId : (ushort)0;
+        if (subjectId != lastFollowAnchorSubject)
+        {
+            lastFollowAnchorSubject = subjectId;
+            hasLastFollowAnchor = false;
+            smoothedLateralSpeed = 0f;
         }
 
         Vector3 sideOffset = autoFollowPositionOffset;
@@ -363,7 +380,7 @@ public abstract class BasisHandHeldCameraInteractable : BasisPickupInteractable
             if (Basis.Scripts.Networking.BasisNetworkPlayers.RemotePlayers.TryGetValue(followTargetPlayerId, out var remote) &&
                 remote != null && !remote.IsDestroyed)
             {
-                if (TryResolveRemoteSubject(remote, out FollowSubject remoteSubject))
+                if (TryResolveRemoteSubject(followTargetPlayerId, remote, out FollowSubject remoteSubject))
                 {
                     return remoteSubject;
                 }
@@ -389,7 +406,7 @@ public abstract class BasisHandHeldCameraInteractable : BasisPickupInteractable
         // foot-plant as shake, its rotation is slammed to identity on teleport, and it is
         // replaced on every avatar swap. The root is what locomotion actually moves.
         BasisLocalPlayer.Instance.transform.GetPositionAndRotation(out Vector3 rootPos, out Quaternion anchorRot);
-        Quaternion anchorYaw = Quaternion.Euler(0f, anchorRot.eulerAngles.y, 0f);
+        Quaternion anchorYaw = FlattenToYaw(anchorRot);
 
         float scale = BasisHeightDriver.AvatarToDefaultRatioScaledWithAvatarScale;
 
@@ -419,8 +436,45 @@ public abstract class BasisHandHeldCameraInteractable : BasisPickupInteractable
         };
     }
 
+    /// <summary>
+    /// The yaw-only rotation matching a full rotation's heading, continuous through vertical.
+    ///
+    /// <para><c>eulerAngles.y</c> is not: that decomposition clamps pitch to ±90°, so it jumps the
+    /// yaw by 180° the moment its source tips past vertical — and so does a plain flat projection
+    /// of the forward axis, which is what forward genuinely does there. A head reaches vertical
+    /// every time someone looks near-straight up or down, and the flip threw the follow camera to
+    /// the far side of its subject and straight back again. The top of the head lies flat exactly
+    /// where forward stops carrying a heading and crosses the pole continuously, so take whichever
+    /// of the two has more heading left in it.</para>
+    /// </summary>
+    private static Quaternion FlattenToYaw(Quaternion rotation)
+    {
+        Vector3 forward = rotation * Vector3.forward;
+        Vector3 up = rotation * Vector3.up;
+
+        Vector3 flat = new Vector3(forward.x, 0f, forward.z);
+        // Pitched past vertical the head is upside down relative to its heading, so the flattened
+        // up axis points backwards along it; the sign of forward's tilt is which side it is on.
+        Vector3 fromUp = new Vector3(up.x, 0f, up.z) * (forward.y > 0f ? -1f : 1f);
+        if (fromUp.sqrMagnitude > flat.sqrMagnitude)
+        {
+            flat = fromUp;
+        }
+
+        if (flat.sqrMagnitude < 1e-6f)
+        {
+            return Quaternion.identity;
+        }
+
+        return Quaternion.LookRotation(flat.normalized, Vector3.up);
+    }
+
     /// <summary>Nominal root-to-head height used only while a remote has no avatar root to read.</summary>
     private const float RemoteFallbackHeadHeight = 1.5f;
+
+    /// <summary>Last body yaw read off a remote's avatar root, and which net id it came from.</summary>
+    private Quaternion lastRemoteBodyYaw = Quaternion.identity;
+    private ushort lastRemoteBodyYawSubject;
 
     /// <summary>
     /// Resolves a remote's world pose, or false while it has no transforms to read yet — still
@@ -432,46 +486,68 @@ public abstract class BasisHandHeldCameraInteractable : BasisPickupInteractable
     /// a full world pose to every frame. Its yaw is body facing; the mouth marker's is head
     /// facing, which would swing the camera every time the subject glanced sideways.
     /// </remarks>
-    private bool TryResolveRemoteSubject(BasisRemotePlayer remote, out FollowSubject subject)
+    private bool TryResolveRemoteSubject(ushort netId, BasisRemotePlayer remote, out FollowSubject subject)
     {
         subject = default;
 
         Transform root = remote.AvatarAnimatorTransform;
         Transform headTransform = remote.MouthTransform;
-        if (root == null && headTransform == null)
+        if (root == null)
         {
-            return false;
+            // The mouth marker is created at the world origin the moment the player joins, and is
+            // only ever moved once the bone job system has them registered against a loaded
+            // avatar. Reading it before that flew the camera off to 0,0,0 and held it there —
+            // so treat an unregistered remote as "nothing to read yet", which keeps the target
+            // and films the local player for the frame instead.
+            if (headTransform == null || !RemoteBoneJobSystem.TryGetSOutIndex(netId, out _))
+            {
+                return false;
+            }
         }
 
         // Remotes are network-interpolated, so these are already smooth — no IK shake to dodge,
         // and no local T-pose to read, so height comes from the synced head transform when present.
         Vector3 rootPos;
-        Quaternion rootRot;
+        Quaternion yaw;
         if (root != null)
         {
-            root.GetPositionAndRotation(out rootPos, out rootRot);
+            root.GetPositionAndRotation(out rootPos, out Quaternion rootRot);
+            yaw = FlattenToYaw(rootRot);
+            lastRemoteBodyYaw = yaw;
+            lastRemoteBodyYawSubject = netId;
         }
         else
         {
-            headTransform.GetPositionAndRotation(out rootPos, out rootRot);
+            headTransform.GetPositionAndRotation(out rootPos, out Quaternion headRot);
             rootPos -= Vector3.up * RemoteFallbackHeadHeight;
+
+            // The mouth marker's rotation is head facing, so driving the shot from it swings the
+            // camera around the subject on every glance. Hold the last yaw read off their avatar
+            // root; the head only seeds a subject we have never had a body yaw for at all.
+            yaw = lastRemoteBodyYawSubject == netId ? lastRemoteBodyYaw : FlattenToYaw(headRot);
         }
 
-        Quaternion yaw = Quaternion.Euler(0f, rootRot.eulerAngles.y, 0f);
         Vector3 lookPoint = headTransform != null
             ? headTransform.position
             : rootPos + Vector3.up * RemoteFallbackHeadHeight;
 
+        // Remote avatar scale is not published as a ratio, but root-to-synced-head is the same
+        // measurement the local path takes off the T-pose, so the offsets and the teleport
+        // threshold size to a tall or a tiny avatar the way they already do for your own. Below
+        // knee height it is not a body, so fall back rather than frame the shot from garbage.
+        float headHeight = lookPoint.y - rootPos.y;
+        float scale = headHeight > 0.2f ? Mathf.Min(headHeight / RemoteFallbackHeadHeight, 20f) : 1f;
+
         subject = new FollowSubject
         {
             Valid = true,
+            IsRemote = true,
             AnchorPos = new Vector3(rootPos.x, lookPoint.y, rootPos.z),
             GroundPos = rootPos,
             Yaw = yaw,
             // Head height (the synced head transform), matching the local path's default.
             LookPoint = new Vector3(rootPos.x, lookPoint.y + autoFollowLookAtHeightOffset, rootPos.z),
-            // Remote avatar scale is not locally known; the default-metre offsets read best at 1.
-            Scale = 1f,
+            Scale = scale,
         };
         return true;
     }
@@ -721,12 +797,7 @@ public abstract class BasisHandHeldCameraInteractable : BasisPickupInteractable
         CanSelfSteal = false;
 
         // Desktop: lock player look/move for UI selection
-        string className = nameof(BasisHandHeldCameraInteractable);
-        bool inDesktop = BasisDeviceManagement.IsUserInDesktop();
-        if (inDesktop)
-            LockPlayer(className);
-
-        BasisCursorManagement.UnlockCursor(nameof(BasisHandHeldCamera),false);
+        AcquireCursorLock();
 
         if (HHC.captureCamera == null)
         {
@@ -749,8 +820,8 @@ public abstract class BasisHandHeldCameraInteractable : BasisPickupInteractable
         // scale camera to avatar size
         ApplyCameraScale();
 
-        // run after player movement
-        BasisLocalPlayer.AfterSimulateOnLate.AddAction(202, UpdateCamera);
+        // run after player movement and after every device transform has been applied
+        BasisLocalPlayer.AfterSimulateOnRender.AddAction(202, UpdateCamera);
 
         cameraPinConstraint = new BasisParentConstraint
         {
@@ -759,6 +830,8 @@ public abstract class BasisHandHeldCameraInteractable : BasisPickupInteractable
         };
 
         flyCamera = new BasisFlyCamera();
+
+        InitializeCinematics();
     }
 
     /// <summary>Assigns the UI instance so orientation changes can be reflected.</summary>
@@ -797,7 +870,7 @@ public abstract class BasisHandHeldCameraInteractable : BasisPickupInteractable
 
         bool inDesktop = BasisDeviceManagement.IsUserInDesktop();
         CheckCameraOrientation();
-        ApplyCameraScale();
+        TickDollyTrack();
 
         if (inDesktop)
         {
@@ -805,9 +878,7 @@ public abstract class BasisHandHeldCameraInteractable : BasisPickupInteractable
 
             flyCamera.DetectInput();
 
-            BasisCalibratedCoords Coords = Inputs.desktopCenterEye.BoneControl.OutgoingWorldData;
-            Vector3 inPos = Coords.position;
-            Quaternion inRot = Coords.rotation;
+            Inputs.desktopCenterEye.Source.transform.GetPositionAndRotation(out Vector3 inPos, out Quaternion inRot);
 
             if (BasisLocalCameraDriver.HasInstance)
             {
@@ -848,6 +919,8 @@ public abstract class BasisHandHeldCameraInteractable : BasisPickupInteractable
             // VR mode: handle fly mode toggle and controller input
             PollVRControl();
         }
+
+        ApplyCameraScale();
 
         // Update pinning regardless of desktop/head-constraint logic
         PollCameraPin(Inputs.desktopCenterEye.Source);
@@ -1141,6 +1214,37 @@ public abstract class BasisHandHeldCameraInteractable : BasisPickupInteractable
         isPlayerManuallyUnlocked = false;
     }
 
+    /// <summary>
+    /// Takes the camera's cursor-unlock request and, on desktop, its look/move locks, so the
+    /// panel is clickable. Paired with <see cref="ReleaseCursorLock"/>.
+    /// </summary>
+    public void AcquireCursorLock()
+    {
+        if (BasisDeviceManagement.IsUserInDesktop())
+        {
+            LockPlayer(nameof(BasisHandHeldCameraInteractable));
+        }
+
+        BasisCursorManagement.UnlockCursor(nameof(BasisHandHeldCamera), false);
+    }
+
+    /// <summary>
+    /// Drops the camera's cursor-unlock request. If someone else still wants the cursor free —
+    /// the main menu, most often — the cursor stays free and look has to stay blocked with it,
+    /// which is what the camera's own look lock was doing until it was released. Without this
+    /// the cursor is loose and mouse-look is live at the same time, so navigating the settings
+    /// UI spins the player.
+    /// </summary>
+    public void ReleaseCursorLock()
+    {
+        BasisCursorManagement.LockCursor(nameof(BasisHandHeldCamera));
+
+        if (BasisDeviceManagement.IsUserInDesktop() && Cursor.lockState != CursorLockMode.Locked)
+        {
+            LookLock.Add(nameof(BasisCursorManagement));
+        }
+    }
+
     /// <summary>Applies look/move locks to the player (desktop).</summary>
     private void LockPlayer(string className)
     {
@@ -1171,6 +1275,12 @@ public abstract class BasisHandHeldCameraInteractable : BasisPickupInteractable
         {
             smoothedPosition = pipPos;
             smoothedRotation = pipRot;
+            return;
+        }
+
+        if (cinematicEnabled)
+        {
+            MoveCameraCinematic(deltaTime);
             return;
         }
 
@@ -1466,7 +1576,7 @@ public abstract class BasisHandHeldCameraInteractable : BasisPickupInteractable
         OnInteractStartEvent.RemoveListener(OnInteractDesktopTweak);
         BasisLocalPlayer.OnPlayersHeightChangedNextFrame -= OnHeightChanged;
 
-        BasisLocalPlayer.AfterSimulateOnLate.RemoveAction(202, UpdateCamera);
+        BasisLocalPlayer.AfterSimulateOnRender.RemoveAction(202, UpdateCamera);
 
         if (pauseMove || isVRFlying)
         {
@@ -1485,7 +1595,29 @@ public abstract class BasisHandHeldCameraInteractable : BasisPickupInteractable
             flyCamera.OnDestroy();
         }
 
-        BasisCursorManagement.LockCursor(nameof(BasisHandHeldCamera));
+        DisposeCinematics();
+
+        ReleaseCursorLock();
         base.OnDestroy();
     }
+
+#if UNITY_INCLUDE_TESTS
+    /// <summary>Yaw flattening, so the behaviour either side of vertical can be asserted.</summary>
+    public static Quaternion FlattenToYawForTest(Quaternion rotation) => FlattenToYaw(rotation);
+
+    /// <summary>
+    /// Resolves a remote exactly as the follow solve does, surfacing the pieces of the private
+    /// subject a test can pin: whether it resolved at all, the body yaw the shot is framed from,
+    /// and the avatar-relative scale the authored offsets are multiplied by.
+    /// </summary>
+    public bool TryResolveRemoteSubjectForTest(ushort netId, BasisRemotePlayer remote,
+        out Quaternion yaw, out float scale, out Vector3 anchor)
+    {
+        bool resolved = TryResolveRemoteSubject(netId, remote, out FollowSubject subject);
+        yaw = subject.Yaw;
+        scale = subject.Scale;
+        anchor = subject.AnchorPos;
+        return resolved;
+    }
+#endif
 }

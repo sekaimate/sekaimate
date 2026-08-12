@@ -1,4 +1,4 @@
-using Basis.BasisUI.Styling;
+﻿using Basis.BasisUI.Styling;
 using Basis.Scripts.BasisSdk.Players;
 using Basis.Scripts.Networking;
 using Basis.Scripts.Networking.NetworkedAvatar;
@@ -10,6 +10,7 @@ using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using TMPro;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
@@ -78,6 +79,7 @@ namespace Basis.BasisUI
             BasisRuntimeSpawnRegistry.OnRegistryChanged -= OnRegistryChanged;
             BasisRuntimeSpawnRegistry.OnPendingLoadsChanged -= OnPendingLoadsChanged;
             BasisRuntimeSpawnRegistry.OnPendingLoadProgress -= OnPendingLoadProgress;
+            BasisRuntimeSpawnRegistry.OnFailedLoadsChanged -= OnFailedLoadsChanged;
             BasisNetworkManagement.OnlocalPermissionsChanged -= ProtectionValidation;
         }
 
@@ -335,10 +337,20 @@ namespace Basis.BasisUI
             var (onDisc, info) = await BasisLoadHandler.IsMetaDataOnDiscAsync(item.Url);
             if (onDisc)
             {
-                // CreateNewWrapperFromItem does not populate these fields so we update them
-                wrapper.BasisLoadableBundle.BasisRemoteBundleEncrypted = info.StoredRemote;
+                // CreateNewWrapperFromItem does not populate these fields so we update them.
+                // Cloned, never aliased: the tag assignment below would otherwise write straight
+                // into the meta cache's record — and BasisBeeManagement builds that record from a
+                // live BasisTrackedBundleWrapper's own instance, so the write would re-key a
+                // bundle somebody is currently wearing and strand its DeIncrement.
+                wrapper.BasisLoadableBundle.BasisRemoteBundleEncrypted = info.StoredRemote.Clone();
                 wrapper.BasisLoadableBundle.BasisLocalEncryptedBundle = info.StoredLocal;
                 wrapper.BasisLoadableBundle.BasisBundleConnector.UniqueVersion = info.UniqueVersion;
+                // Advertise the version we actually hold. StoredRemote carries whatever tag was
+                // REQUESTED when this was cached (empty for a library load), while CachedVersionTag
+                // is the validator observed for the bytes on disk. This bundle is what gets
+                // broadcast when the avatar is worn, so sending the requested one would tell every
+                // remote client "no version declared" and leave them pinned to their stale copy.
+                wrapper.BasisLoadableBundle.BasisRemoteBundleEncrypted.RemoteVersionTag = info.CachedVersionTag;
                 return wrapper;
             }
             else
@@ -451,15 +463,119 @@ namespace Basis.BasisUI
             return tab;
         }
 
-        private static void BuildItemsList(List<BasisDataStoreItemKeys.ItemKey> items, PanelTabPage tab)
+        private static void BuildItemsList(List<List<BasisDataStoreItemKeys.ItemKey>> stacks, PanelTabPage tab)
         {
             RectTransform container = tab.Descriptor.ContentParent;
             // List entries
-            for (int Index = 0; Index < items.Count; Index++)
+            for (int Index = 0; Index < stacks.Count; Index++)
             {
-                var item = items[Index];
-                CreateItemCard(item, container);
+                CreateItemCard(stacks[Index], container);
             }
+        }
+
+        /// <summary>
+        /// Groups entries that belong to the same piece of content into one stack, newest first.
+        /// Entries that cannot be grouped (embedded/addressable items, meta not cached yet) stay a
+        /// stack of one, so they behave exactly as before.
+        /// </summary>
+        private static List<List<BasisDataStoreItemKeys.ItemKey>> BuildVersionStacks(List<BasisDataStoreItemKeys.ItemKey> items)
+        {
+            List<List<BasisDataStoreItemKeys.ItemKey>> stacks = new(items.Count);
+            Dictionary<string, List<BasisDataStoreItemKeys.ItemKey>> byStackKey = new(StringComparer.Ordinal);
+
+            foreach (var item in items)
+            {
+                string stackKey = GetVersionStackKey(item);
+                if (string.IsNullOrEmpty(stackKey))
+                {
+                    stacks.Add(new List<BasisDataStoreItemKeys.ItemKey> { item });
+                    continue;
+                }
+
+                if (byStackKey.TryGetValue(stackKey, out var stack))
+                {
+                    stack.Add(item);
+                }
+                else
+                {
+                    stack = new List<BasisDataStoreItemKeys.ItemKey> { item };
+                    byStackKey[stackKey] = stack;
+                    stacks.Add(stack);
+                }
+            }
+
+            foreach (var stack in stacks)
+            {
+                if (stack.Count > 1)
+                {
+                    stack.Sort(CompareStackEntriesNewestFirst);
+                }
+            }
+
+            return stacks;
+        }
+
+        /// <summary>
+        /// Newest first: creation date decides when both entries have one. Content built before the
+        /// connector carried a date has none at all, and that is exactly the older content the
+        /// name-based grouping below exists for — so the version read out of the name breaks the tie
+        /// rather than leaving the stack in arbitrary order.
+        /// </summary>
+        private static int CompareStackEntriesNewestFirst(BasisDataStoreItemKeys.ItemKey left, BasisDataStoreItemKeys.ItemKey right)
+        {
+            int byDate = GetItemCreatedUtc(right).CompareTo(GetItemCreatedUtc(left));
+            if (byDate != 0)
+            {
+                return byDate;
+            }
+
+            return BasisContentNameVersion.CompareVersionDescending(GetItemDisplayName(left), GetItemDisplayName(right));
+        }
+
+        /// <summary>
+        /// What decides whether two library entries are versions of one another.
+        ///
+        /// <para>An authored ContentGroupId is definitive and always wins. Nothing built before that
+        /// field existed carries one though, and that content is exactly what creators have been
+        /// re-uploading by hand as "My Avatar", "My Avatar v2" — so those fall back to the display
+        /// name with any trailing version token stripped, which also stacks entries that share a
+        /// name outright.</para>
+        ///
+        /// <para>The two key spaces are prefixed so a group id can never collide with a name.</para>
+        /// </summary>
+        private static string GetVersionStackKey(BasisDataStoreItemKeys.ItemKey item)
+        {
+            if (item == null || item.EmbeddedSettings.IsEmbedded) return null;
+            if (!CachedMetaData.TryGetMeta(item.Url ?? string.Empty, out var meta)) return null;
+
+            if (!string.IsNullOrWhiteSpace(meta.ContentGroupId))
+            {
+                return "id:" + meta.ContentGroupId.Trim().ToLowerInvariant();
+            }
+
+            // Grouping by name is a heuristic over creator-chosen text, so it is scoped to one
+            // content type: an avatar and a prop that happen to share a name are not versions of
+            // each other, and stacking them would hide one behind the other.
+            string nameKey = BasisContentNameVersion.GroupKeyFromName(meta.Name);
+            return string.IsNullOrEmpty(nameKey) ? null : $"name:{item.Mode}:{nameKey}";
+        }
+
+        private static string GetItemDisplayName(BasisDataStoreItemKeys.ItemKey item)
+        {
+            if (item != null && CachedMetaData.TryGetMeta(item.Url ?? string.Empty, out var meta))
+            {
+                return meta.Name ?? string.Empty;
+            }
+            return string.Empty;
+        }
+
+        private static DateTime GetItemCreatedUtc(BasisDataStoreItemKeys.ItemKey item)
+        {
+            if (item != null && CachedMetaData.TryGetMeta(item.Url ?? string.Empty, out var meta) && meta.Created.HasValue)
+            {
+                return meta.Created.Value;
+            }
+            return DateTime.MinValue;
         }
 
         private static void ClearTabContent(RectTransform container)
@@ -529,6 +645,7 @@ namespace Basis.BasisUI
                     BasisRuntimeSpawnRegistry.OnRegistryChanged -= OnRegistryChanged;
                     BasisRuntimeSpawnRegistry.OnPendingLoadsChanged -= OnPendingLoadsChanged;
                     BasisRuntimeSpawnRegistry.OnPendingLoadProgress -= OnPendingLoadProgress;
+                    BasisRuntimeSpawnRegistry.OnFailedLoadsChanged -= OnFailedLoadsChanged;
                 }
             }
 
@@ -642,7 +759,7 @@ namespace Basis.BasisUI
 
                     // Clear and rebuild the tab content
                     ClearTabContent(tab.Descriptor.ContentParent);
-                    BuildItemsList(data, tab);
+                    BuildItemsList(BuildVersionStacks(data), tab);
                     tab.Descriptor.ForceRebuild();
                 }
                 catch (Exception e)
@@ -664,6 +781,9 @@ namespace Basis.BasisUI
 
                     BasisRuntimeSpawnRegistry.OnPendingLoadProgress -= OnPendingLoadProgress;
                     BasisRuntimeSpawnRegistry.OnPendingLoadProgress += OnPendingLoadProgress;
+
+                    BasisRuntimeSpawnRegistry.OnFailedLoadsChanged -= OnFailedLoadsChanged;
+                    BasisRuntimeSpawnRegistry.OnFailedLoadsChanged += OnFailedLoadsChanged;
 
                     BasisShareableRegistry.OnChanged -= OnShareablesRegistryChanged;
                     BasisShareableRegistry.OnChanged += OnShareablesRegistryChanged;
@@ -731,10 +851,12 @@ namespace Basis.BasisUI
         #region CreateItemCard, ShowItemOverlay, ApplyMetaDataToButton
 
         /// <summary>
-        /// The item card displayed all around the library menu
+        /// The item card displayed all around the library menu. A stack with more than one entry
+        /// renders as a single card (newest upload in front) that opens a version picker on click.
         /// </summary>
-        private static void CreateItemCard(BasisDataStoreItemKeys.ItemKey item, RectTransform container)
+        private static void CreateItemCard(List<BasisDataStoreItemKeys.ItemKey> stack, RectTransform container)
         {
+            BasisDataStoreItemKeys.ItemKey item = stack[0];
             PanelButton buttonPanel = PanelButton.CreateNew(ButtonStyles.Prop, container);
             var urlKey = item.Url ?? string.Empty;
             var desc = buttonPanel.Descriptor;
@@ -747,16 +869,39 @@ namespace Basis.BasisUI
             switch(item.Mode)
             {
                 case BundledContentHolder.Mode.Avatar:
-                    buttonPanel.ButtonStyling.ShowIndicator(item.Url == BasisLocalPlayer.Instance.AvatarMetaData.BasisRemoteBundleEncrypted.RemoteBeeFileLocation);
+                    bool anyWorn = false;
+                    for (int Index = 0; Index < stack.Count; Index++)
+                    {
+                        if (stack[Index].Url == BasisLocalPlayer.Instance.AvatarMetaData.BasisRemoteBundleEncrypted.RemoteBeeFileLocation)
+                        {
+                            anyWorn = true;
+                            break;
+                        }
+                    }
+                    buttonPanel.ButtonStyling.ShowIndicator(anyWorn);
                 break;
                 case BundledContentHolder.Mode.World:
-                    int spawnItemCount = BasisRuntimeSpawnRegistry.CountIgnoreCase(item.Url);
+                    int spawnItemCount = 0;
+                    for (int Index = 0; Index < stack.Count; Index++)
+                    {
+                        spawnItemCount += BasisRuntimeSpawnRegistry.CountIgnoreCase(stack[Index].Url);
+                    }
                     buttonPanel.ButtonStyling.SetIndicatorStyle(Styling.UiStyleButton.SpawnedIndicatorStyle);
                     buttonPanel.ButtonStyling.ShowIndicator(spawnItemCount > 0);
                 break;
             }
 
-            if (item.PinnedSettings.IsPinned)
+            bool anyPinned = false;
+            for (int Index = 0; Index < stack.Count; Index++)
+            {
+                if (stack[Index].PinnedSettings.IsPinned)
+                {
+                    anyPinned = true;
+                    break;
+                }
+            }
+
+            if (anyPinned)
             {
                 // create an image for this card in top right with an offset of -35, -35
                 PanelImage pinnedIcon = PanelImage.CreateNew(buttonPanel.Descriptor);
@@ -804,6 +949,14 @@ namespace Basis.BasisUI
                 if (cachedMeta != null)
                 {
                     ApplyMetaDataToButton(buttonPanel, cachedMeta, urlKey);
+
+                    if (stack.Count > 1)
+                    {
+                        desc.SetDescription(string.Format(BasisLocalization.Get("library.stack.versions"), stack.Count));
+                        AddStackLayers(buttonPanel, stack);
+                        AddStackCountBadge(buttonPanel, stack.Count);
+                        desc.ForceRebuild();
+                    }
                 }
                 else
                 {
@@ -815,18 +968,126 @@ namespace Basis.BasisUI
                 }
             }
 
-            buttonPanel.OnClicked += () =>
+            buttonPanel.OnClicked += async () =>
             {
+                BasisDataStoreItemKeys.ItemKey chosen = item;
+                if (stack.Count > 1)
+                {
+                    chosen = await LibraryProviderDialogPickVersion.PromptUserToPickVersion(panel, stack);
+                    if (chosen == null) return;
+                }
+
                 try
                 {
-                    ShowItemOverlay(item);
+                    ShowItemOverlay(chosen);
                 }
                 catch (Exception ex)
                 {
-                    BasisDebug.LogError($"Item '{item?.Url}' failed to open and will be removed: {ex.Message}");
-                    _ = HandleBadItem(item);
+                    BasisDebug.LogError($"Item '{chosen?.Url}' failed to open and will be removed: {ex.Message}");
+                    _ = HandleBadItem(chosen);
                 }
             };
+        }
+
+        /// <summary>
+        /// Renders the stacked-collection look: up to two offset, slightly rotated image layers
+        /// behind the card's icon, like a pile of photos, using the older versions' thumbnails
+        /// when they are cached.
+        /// </summary>
+        private static void AddStackLayers(PanelButton buttonPanel, List<BasisDataStoreItemKeys.ItemKey> stack)
+        {
+            var desc = buttonPanel.Descriptor;
+            if (desc.IconBackground == null) return;
+            RectTransform iconRt = desc.IconBackground.transform as RectTransform;
+            if (iconRt == null || iconRt.parent == null) return;
+
+            Sprite faceSprite = null;
+            if (CachedMetaData.TryGetMeta(stack[0].Url ?? string.Empty, out var faceMeta))
+            {
+                faceSprite = CachedMetaData.CreateSpriteFromMetaData(faceMeta);
+            }
+
+            int layers = Mathf.Min(stack.Count - 1, 2);
+            for (int Index = layers; Index >= 1; Index--)
+            {
+                Sprite layerSprite = null;
+                if (CachedMetaData.TryGetMeta(stack[Index].Url ?? string.Empty, out var layerMeta))
+                {
+                    layerSprite = CachedMetaData.CreateSpriteFromMetaData(layerMeta);
+                }
+                if (layerSprite == null)
+                {
+                    layerSprite = faceSprite;
+                }
+
+                GameObject layerGo = new GameObject($"Stack Layer {Index}", typeof(RectTransform));
+                RectTransform rt = (RectTransform)layerGo.transform;
+                rt.SetParent(iconRt.parent, false);
+                rt.anchorMin = iconRt.anchorMin;
+                rt.anchorMax = iconRt.anchorMax;
+                rt.pivot = iconRt.pivot;
+                rt.anchoredPosition = iconRt.anchoredPosition + new Vector2(9f * Index, 7f * Index);
+                rt.sizeDelta = iconRt.sizeDelta;
+                rt.localRotation = Quaternion.Euler(0f, 0f, (Index % 2 == 0 ? -3f : 3f) * Index);
+                rt.localScale = Vector3.one * (1f - 0.05f * Index);
+
+                Image layerImage = layerGo.AddComponent<Image>();
+                layerImage.sprite = layerSprite;
+                float shade = 1f - 0.22f * Index;
+                layerImage.color = new Color(shade, shade, shade, 1f);
+                layerImage.raycastTarget = false;
+
+                LayoutElement layoutElement = layerGo.AddComponent<LayoutElement>();
+                layoutElement.ignoreLayout = true;
+
+                rt.SetSiblingIndex(iconRt.GetSiblingIndex());
+            }
+        }
+
+        /// <summary>
+        /// Small count badge in the card's top-left corner so a stack reads as "x3" at a glance.
+        /// Copies the card title's TMP font settings so it matches the UI style.
+        /// </summary>
+        private static void AddStackCountBadge(PanelButton buttonPanel, int count)
+        {
+            var desc = buttonPanel.Descriptor;
+
+            GameObject badgeGo = new GameObject("Stack Count", typeof(RectTransform));
+            RectTransform rt = (RectTransform)badgeGo.transform;
+            rt.SetParent(desc.rectTransform, false);
+            rt.anchorMin = new Vector2(0, 1);
+            rt.anchorMax = new Vector2(0, 1);
+            rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.anchoredPosition = new Vector2(45, -35);
+            rt.sizeDelta = new Vector2(64, 42);
+
+            Image background = badgeGo.AddComponent<Image>();
+            background.color = new Color(0f, 0f, 0f, 0.6f);
+            background.raycastTarget = false;
+
+            LayoutElement layoutElement = badgeGo.AddComponent<LayoutElement>();
+            layoutElement.ignoreLayout = true;
+
+            GameObject textGo = new GameObject("Count", typeof(RectTransform));
+            RectTransform textRt = (RectTransform)textGo.transform;
+            textRt.SetParent(rt, false);
+            textRt.anchorMin = Vector2.zero;
+            textRt.anchorMax = Vector2.one;
+            textRt.offsetMin = Vector2.zero;
+            textRt.offsetMax = Vector2.zero;
+
+            TextMeshProUGUI label = textGo.AddComponent<TextMeshProUGUI>();
+            if (desc.TitleLabel != null)
+            {
+                label.font = desc.TitleLabel.font;
+                label.fontSharedMaterial = desc.TitleLabel.fontSharedMaterial;
+                label.color = desc.TitleLabel.color;
+            }
+            label.text = $"x{count}";
+            label.fontSize = 26;
+            label.alignment = TextAlignmentOptions.Center;
+            label.raycastTarget = false;
+            label.richText = false;
         }
 
         private static BasisDataStoreItemKeys.ItemKey _activeItem;
@@ -863,7 +1124,7 @@ namespace Basis.BasisUI
         {
             #region ITEM OVERLAY SETUP
 
-            Vector2 overlaySize = new Vector2(1200, 960);
+            Vector2 overlaySize = new Vector2(1200, 995);
 
             // grab the content from the cache
             CachedMetaData.CachedContent metadata;
@@ -1048,13 +1309,12 @@ namespace Basis.BasisUI
             else
             {
                 string[] platforms = metadata.BasisBundleConnector.BasisBundleGenerated.Select(pair => pair.Platform).ToArray();
-                string supported_platforms = string.Join(" | ", platforms);
-                platformIconsTextField.Descriptor.SetDescription($"{supported_platforms}");
 
                 foreach (string platform in platforms)
                 {
                     PanelImage panelImage = PanelImage.CreateNew(PanelImage.ImageStyles.SimpleSquare, platformIconsTextField.Descriptor.ContentParent);
                     panelImage.SetSize(new Vector2(80, 80));
+                    panelImage.Descriptor.SetTooltip(UserListProvider.GetPlatformLabel(platform));
 
                     switch (platform)
                     {
@@ -1078,6 +1338,12 @@ namespace Basis.BasisUI
                         case "iOS":
                             panelImage.SetIcon(AddressableAssets.Sprites.PlatformMobileiOS);
                             break;
+
+                        case BasisBundleConnector.GenericPlatform:
+                            // The platform-agnostic glTF section — it carries a .glb rather than a
+                            // per-platform AssetBundle, so it loads anywhere and has no vendor logo.
+                            panelImage.SetIcon(AddressableAssets.Sprites.PlatformGeneric);
+                            break;
                     }
                 }
             }
@@ -1085,84 +1351,17 @@ namespace Basis.BasisUI
 
             #endregion
 
-            // lets create a grid to put the items below in
-            PanelTabPage grid = PanelTabPage.CreateNew(scrollablePage.Descriptor.ContentParent);
-            PanelElementDescriptor scrollViewGridDescriptor = PanelElementDescriptor.CreateNew(PanelElementDescriptor.ElementStyles.ScrollViewGridLibrary, grid.Descriptor.ContentParent);
-            grid.Descriptor.ContentParent = scrollViewGridDescriptor.ContentParent;
-            grid.Descriptor.SetHeight(150);
+            #region ITEM DETAILS
 
-            #region POLYGON COUNT
-
-            long polygonCount = 0;
-
-            if (item.EmbeddedSettings.IsEmbedded && item.EmbeddedSettings.SourceType == BasisDataStoreItemKeys.EmbeddedSource.Addressable)
+            PanelButton detailsPanelButton = PanelButton.CreateNew(ButtonStyles.StandardButton, scrollablePage.Descriptor.ContentParent);
+            detailsPanelButton.Descriptor.SetTitle(string.Format(BasisLocalization.Get("library.details"), item.Mode));
+            detailsPanelButton.Descriptor.SetTooltip(BasisLocalization.Get("library.details.tooltip"));
+            detailsPanelButton.Descriptor.SetHeight(130);
+            detailsPanelButton.Descriptor.SetWidth(400);
+            detailsPanelButton.OnClicked += async () =>
             {
-                polygonCount = 0;
-            }
-            else
-            {
-                polygonCount = metadata.BasisBundleConnector.MetaData.TrianglesCount;
-            }
-
-            // creation date and time
-            PanelTextField polygonTextField = PanelTextField.CreateNew(TextFieldStyles.EntryVertical, grid.Descriptor.ContentParent);//scrollablePage.Descriptor.ContentParent);
-            polygonTextField._inputField.gameObject.SetActive(false); // disable the text input field box
-            polygonTextField.Descriptor.SetTitle(BasisLocalization.Get("library.triangleCount"));
-            polygonTextField.Descriptor.SetIcon(AddressableAssets.Sprites.Polygons);
-            polygonTextField.Descriptor.SetDescription($"{polygonCount}");
-
-            polygonTextField.Descriptor.SetHeight(50);
-            polygonTextField.Descriptor.SetWidth(400);
-
-            #endregion
-
-            #region MATERIAL COUNT
-
-            long materialCount = 0;
-
-            if (item.EmbeddedSettings.IsEmbedded && item.EmbeddedSettings.SourceType == BasisDataStoreItemKeys.EmbeddedSource.Addressable)
-            {
-                materialCount = 0;
-            }
-            else
-            {
-                materialCount = metadata.BasisBundleConnector.MetaData.MaterialCount;
-            }
-
-            // creation date and time
-            PanelTextField materialTextField = PanelTextField.CreateNew(TextFieldStyles.EntryVertical, grid.Descriptor.ContentParent);//scrollablePage.Descriptor.ContentParent);
-            materialTextField._inputField.gameObject.SetActive(false); // disable the text input field box
-            materialTextField.Descriptor.SetTitle(BasisLocalization.Get("library.materialCount"));
-            materialTextField.Descriptor.SetIcon(AddressableAssets.Sprites.Materials);
-            materialTextField.Descriptor.SetDescription($"{materialCount}");
-
-            materialTextField.Descriptor.SetHeight(50);
-            materialTextField.Descriptor.SetWidth(400);
-
-            #endregion
-
-            #region BONES COUNT
-
-            long boneCount = 0;
-
-            if (item.EmbeddedSettings.IsEmbedded && item.EmbeddedSettings.SourceType == BasisDataStoreItemKeys.EmbeddedSource.Addressable)
-            {
-                boneCount = 0;
-            }
-            else
-            {
-                boneCount = metadata.BasisBundleConnector.MetaData.BonesCount;
-            }
-
-            // creation date and time
-            PanelTextField bonesTextField = PanelTextField.CreateNew(TextFieldStyles.EntryVertical, grid.Descriptor.ContentParent);//scrollablePage.Descriptor.ContentParent);
-            bonesTextField._inputField.gameObject.SetActive(false); // disable the text input field box
-            bonesTextField.Descriptor.SetTitle(BasisLocalization.Get("library.bonesCount"));
-            bonesTextField.Descriptor.SetIcon(AddressableAssets.Sprites.Bones);
-            bonesTextField.Descriptor.SetDescription($"{boneCount}");
-
-            bonesTextField.Descriptor.SetHeight(50);
-            bonesTextField.Descriptor.SetWidth(400);
+                await LibraryProviderDialogItemDetails.ShowItemDetails(panel, item, metadata);
+            };
 
             #endregion
 
@@ -1365,6 +1564,33 @@ namespace Basis.BasisUI
                 contentPersistenceToggle.SetInteractable(
                     !item.EmbeddedSettings.IsEmbedded,
                     item.EmbeddedSettings.IsEmbedded ? BasisLocalization.Get("library.disabled.embedded") : null);
+
+                // where a prop lands when spawned. Automatic defers to whatever the prop itself asks
+                // for, so this only needs touching to override the creator's choice.
+                if (item.Mode == BundledContentHolder.Mode.Prop)
+                {
+                    advancedActionsPanel.Descriptor.SetHeight(240);
+
+                    PanelDropdown placementDropDown = PanelDropdown.CreateNew(PanelDropdown.DropdownStyles.Entry, advancedActionsPanel.TabButtonParent);
+                    placementDropDown.Descriptor.SetTitle(BasisLocalization.Get("library.placement"));
+                    placementDropDown.Descriptor.SetDescription(GetPlacementDescription(item.PlacementOverride));
+                    placementDropDown.Descriptor.SetIcon(AddressableAssets.Sprites.TeleportTo);
+                    placementDropDown.AssignEntries(PlacementDisplayNames.Values.ToList());
+                    placementDropDown.Descriptor.SetSize(new Vector2(700, 80));
+                    placementDropDown.SetValueWithoutNotify(GetPlacementDisplayName(item.PlacementOverride));
+                    placementDropDown.OnValueChanged = async (val) =>
+                    {
+                        if (!TryParsePlacementFromDisplayName(val, out BasisPropSpawnPlacement selectedPlacement))
+                        {
+                            BasisDebug.LogError($"Could not parse placement from display name: {val}");
+                            return;
+                        }
+
+                        item.PlacementOverride = selectedPlacement;
+                        placementDropDown.Descriptor.SetDescription(GetPlacementDescription(selectedPlacement));
+                        await BasisDataStoreItemKeys.UpdatePlacementOverride(item, selectedPlacement);
+                    };
+                }
             }
 
             #endregion
@@ -1377,7 +1603,7 @@ namespace Basis.BasisUI
 
             PanelButton deletePanelButton = PanelButton.CreateNew(ButtonStyles.CancelButton, actionsPanel.TabButtonParent); //ButtonStyles.Cancel
             deletePanelButton.Descriptor.SetTitle(BasisLocalization.Get("library.delete"));
-            deletePanelButton.Descriptor.SetWidth(220);
+            deletePanelButton.Descriptor.SetWidth(200);
             deletePanelButton.Descriptor.SetHeight(60);
 
             // Embedded items can never be deleted. Server-provided items CAN — the
@@ -1425,10 +1651,55 @@ namespace Basis.BasisUI
                 }
             };
 
+            // Check-for-update button — the user-driven half of static-url cache invalidation.
+            // Content cached by url stays cached forever no matter what the host now serves, so
+            // this asks the host whether the bytes changed and evicts the stale copy if they did.
+            PanelButton updatePanelButton = PanelButton.CreateNew(ButtonStyles.StandardButton, actionsPanel.TabButtonParent);
+            updatePanelButton.Descriptor.SetTitle(BasisLocalization.Get("library.checkForUpdate"));
+            updatePanelButton.Descriptor.SetWidth(200);
+            updatePanelButton.Descriptor.SetHeight(60);
+
+            bool updateCheckSupported = LibraryProviderDialogCheckForUpdate.IsSupported(item);
+            updatePanelButton.SetInteractable(
+                updateCheckSupported,
+                !updateCheckSupported
+                    ? (item.EmbeddedSettings.IsEmbedded
+                        ? BasisLocalization.Get("library.disabled.embedded")
+                        : BasisLocalization.Get("library.disabled.local"))
+                    : null);
+
+            updatePanelButton.OnClicked += async () =>
+            {
+                if (!updateCheckSupported) return;
+                if (existingItemDialog.IsBusy) return;
+                existingItemDialog.IsBusy = true;
+
+                bool refreshed = false;
+                try
+                {
+                    refreshed = await LibraryProviderDialogCheckForUpdate.PromptUserForUpdateCheck(panel, item, description);
+                }
+                catch (Exception ex)
+                {
+                    BasisDebug.LogError(ex);
+                }
+
+                if (refreshed)
+                {
+                    // The card behind this dialog was built from the now-discarded metadata.
+                    existingItemDialog.CloseWithResult(null);
+                    await RefreshCurrentTab();
+                }
+                else
+                {
+                    existingItemDialog.IsBusy = false;
+                }
+            };
+
             // Share button - only enabled when connected to a server
             PanelButton sharePanelButton = PanelButton.CreateNew(ButtonStyles.StandardButton, actionsPanel.TabButtonParent);
             sharePanelButton.Descriptor.SetTitle(BasisLocalization.Get("library.share"));
-            sharePanelButton.Descriptor.SetWidth(150);
+            sharePanelButton.Descriptor.SetWidth(140);
             sharePanelButton.Descriptor.SetHeight(60);
             sharePanelButton.SetInteractable(
                 BasisNetworkConnection.LocalPlayerIsConnected && !isLocalItem,
@@ -1493,7 +1764,7 @@ namespace Basis.BasisUI
                     break;
             }
 
-            loadPanelButton.Descriptor.SetWidth(620);
+            loadPanelButton.Descriptor.SetWidth(450);
             loadPanelButton.Descriptor.SetHeight(60);
             // on load of a item we do these actions
             loadPanelButton.OnClicked += async () =>
@@ -1560,6 +1831,61 @@ namespace Basis.BasisUI
             // TODO: Re-enable once synchronized loading is fully working (late joiner + prop unload bugs)
             // [BundledContentHolder.NetworkType.Synchronized] = "Everyone (Wait & Spawn Together)",
         };
+
+        /// <summary>
+        /// Placements offered in the prop spawn dropdown. Unspecified leads and means "whatever the
+        /// prop asks for", so a creator's own choice is honoured unless the player overrides it here.
+        /// </summary>
+        private static Dictionary<BasisPropSpawnPlacement, string> PlacementDisplayNames => new()
+        {
+            [BasisPropSpawnPlacement.Unspecified] = BasisLocalization.Get("library.placement.automatic"),
+            [BasisPropSpawnPlacement.Raycast] = BasisLocalization.Get("library.placement.raycast"),
+            [BasisPropSpawnPlacement.InHand] = BasisLocalization.Get("library.placement.inHand"),
+            [BasisPropSpawnPlacement.InAirAtDistance] = BasisLocalization.Get("library.placement.inAir"),
+            [BasisPropSpawnPlacement.OnGround] = BasisLocalization.Get("library.placement.onGround"),
+            [BasisPropSpawnPlacement.InFrontOfPlayer] = BasisLocalization.Get("library.placement.inFront"),
+            [BasisPropSpawnPlacement.AtPlayerOrigin] = BasisLocalization.Get("library.placement.playerOrigin"),
+        };
+
+        private static string GetPlacementDisplayName(BasisPropSpawnPlacement placement)
+        {
+            return PlacementDisplayNames.TryGetValue(placement, out string name) ? name : placement.ToString();
+        }
+
+        private static bool TryParsePlacementFromDisplayName(string displayName, out BasisPropSpawnPlacement placement)
+        {
+            foreach (var kvp in PlacementDisplayNames)
+            {
+                if (kvp.Value == displayName)
+                {
+                    placement = kvp.Key;
+                    return true;
+                }
+            }
+            placement = default;
+            return false;
+        }
+
+        private static string GetPlacementDescription(BasisPropSpawnPlacement placement)
+        {
+            return placement switch
+            {
+                BasisPropSpawnPlacement.Raycast =>
+                    BasisLocalization.Get("library.placement.raycast.description"),
+                BasisPropSpawnPlacement.InHand =>
+                    BasisLocalization.Get("library.placement.inHand.description"),
+                BasisPropSpawnPlacement.InAirAtDistance =>
+                    BasisLocalization.Get("library.placement.inAir.description"),
+                BasisPropSpawnPlacement.OnGround =>
+                    BasisLocalization.Get("library.placement.onGround.description"),
+                BasisPropSpawnPlacement.InFrontOfPlayer =>
+                    BasisLocalization.Get("library.placement.inFront.description"),
+                BasisPropSpawnPlacement.AtPlayerOrigin =>
+                    BasisLocalization.Get("library.placement.playerOrigin.description"),
+                _ =>
+                    BasisLocalization.Get("library.placement.automatic.description"),
+            };
+        }
 
         /// <summary>
         /// Network types offered in the load dropdown. Local and Load-on-Boot work offline; Networked
@@ -1688,6 +2014,7 @@ namespace Basis.BasisUI
                                 Pass = item.Pass,
                                 Mode = item.Mode,
                                 PlacementType = item.PlacementType,
+                                PlacementOverride = item.PlacementOverride,
                             });
                         }
                         await ContentLoader.LoadWorld(item, networkType, persistence, IsProtected);
@@ -1736,6 +2063,7 @@ namespace Basis.BasisUI
                     Pass = item.Pass,
                     Mode = item.Mode,
                     PlacementType = item.PlacementType,
+                    PlacementOverride = item.PlacementOverride,
                     HasTransform = true,
                     Position = t.position,
                     Rotation = t.rotation,
@@ -1762,6 +2090,7 @@ namespace Basis.BasisUI
                 {
                     Mode = item.Mode,
                     PlacementType = item.PlacementType,
+                    PlacementOverride = item.PlacementOverride,
                     Url = item.Url,
                     Pass = item.Pass,
                     EmbeddedSettings = item.EmbeddedSettings,
@@ -1950,6 +2279,10 @@ namespace Basis.BasisUI
             // clear the page
             ClearTabContent(page.Descriptor.ContentParent);
 
+            // Failures first — they are the only rows that need the user to do something, and
+            // a networked one is still costing every joiner a doomed download until it goes.
+            BuildFailedLoadsList(page);
+
             BuildPendingLoadsList(page);
 
             // rebuild the page items
@@ -2050,6 +2383,21 @@ namespace Basis.BasisUI
 
         private static bool PendingLoadPassesFilters(BasisRuntimeSpawnRegistry.PendingLoad pending, string title)
         {
+            return RowPassesFilters(pending.SpawnMode, pending.SpawnMethod, pending.UUIDOfCreator, pending.isProtected, pending.Persistent, title);
+        }
+
+        private static bool FailedLoadPassesFilters(BasisRuntimeSpawnRegistry.FailedLoad failed, string title)
+        {
+            return RowPassesFilters(failed.SpawnMode, failed.SpawnMethod, failed.UUIDOfCreator, failed.isProtected, failed.Persistent, title);
+        }
+
+        /// <summary>
+        /// The search box and item-type dropdown applied to a row that has no
+        /// <see cref="BasisRuntimeSpawnRegistry.SpawnInstance"/> behind it — pending and failed
+        /// loads. Kept in one place so the two can never drift from each other.
+        /// </summary>
+        private static bool RowPassesFilters(BasisRuntimeSpawnRegistry.SpawnMode mode, BasisRuntimeSpawnRegistry.SpawnMethod method, string creatorUUID, bool isProtected, bool persistent, string title)
+        {
             if (!string.IsNullOrWhiteSpace(_currentSearchQuery))
             {
                 if (string.IsNullOrEmpty(title) || title.IndexOf(_currentSearchQuery, StringComparison.InvariantCultureIgnoreCase) < 0)
@@ -2061,27 +2409,27 @@ namespace Basis.BasisUI
             switch (_currentItemTypeFilter)
             {
                 case LibraryItemTypeFilter.Embedded:
-                    return pending.SpawnMethod == BasisRuntimeSpawnRegistry.SpawnMethod.Embedded;
+                    return method == BasisRuntimeSpawnRegistry.SpawnMethod.Embedded;
                 case LibraryItemTypeFilter.Local:
-                    return pending.SpawnMethod == BasisRuntimeSpawnRegistry.SpawnMethod.Local || pending.SpawnMethod == BasisRuntimeSpawnRegistry.SpawnMethod.Embedded;
+                    return method == BasisRuntimeSpawnRegistry.SpawnMethod.Local || method == BasisRuntimeSpawnRegistry.SpawnMethod.Embedded;
                 case LibraryItemTypeFilter.Networked:
-                    return pending.SpawnMethod == BasisRuntimeSpawnRegistry.SpawnMethod.Network;
+                    return method == BasisRuntimeSpawnRegistry.SpawnMethod.Network;
                 case LibraryItemTypeFilter.Avatar:
-                    return pending.SpawnMode == BasisRuntimeSpawnRegistry.SpawnMode.Avatar;
+                    return mode == BasisRuntimeSpawnRegistry.SpawnMode.Avatar;
                 case LibraryItemTypeFilter.GameObject:
-                    return pending.SpawnMode == BasisRuntimeSpawnRegistry.SpawnMode.GameObject;
+                    return mode == BasisRuntimeSpawnRegistry.SpawnMode.GameObject;
                 case LibraryItemTypeFilter.Scene:
-                    return pending.SpawnMode == BasisRuntimeSpawnRegistry.SpawnMode.Scene;
+                    return mode == BasisRuntimeSpawnRegistry.SpawnMode.Scene;
                 case LibraryItemTypeFilter.AdminOnly:
-                    return pending.isProtected;
+                    return isProtected;
                 case LibraryItemTypeFilter.PersistentOnly:
-                    return pending.Persistent;
+                    return persistent;
                 case LibraryItemTypeFilter.NotPersistent:
-                    return !pending.Persistent;
+                    return !persistent;
                 case LibraryItemTypeFilter.PlacedByMe:
-                    return pending.UUIDOfCreator == BasisLocalPlayer.Instance.UUID;
+                    return creatorUUID == BasisLocalPlayer.Instance.UUID;
                 case LibraryItemTypeFilter.NotPlacedByMe:
-                    return pending.UUIDOfCreator != BasisLocalPlayer.Instance.UUID;
+                    return creatorUUID != BasisLocalPlayer.Instance.UUID;
                 default:
                     return true;
             }
@@ -2163,6 +2511,153 @@ namespace Basis.BasisUI
             itemTextInfo.Descriptor.SetWidth(400);
 
             _pendingLoadRowInfo[pending.PendingId] = itemTextInfo.Descriptor;
+        }
+
+        private static void OnFailedLoadsChanged() => UpdateInstantiatedTab();
+
+        private static string FailedLoadTitle(BasisRuntimeSpawnRegistry.FailedLoad failed)
+        {
+            if (CachedMetaData.TryGetMeta(failed.Url, out var meta) && !string.IsNullOrEmpty(meta.Name))
+            {
+                return LibraryProviderStrUtil.TitleToCase(meta.Name);
+            }
+            return failed.Url;
+        }
+
+        private static void BuildFailedLoadsList(PanelTabPage tab)
+        {
+            RectTransform container = tab.Descriptor.ContentParent;
+
+            foreach (BasisRuntimeSpawnRegistry.FailedLoad failed in BasisRuntimeSpawnRegistry.GetFailedLoads().OrderBy(f => f.FailedUtc))
+            {
+                string title = FailedLoadTitle(failed);
+                if (!FailedLoadPassesFilters(failed, title)) continue;
+                CreateFailedListEntry(failed, title, container);
+            }
+        }
+
+        /// <summary>
+        /// A row for content that never loaded. It carries no live object, so the only action is
+        /// removal: for a networked spawn that means asking the server to drop it (which stops it
+        /// being handed to every joiner and clears the row on the other clients that also failed),
+        /// and for a local one it means dropping it from the load-on-boot list so it stops being
+        /// retried every launch.
+        /// </summary>
+        private static void CreateFailedListEntry(BasisRuntimeSpawnRegistry.FailedLoad failed, string title, RectTransform parentTabGroup)
+        {
+            PanelTabGroup itemListPanel = PanelTabGroup.CreateNew(PanelTabGroup.TabGroupStyles.HorizontalStackedNoBackground, parentTabGroup);
+
+            if (itemListPanel.TabButtonParent.gameObject.TryGetComponent<UiStyleImage>(out UiStyleImage imageStyle))
+            {
+                imageStyle.SetStyle("Menu Element");
+            }
+
+            itemListPanel.Descriptor.SetWidth(1400);
+            itemListPanel.Descriptor.SetHeight(95);
+
+            PanelImage spawnModePanelImage = PanelImage.CreateNew(PanelImage.ImageStyles.SimpleSquare, itemListPanel.TabButtonParent);
+            spawnModePanelImage.SetSize(new Vector2(80, 80));
+
+            switch (failed.SpawnMode)
+            {
+                case BasisRuntimeSpawnRegistry.SpawnMode.Avatar:
+                    spawnModePanelImage.SetIcon(AddressableAssets.Sprites.Avatars);
+                    spawnModePanelImage.Descriptor.SetTooltip(BasisLocalization.Get("library.instantiated.icon.type.avatar.tooltip"));
+                    break;
+                case BasisRuntimeSpawnRegistry.SpawnMode.GameObject:
+                    spawnModePanelImage.SetIcon(AddressableAssets.Sprites.Items);
+                    spawnModePanelImage.Descriptor.SetTooltip(BasisLocalization.Get("library.instantiated.icon.type.gameObject.tooltip"));
+                    break;
+                case BasisRuntimeSpawnRegistry.SpawnMode.Scene:
+                    spawnModePanelImage.SetIcon(AddressableAssets.Sprites.World);
+                    spawnModePanelImage.Descriptor.SetTooltip(BasisLocalization.Get("library.instantiated.icon.type.scene.tooltip"));
+                    break;
+            }
+
+            PanelImage spawnMethodPanelImage = PanelImage.CreateNew(PanelImage.ImageStyles.SimpleSquare, itemListPanel.TabButtonParent);
+            spawnMethodPanelImage.SetSize(new Vector2(80, 80));
+
+            switch (failed.SpawnMethod)
+            {
+                case BasisRuntimeSpawnRegistry.SpawnMethod.Embedded:
+                    spawnMethodPanelImage.SetIcon(AddressableAssets.Sprites.Embedded);
+                    spawnMethodPanelImage.Descriptor.SetTooltip(BasisLocalization.Get("library.instantiated.icon.method.embedded.tooltip"));
+                    break;
+                case BasisRuntimeSpawnRegistry.SpawnMethod.Local:
+                    spawnMethodPanelImage.SetIcon(AddressableAssets.Sprites.Computer);
+                    spawnMethodPanelImage.Descriptor.SetTooltip(BasisLocalization.Get("library.instantiated.icon.method.local.tooltip"));
+                    break;
+                case BasisRuntimeSpawnRegistry.SpawnMethod.Network:
+                    spawnMethodPanelImage.SetIcon(AddressableAssets.Sprites.Network);
+                    spawnMethodPanelImage.Descriptor.SetTooltip(BasisLocalization.Get("library.instantiated.icon.method.network.tooltip"));
+                    break;
+            }
+
+            PanelImage failedPanelImage = PanelImage.CreateNew(PanelImage.ImageStyles.SimpleSquare, itemListPanel.TabButtonParent);
+            failedPanelImage.SetSize(new Vector2(80, 80));
+            failedPanelImage.SetIcon(AddressableAssets.Sprites.Information);
+            failedPanelImage.Descriptor.SetTooltip(BasisLocalization.Get("library.instantiated.failed.tooltip"));
+
+            PanelTextField itemTextInfo = PanelTextField.CreateNew(TextFieldStyles.Entry, itemListPanel.TabButtonParent);
+            itemTextInfo._inputField.gameObject.SetActive(false);
+            itemTextInfo.Descriptor.SetTitle(title);
+            itemTextInfo.Descriptor.SetDescription(BasisLocalization.Get("library.instantiated.failed.description"));
+
+            // The detail is whatever the loader reported — untranslated, like the pending rows'
+            // pipeline stage text — so it stays in the tooltip rather than the row itself.
+            if (!string.IsNullOrEmpty(failed.Error))
+            {
+                itemTextInfo.Descriptor.SetTooltip(failed.Error);
+            }
+            itemTextInfo.Descriptor.SetHeight(50);
+            itemTextInfo.Descriptor.SetWidth(400);
+
+            // Same rule the spawned rows use: a protected networked item is an admin's to remove.
+            bool canRemove = failed.SpawnMethod != BasisRuntimeSpawnRegistry.SpawnMethod.Network || !failed.isProtected || IsProtected;
+
+            BuildEntryActionButton(itemListPanel.TabButtonParent, new EntryActionButton
+            {
+                Style = ButtonStyles.CancelButton,
+                Icon = AddressableAssets.Sprites.Trash,
+                Tooltip = BasisLocalization.Get("library.instantiated.failed.remove.tooltip"),
+                Disabled = !canRemove,
+                DisabledReason = canRemove ? null : BasisLocalization.Get("library.disabled.protected"),
+                OnClick = async () =>
+                {
+                    BasisDebug.Log($"CreateFailedListEntry() -> requested removal of failed item = {failed.Url} of LoadedNetID = {failed.LoadedNetID} of SpawnMethod = {failed.SpawnMethod} and SpawnMode = {failed.SpawnMode}");
+
+                    bool result = await LibraryProviderDialogRemove.PromptUserForRemoval(panel, title, failed.SpawnMode.ToString());
+                    if (!result) return;
+
+                    switch (failed.SpawnMethod)
+                    {
+                        case BasisRuntimeSpawnRegistry.SpawnMethod.Network:
+                            // The server holds this spawn whether or not our load worked, so the
+                            // netID is all it needs; it authorizes creator-or-moderator as usual.
+                            // The row is left alone here and dropped by the unload broadcast — same
+                            // as a spawned row, so an unload the server refuses does not look like
+                            // it worked, and every other client that failed to load it clears too.
+                            switch (failed.SpawnMode)
+                            {
+                                case BasisRuntimeSpawnRegistry.SpawnMode.Scene:
+                                    BasisNetworkSpawnItem.RequestSceneUnLoad(failed.LoadedNetID);
+                                    break;
+                                default:
+                                    BasisNetworkSpawnItem.RequestGameObjectUnLoad(failed.LoadedNetID);
+                                    break;
+                            }
+                            break;
+                        default:
+                            // If this was set to load on boot, removing it here also stops it coming
+                            // back next launch. No-op when it was never a boot item.
+                            _ = BasisPreloadContentStore.Remove(failed.Url);
+                            BasisRuntimeSpawnRegistry.DismissFailedLoad(failed.FailedId);
+                            break;
+                    }
+
+                    await RefreshCurrentTab();
+                },
+            });
         }
 
         private static void BuildShareablesList(PanelTabPage tab)

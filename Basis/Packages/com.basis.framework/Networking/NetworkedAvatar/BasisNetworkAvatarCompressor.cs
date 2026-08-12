@@ -1,5 +1,6 @@
 using Basis.Network.Core;
 using Basis.Network.Core.Compression;
+using Basis.Scripts.BasisSdk.Players;
 using Basis.Scripts.Drivers;
 using Basis.Scripts.Networking.Compression;
 using Basis.Scripts.Networking.Transmitters;
@@ -17,11 +18,18 @@ using static Basis.Network.Core.Compression.BasisAvatarBitPacking;
 namespace Basis.Scripts.Networking.NetworkedAvatar
 {
     /// <summary>
-    /// Compresses local avatar bone rotations as T-pose-relative deltas using
+    /// Compresses local avatar bone rotations into the RIG-NEUTRAL generic rotation space using
     /// "smallest three" quaternion encoding.
     ///
+    /// What goes on the wire is each joint's rotation away from its own rest pose, expressed in
+    /// the avatar's ROOT axes rather than in the bone's authored local axes — see
+    /// <see cref="Basis.Network.Core.Compression.BasisGenericBoneRotation"/> for the derivation
+    /// and for why the old local-frame delta could not be replayed on a different rig. Receivers
+    /// rebuild their own rig's local rotations from it with their own rest frames, so the sender
+    /// never has to know or describe the avatar the pose will be played back on.
+    ///
     /// ExtractBoneDeltas uses a TransformAccessArray to read bone local rotations,
-    /// then a Burst-compiled IJob computes deltas and compresses the bitstream in
+    /// then a Burst-compiled IJob maps them into generic space and compresses the bitstream in
     /// a single pass (BasisBoneDeltaAndCompressJob).
     /// </summary>
     public static class BasisNetworkAvatarCompressor
@@ -31,19 +39,24 @@ namespace Basis.Scripts.Networking.NetworkedAvatar
         // Persistent T-pose local rotations captured during calibration (indexed by HumanBodyBones 0..54)
         static quaternion[] sTposeLocalRotations;
 
-        // Precomputed inverses of T-pose rotations — avoids math.inverse() per bone per frame
-        static quaternion[] sInverseTposeLocalRotations;
+        // Folded generic-space encode operators, indexed by HumanBodyBones 0..54:
+        //   generic = sEncodePre[bone] * currentLocal * sEncodePost[bone]
+        // Built once per calibration from (TposeFromRoot, TposeLocal) so the per-send loop never
+        // inverts anything. See BasisGenericBoneRotation.BuildEncodeOperators.
+        static quaternion[] sEncodePre;
+        static quaternion[] sEncodePost;
 
         // Cached TPose local position for the hips bone — used to compute the
         // hips local-position delta we ship in the avatar packet tail. Captured
         // once per CaptureTPose so we don't hit the TposeLocal dictionary every frame.
         static Unity.Mathematics.float3 sTposeHipsLocalPos;
 
-        // Cached inverse of the TPose hips local rotation — used to compute the
-        // hips local-rotation delta (inverseTpose × currentLocal) per frame.
-        // Hips isn't in the bone packet, so this is what carries hips orientation
-        // independent of the root rotation.
-        static quaternion sInverseTposeHipsLocalRot;
+        // Folded generic-space encode operators for the hips, which is excluded from the bone
+        // packet and carried in the tail instead. Same form as the per-bone pair above; the hips
+        // rest frame is TposeFromRoot[Hips] (near identity on a well-authored rig, but not
+        // guaranteed, and a rig where it isn't is exactly the rig this whole change is for).
+        static quaternion sHipsEncodePre;
+        static quaternion sHipsEncodePost;
 
         // Scratch buffer for 54 delta quaternions (indexed by slot in BONE_WRITE_ORDER)
         static NativeArray<quaternion> sBoneDeltas;
@@ -53,6 +66,8 @@ namespace Basis.Scripts.Networking.NetworkedAvatar
         static NativeArray<int> sSlotRemap;
         static NativeArray<quaternion> sCurrentLocalRotations;
         static NativeArray<quaternion> sTposeNative;
+        static NativeArray<quaternion> sEncodePreNative;
+        static NativeArray<quaternion> sEncodePostNative;
         static NativeArray<byte> sBpcNative;
         static NativeArray<float> sMaxComponentNative;
         static bool sJobArraysReady;
@@ -82,8 +97,11 @@ namespace Basis.Scripts.Networking.NetworkedAvatar
         // than the sub-visibility thresholds in BasisAvatarDeadband is dropped instead. Comparing
         // against the last SENT values bounds the standing error to the threshold (drift sends).
         public static bool DeadbandSuppression = true;
-        const int RawBoneOffset = 0;                                   // 51 quats
-        const int RawPosOffset = RawBoneOffset + 51 * 4;               // hips world pos
+        const int RawWireBoneCount = BasisBoneRotationCompression.WireBoneSlotCount;   // 21
+        const int RawFingerScalarCount = BasisBoneRotationCompression.FingerChannelCount * 2; // 20
+        const int RawBoneOffset = 0;                                   // 21 quats (wire slots only)
+        const int RawFingerOffset = RawBoneOffset + RawWireBoneCount * 4;  // 20 curl/splay scalars
+        const int RawPosOffset = RawFingerOffset + RawFingerScalarCount;   // hips world pos
         const int RawBodyRotOffset = RawPosOffset + 3;                 // hips world rot
         const int RawHipsDeltaOffset = RawBodyRotOffset + 4;           // hips local delta
         const int RawHipsRotOffset = RawHipsDeltaOffset + 3;           // hips local rot delta
@@ -133,31 +151,36 @@ namespace Basis.Scripts.Networking.NetworkedAvatar
             sHasUplinkBaseline = false;
             sUplinkForceKeyframe = true;
             sTposeLocalRotations = new quaternion[55]; // HumanBodyBones 0..54
-            sInverseTposeLocalRotations = new quaternion[55];
+            sEncodePre = new quaternion[55];
+            sEncodePost = new quaternion[55];
+            var mapping = BasisLocalAvatarDriver.Mapping;
+            // One basis for the whole rig — the anatomical frame that makes this avatar's rest
+            // rotations mean the same thing as any other avatar's. See GetCharacterBasis.
+            quaternion characterBasis = BasisGenericBoneRotationUtils.GetCharacterBasis(mapping);
             for (int Index = 0; Index < 55; Index++)
             {
-                if (BasisLocalAvatarDriver.Mapping.TposeLocal.TryGetValue((HumanBodyBones)Index, out var value))
-                {
-                    sTposeLocalRotations[Index] = value.rotation;
-                    sInverseTposeLocalRotations[Index] = math.inverse(value.rotation);
-                }
-                else
-                {
-                    sTposeLocalRotations[Index] = quaternion.identity;
-                    sInverseTposeLocalRotations[Index] = quaternion.identity;
-                }
+                var bone = (HumanBodyBones)Index;
+                // T (parent-relative rest) and F (root-relative rest) come from the same
+                // RecordPoses pass, so they always describe the same captured T-pose. A bone the
+                // rig lacks resolves to identity for both, which collapses the pair to the plain
+                // local-delta encode for that slot.
+                quaternion tposeLocal = BasisGenericBoneRotationUtils.GetRestLocal(mapping, bone);
+                quaternion restFrame = BasisGenericBoneRotationUtils.GetRestFrame(mapping, bone, characterBasis);
+                sTposeLocalRotations[Index] = tposeLocal;
+                BasisGenericBoneRotationUtils.BuildEncodeOperators(restFrame, tposeLocal,
+                    out sEncodePre[Index], out sEncodePost[Index]);
             }
 
-            if (BasisLocalAvatarDriver.Mapping.TposeLocal.TryGetValue(HumanBodyBones.Hips, out var hipsTpose))
+            if (mapping.TposeLocal.TryGetValue(HumanBodyBones.Hips, out var hipsTpose))
             {
                 sTposeHipsLocalPos = hipsTpose.position;
-                sInverseTposeHipsLocalRot = math.inverse((quaternion)hipsTpose.rotation);
             }
             else
             {
                 sTposeHipsLocalPos = Unity.Mathematics.float3.zero;
-                sInverseTposeHipsLocalRot = quaternion.identity;
             }
+            sHipsEncodePre = sEncodePre[(int)HumanBodyBones.Hips];
+            sHipsEncodePost = sEncodePost[(int)HumanBodyBones.Hips];
 
             // Rebuild job arrays for the new avatar
             BuildJobArrays();
@@ -170,6 +193,8 @@ namespace Basis.Scripts.Networking.NetworkedAvatar
             EnsureInitialized();
             // Read bone local rotations via job (or fallback to main thread)
             ReadBoneTransforms();
+
+            MeasureFingerReconstruction();
 
             CompressAvatarData(transmitter.storedAvatarData, t);
 
@@ -236,10 +261,10 @@ namespace Basis.Scripts.Networking.NetworkedAvatar
             byte seq = sLocalSequence;
             unchecked { sLocalSequence++; }
 
-            // Uplink delta decision (v42): a full keyframe every UplinkKeyframeIntervalSeconds (and
-            // whenever forced/promoted), deltas against it in between. The same frame feeds the
-            // server and every P2P peer, so one baseline serves all receivers; anyone who misses a
-            // keyframe requests one via the DeltaAvatarChannel control frame.
+            // Uplink encoding decision (v42): a keyframe every UplinkKeyframeIntervalSeconds with
+            // per-field deltas against it in between; a receiver that misses the keyframe asks for
+            // another via a DeltaAvatarChannel control frame.
+            // The same frame feeds the server and every P2P peer, so one baseline serves all receivers.
             byte[] payload = transmitter.storedAvatarData.LASM.array;
             int payloadLen = payload.Length;
             bool uplinkDeltasAllowed = BasisNetworkManagement.ServerMetaDataMessage.UplinkDeltaEnabled;
@@ -334,6 +359,49 @@ namespace Basis.Scripts.Networking.NetworkedAvatar
 
             transmitter.AvatarSendWriter.Reset();
             transmitter.ClearAdditional();
+        }
+
+        // Live finger rotations remapped out of wire-slot order into finger*3+joint order, which is
+        // how the pose grid indexes them. BONE_WRITE_ORDER groups fingers by joint tier (all
+        // proximals, then all intermediates, then all distals), so the two orders do not coincide.
+        static NativeArray<quaternion> sFingerLiveByJoint;
+
+        const int FirstFingerBone = (int)HumanBodyBones.LeftThumbProximal;
+
+        /// <summary>
+        /// Phase-2 instrumentation for the finger block: reports how far the live bones sit from the
+        /// pose a receiver would rebuild out of the twenty curl/splay scalars. Inert unless
+        /// BasisFingerReconstructionDiagnostics.Enabled is set, and the expensive best-fit search
+        /// inside it is throttled further.
+        /// </summary>
+        static void MeasureFingerReconstruction()
+        {
+            if (!BasisFingerReconstructionDiagnostics.Enabled) return;
+            if (!sCurrentLocalRotations.IsCreated) return;
+
+            var local = BasisLocalPlayer.Instance;
+            var hands = local != null ? local.LocalHandDriver : null;
+            if (hands == null || !hands.Grid.IsCreated) return;
+
+            NativeArray<float2> percentages = hands.Percentages;
+            if (!percentages.IsCreated) return;
+
+            if (!sFingerLiveByJoint.IsCreated)
+            {
+                sFingerLiveByJoint = new NativeArray<quaternion>(BasisHandPoseGrid.JointCount, Allocator.Persistent);
+            }
+
+            int boneCount = BasisBoneRotationCompression.SyncBoneCount;
+            for (int slot = 0; slot < boneCount; slot++)
+            {
+                int bone = BasisBoneRotationCompression.BONE_WRITE_ORDER[slot];
+                int flat = bone - FirstFingerBone;
+                if (flat < 0 || flat >= BasisHandPoseGrid.JointCount) continue;
+                sFingerLiveByJoint[flat] = sCurrentLocalRotations[slot];
+            }
+
+            BasisFingerReconstructionDiagnostics.Measure(
+                hands.Grid, sFingerLiveByJoint, percentages, hands.DrivenJoints);
         }
 
         static void RecordLastSent(byte[] payload, int linkedIndex, double timeAsDouble)
@@ -433,13 +501,14 @@ namespace Basis.Scripts.Networking.NetworkedAvatar
                 BasisUnityBitPackerExtensionsUnsafe.WritePosition(hipsWorldPos, ref AvatarData.LASM.array, ref offset);
 
                 // Bone rotations — use Burst job if arrays are ready, otherwise fallback
+                NativeArray<float2> fingerPercentages = CurrentFingerPercentages();
                 if (sJobArraysReady)
                 {
-                    CompressBoneRotationsJobified(AvatarData.LASM.array, ref offset);
+                    CompressBoneRotationsJobified(AvatarData.LASM.array, fingerPercentages, ref offset);
                 }
                 else
                 {
-                    BasisBoneRotationUtils.CompressBoneRotations(sBoneDeltas, WireQuality, AvatarData.LASM.array, ref offset);
+                    BasisBoneRotationUtils.CompressBoneRotations(sBoneDeltas, fingerPercentages, WireQuality, AvatarData.LASM.array, ref offset);
                 }
 
                 // Scale
@@ -460,12 +529,12 @@ namespace Basis.Scripts.Networking.NetworkedAvatar
                 };
                 BasisUnityBitPackerExtensionsUnsafe.CompressHipsDelta(Insert, ref AvatarData.LASM.array, ref offset);
 
-                // Hips local-rotation delta (vs TPose). Carries hips orientation
+                // Hips local-rotation delta (vs TPose), in generic space. Carries hips orientation
                 // since Hips is excluded from the bone packet (BONE_WRITE_ORDER).
-                // delta = inverse(tposeLocalRot) × currentLocalRot — receiver
-                // recovers currentLocal as tposeLocalRot × delta.
+                // g = pre × currentLocalRot × post — the receiver recovers ITS hips localRotation
+                // with its own decode pair, so this transfers across rigs like the bone block does.
                 quaternion hipsLocalRotNow = BasisLocalAvatarDriver.Mapping.Hips.localRotation;
-                quaternion hipsRotDelta = math.mul(sInverseTposeHipsLocalRot, hipsLocalRotNow);
+                quaternion hipsRotDelta = math.mul(math.mul(sHipsEncodePre, hipsLocalRotNow), sHipsEncodePost);
                 BasisUnityBitPackerExtensionsUnsafe.WriteCompressedQuaternionToBytes(hipsRotDelta, ref AvatarData.LASM.array, ref offset);
 
                 // End-effector anchoring block (High only). CaptureEndEffectors fills the scratch
@@ -488,7 +557,7 @@ namespace Basis.Scripts.Networking.NetworkedAvatar
         /// Unanchored effector slots keep their stale scratch values on both sides of the compare,
         /// so they can never block suppression; a mask change always forces a send.
         /// </summary>
-        static void CaptureRawPose(Unity.Mathematics.float3 hipsWorldPos, quaternion hipsWorldRot,
+        static unsafe void CaptureRawPose(Unity.Mathematics.float3 hipsWorldPos, quaternion hipsWorldRot,
             Unity.Mathematics.float3 hipsDelta, quaternion hipsRotDelta, float scale, byte effectorMask)
         {
             if (!sCurrentLocalRotations.IsCreated)
@@ -497,12 +566,20 @@ namespace Basis.Scripts.Networking.NetworkedAvatar
                 return;
             }
             float[] raw = sRawCurrent;
-            int boneCount = BasisBoneRotationCompression.SyncBoneCount;
-            for (int slot = 0; slot < boneCount; slot++)
+            // Only the slots the wire still carries as rotations. Slots 21..50 are reconstructed
+            // from the finger channels below, so comparing their quaternions would deadband a
+            // quantity nobody transmits — and would keep a hand that only moved its percentages
+            // from ever suppressing.
+            fixed (float* pRaw = &raw[RawBoneOffset])
             {
-                float4 v = sCurrentLocalRotations[slot].value;
-                int o = RawBoneOffset + slot * 4;
-                raw[o] = v.x; raw[o + 1] = v.y; raw[o + 2] = v.z; raw[o + 3] = v.w;
+                UnsafeUtility.MemCpy(pRaw, sCurrentLocalRotations.GetUnsafeReadOnlyPtr(), (long)RawWireBoneCount * 4 * sizeof(float));
+            }
+            NativeArray<float2> pct = CurrentFingerPercentages();
+            for (int finger = 0; finger < BasisBoneRotationCompression.FingerChannelCount; finger++)
+            {
+                float2 v = pct[finger];
+                raw[RawFingerOffset + finger * 2] = v.x;
+                raw[RawFingerOffset + finger * 2 + 1] = v.y;
             }
             raw[RawPosOffset] = hipsWorldPos.x; raw[RawPosOffset + 1] = hipsWorldPos.y; raw[RawPosOffset + 2] = hipsWorldPos.z;
             float4 br = hipsWorldRot.value;
@@ -538,7 +615,8 @@ namespace Basis.Scripts.Networking.NetworkedAvatar
             if (!BasisAvatarDeadband.ValuesWithin(c.Slice(RawHipsDeltaOffset, 3), l.Slice(RawHipsDeltaOffset, 3), BasisAvatarDeadband.HipsDeltaMeters)) return false;
             if (!BasisAvatarDeadband.QuatsWithin(c.Slice(RawBodyRotOffset, 4), l.Slice(RawBodyRotOffset, 4), sRootMinAbsDot)) return false;
             if (!BasisAvatarDeadband.QuatsWithin(c.Slice(RawHipsRotOffset, 4), l.Slice(RawHipsRotOffset, 4), sRootMinAbsDot)) return false;
-            if (!BasisAvatarDeadband.QuatsWithin(c.Slice(RawBoneOffset, 51 * 4), l.Slice(RawBoneOffset, 51 * 4), sBoneMinAbsDot)) return false;
+            if (!BasisAvatarDeadband.QuatsWithin(c.Slice(RawBoneOffset, RawWireBoneCount * 4), l.Slice(RawBoneOffset, RawWireBoneCount * 4), sBoneMinAbsDot)) return false;
+            if (!BasisAvatarDeadband.ValuesWithin(c.Slice(RawFingerOffset, RawFingerScalarCount), l.Slice(RawFingerOffset, RawFingerScalarCount), BasisAvatarDeadband.FingerPercentUnits)) return false;
             if (!BasisAvatarDeadband.ValuesWithin(c.Slice(RawEffPosOffset, 12), l.Slice(RawEffPosOffset, 12), BasisAvatarDeadband.EffectorPositionMeters)) return false;
             if (!BasisAvatarDeadband.QuatsWithin(c.Slice(RawEffRotOffset, 16), l.Slice(RawEffRotOffset, 16), sBoneMinAbsDot)) return false;
             return true;
@@ -548,35 +626,68 @@ namespace Basis.Scripts.Networking.NetworkedAvatar
         /// Runs the delta + compression as a Burst IJob. Copies the managed byte[] to a NativeArray,
         /// runs the job, then copies back. The Burst compilation of the encode loop is the win here.
         /// </summary>
-        static unsafe void CompressBoneRotationsJobified(byte[] dst, ref int byteOffset)
+        /// <summary>
+        /// The hand driver's live percentages, or a zeroed stand-in before it has built its arrays
+        /// (avatar swap, pre-calibration). Zero is the rest pose, which is what the old code
+        /// effectively sent for those frames anyway.
+        /// </summary>
+        static NativeArray<float2> CurrentFingerPercentages()
         {
-            int boneCount = BasisBoneRotationCompression.SyncBoneCount;
+            var local = BasisLocalPlayer.Instance;
+            var hands = local != null ? local.LocalHandDriver : null;
+            if (hands != null)
+            {
+                NativeArray<float2> live = hands.Percentages;
+                if (live.IsCreated && live.Length == BasisBoneRotationCompression.FingerChannelCount) return live;
+            }
+
+            if (!sFingerFallback.IsCreated)
+            {
+                sFingerFallback = new NativeArray<float2>(
+                    BasisBoneRotationCompression.FingerChannelCount, Allocator.Persistent);
+            }
+            return sFingerFallback;
+        }
+
+        static NativeArray<float2> sFingerFallback;
+
+        static unsafe void CompressBoneRotationsJobified(byte[] dst, NativeArray<float2> fingerPercentages, ref int byteOffset)
+        {
+            int boneCount = BasisBoneRotationCompression.WireBoneSlotCount;
             int rotBytes = BasisBoneRotationCompression.RotationBytes(WireQuality);
 
             // Reuse persistent NativeArray to avoid per-frame TempJob allocation + deallocation.
-            if (!sJobOutputBuffer.IsCreated || sJobOutputBuffer.Length < dst.Length)
+            // Sized to the rotation block alone, not the whole packet: the job ORs into that
+            // region and reads nothing else, so staging the packet's other fields across the
+            // managed/native boundary and back was two full-buffer copies per send for bytes the
+            // job never touched. The block is rebased to offset 0 and copied back into place.
+            if (!sJobOutputBuffer.IsCreated || sJobOutputBuffer.Length < rotBytes)
             {
                 if (sJobOutputBuffer.IsCreated) sJobOutputBuffer.Dispose();
-                sJobOutputBuffer = new NativeArray<byte>(dst.Length, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+                sJobOutputBuffer = new NativeArray<byte>(rotBytes, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
             }
-            NativeArray<byte>.Copy(dst, sJobOutputBuffer, dst.Length);
+            UnsafeUtility.MemClear(sJobOutputBuffer.GetUnsafePtr(), rotBytes);
 
             var job = new BasisBoneDeltaAndCompressJob
             {
                 CurrentLocalRotations = sCurrentLocalRotations,
-                TposeLocalRotations = sTposeNative,
+                EncodePre = sEncodePreNative,
+                EncodePost = sEncodePostNative,
                 BitsPerComponent = sBpcNative,
                 MaxComponent = sMaxComponentNative,
                 OutputBuffer = sJobOutputBuffer,
-                RotationByteOffset = byteOffset,
+                RotationByteOffset = 0,
                 BoneCount = boneCount,
                 BoneDeltas = sBoneDeltas,
+                FingerPercentages = fingerPercentages,
+                CurlBits = BasisBoneRotationCompression.CurlBits(WireQuality),
+                SplayBits = BasisBoneRotationCompression.SplayBits(WireQuality),
             };
 
             job.Run(); // Burst-compiled, runs immediately on this thread
 
             // Copy result back to managed array
-            NativeArray<byte>.Copy(sJobOutputBuffer, 0, dst, 0, dst.Length);
+            NativeArray<byte>.Copy(sJobOutputBuffer, 0, dst, byteOffset, rotBytes);
 
             byteOffset += rotBytes;
         }
@@ -588,7 +699,7 @@ namespace Basis.Scripts.Networking.NetworkedAvatar
         /// </summary>
         static void ReadBoneTransforms()
         {
-            if (sJobArraysReady && sBoneTransformAccess.isCreated)
+            if (sJobArraysReady && sBoneTransformAccess.isCreated && sBoneTransformAccess.length > 0)
             {
                 // Batch-read bone local rotations. RunReadOnly executes the Burst job on this
                 // thread — the old Schedule().Complete() dispatched to a worker and blocked on
@@ -608,15 +719,15 @@ namespace Basis.Scripts.Networking.NetworkedAvatar
         }
 
         /// <summary>
-        /// Fallback: reads bone local rotations and computes deltas on the main thread.
-        /// Only used before job arrays are built. Also writes sBoneDeltas for the
+        /// Fallback: reads bone local rotations and maps them into generic space on the main
+        /// thread. Only used before job arrays are built. Also writes sBoneDeltas for the
         /// non-jobified compression path (BasisBoneRotationUtils.CompressBoneRotations).
         /// </summary>
         static void ExtractBoneDeltas()
         {
-            if (sInverseTposeLocalRotations == null)
+            if (sEncodePre == null || sEncodePost == null)
             {
-                BasisDebug.LogError($"Missing {nameof(sTposeLocalRotations)}");
+                BasisDebug.LogError($"Missing {nameof(sEncodePre)}");
                 return;
             }
 
@@ -631,8 +742,7 @@ namespace Basis.Scripts.Networking.NetworkedAvatar
                     quaternion current = bone.localRotation;
                     sCurrentLocalRotations[slot] = current;
 
-                    quaternion inverseTpose = sInverseTposeLocalRotations[boneEnum];
-                    sBoneDeltas[slot] = math.mul(inverseTpose, current);
+                    sBoneDeltas[slot] = math.mul(math.mul(sEncodePre[boneEnum], current), sEncodePost[boneEnum]);
                 }
                 else
                 {
@@ -656,12 +766,18 @@ namespace Basis.Scripts.Networking.NetworkedAvatar
 
             sCurrentLocalRotations = new NativeArray<quaternion>(boneCount, Allocator.Persistent);
 
-            // T-pose rotations in BONE_WRITE_ORDER slot order
+            // T-pose rotations in BONE_WRITE_ORDER slot order, plus the folded generic-space
+            // encode operators so the encode job multiplies by stored constants instead of
+            // deriving them per send.
             sTposeNative = new NativeArray<quaternion>(boneCount, Allocator.Persistent);
+            sEncodePreNative = new NativeArray<quaternion>(boneCount, Allocator.Persistent);
+            sEncodePostNative = new NativeArray<quaternion>(boneCount, Allocator.Persistent);
             for (int slot = 0; slot < boneCount; slot++)
             {
                 int boneEnum = BasisBoneRotationCompression.BONE_WRITE_ORDER[slot];
                 sTposeNative[slot] = sTposeLocalRotations[boneEnum];
+                sEncodePreNative[slot] = sEncodePre[boneEnum];
+                sEncodePostNative[slot] = sEncodePost[boneEnum];
             }
 
             sBpcNative = new NativeArray<byte>(boneCount, Allocator.Persistent);
@@ -703,6 +819,8 @@ namespace Basis.Scripts.Networking.NetworkedAvatar
             if (sSlotRemap.IsCreated) sSlotRemap.Dispose();
             if (sCurrentLocalRotations.IsCreated) sCurrentLocalRotations.Dispose();
             if (sTposeNative.IsCreated) sTposeNative.Dispose();
+            if (sEncodePreNative.IsCreated) sEncodePreNative.Dispose();
+            if (sEncodePostNative.IsCreated) sEncodePostNative.Dispose();
             if (sBpcNative.IsCreated) sBpcNative.Dispose();
             if (sMaxComponentNative.IsCreated) sMaxComponentNative.Dispose();
         }
@@ -735,7 +853,14 @@ namespace Basis.Scripts.Networking.NetworkedAvatar
             DisposeJobArrays();
             if (sBoneDeltas.IsCreated) sBoneDeltas.Dispose();
             if (sJobOutputBuffer.IsCreated) sJobOutputBuffer.Dispose();
+            if (sFingerLiveByJoint.IsCreated) sFingerLiveByJoint.Dispose();
+            if (sFingerFallback.IsCreated) sFingerFallback.Dispose();
             sTposeLocalRotations = null;
+            // Cleared alongside the forward table: ExtractBoneDeltas guards on the encode
+            // operators being null, and leaving them populated after teardown sends that guard
+            // down a path that then indexes the forward table it just nulled.
+            sEncodePre = null;
+            sEncodePost = null;
             sLastSentPayload = null;
             sHasLastSent = false;
             sRawLastSent = null;

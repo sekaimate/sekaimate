@@ -146,11 +146,35 @@ namespace BasisServerHandle
 
             internal static void Flush()
             {
+                // The batch payload ceiling is enforced HERE, on the snapshot, not inside Frame.
+                // Frame runs once per distinct receiver start-offset, so a per-Frame overflow
+                // re-queue duplicated the overflowing record once per offset — a sustained join
+                // ramp compounded that into unbounded growth of _pending (and duplicate spawn
+                // announcements). Taking a bounded oldest-first prefix leaves the tail queued
+                // exactly once and guarantees progress: at least one record per flush, and every
+                // Frame suffix of the prefix fits the cap by construction.
                 Record[] batch;
                 lock (_pending)
                 {
-                    batch = _pending.Count == 0 ? Array.Empty<Record>() : _pending.ToArray();
-                    _pending.Clear();
+                    if (_pending.Count == 0)
+                    {
+                        batch = Array.Empty<Record>();
+                    }
+                    else
+                    {
+                        _pending.Sort(static (a, b) => a.Seq.CompareTo(b.Seq));
+                        int take = 0;
+                        long payloadBytes = 0;
+                        while (take < _pending.Count)
+                        {
+                            payloadBytes += _pending[take].Payload.Length;
+                            if (take > 0 && payloadBytes > ServerReadyBatchMessage.MaxPayloadBytes) break;
+                            take++;
+                        }
+                        batch = new Record[take];
+                        _pending.CopyTo(0, batch, 0, take);
+                        _pending.RemoveRange(0, take);
+                    }
                 }
                 ushort[] leaves;
                 lock (_pendingLeaves)
@@ -159,7 +183,6 @@ namespace BasisServerHandle
                     _pendingLeaves.Clear();
                 }
                 if (batch.Length == 0 && leaves.Length == 0) return;
-                Array.Sort(batch, static (a, b) => a.Seq.CompareTo(b.Seq));
 
                 NetPeer[] peers = NetworkServer.PeerSnapshot;
                 if (peers == null || peers.Length == 0) return;
@@ -258,13 +281,6 @@ namespace BasisServerHandle
                     ushort count = 0;
                     for (int i = start; i < batch.Length; i++)
                     {
-                        // Respect the batch payload ceiling; anything beyond it rides the next flush
-                        // rather than producing an oversized packet.
-                        if (count > 0 && payload.Length + batch[i].Payload.Length > ServerReadyBatchMessage.MaxPayloadBytes)
-                        {
-                            lock (_pending) { _pending.Add(batch[i]); }
-                            continue;
-                        }
                         payload.Put(batch[i].Payload);
                         count++;
                     }
@@ -331,7 +347,33 @@ namespace BasisServerHandle
         /// </summary>
         private static bool CleanupPeerSubsystems(NetPeer peer, int id)
         {
-            if (NetworkServer.AuthIdentity.NetIDToUUID(peer, out string uuid))
+            // The auth-identity map is the primary UUID source, but it is empty when
+            // UseAuthIdentity is off and can already be evicted on a reconnect collision. The
+            // stored connect metadata carries the same server-computed UUID (OnNetworkAccepted
+            // overwrites the client-supplied one before storing), and it is still present here —
+            // BasisSavedState.RemovePlayer runs below. Without the fallback, every UUID-keyed
+            // store in this block was orphaned for the life of the process in those modes.
+            if (!NetworkServer.AuthIdentity.NetIDToUUID(peer, out string uuid) || string.IsNullOrEmpty(uuid))
+            {
+                if (BasisSavedState.GetLastPlayerMetaData(peer, out ClientMetaDataMessage meta) && !string.IsNullOrEmpty(meta.playerUUID))
+                {
+                    uuid = meta.playerUUID;
+                }
+            }
+
+            NetworkServer.AuthIdentity.RemoveConnection(id, peer);
+
+            // A predecessor's disconnect can land after a reconnect has already taken the same id.
+            // Every teardown below is keyed by id alone, so running it for a peer that no longer
+            // owns the slot dismantles the live peer's state instead — the "direct connect works,
+            // then dies after a rejoin" symptom. An id held by nobody still cleans up, so a peer
+            // rejected before auth completed keeps releasing whatever partial state it made.
+            if (NetworkServer.AuthenticatedPeers.TryGetValue(id, out NetPeer holder) && !Equals(holder, peer))
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrEmpty(uuid))
             {
                 PermissionIntegration.RemovePlayerMeta(uuid);
                 PermissionIntegration.EvictPermissionCache(uuid);
@@ -339,7 +381,6 @@ namespace BasisServerHandle
                 BasisNetworkResourceManagement.RemovePeerResources(uuid);
             }
 
-            NetworkServer.AuthIdentity.RemoveConnection(id);
             BasisNetworkOwnership.RemovePlayerOwnership(id);
             BasisSavedState.RemovePlayer(id);
             BasisServerReductionSystemEvents.RemovePlayer(id);
@@ -352,7 +393,10 @@ namespace BasisServerHandle
             BasisServerMessageRegistry.ClearSubscription(id);
             JoinBroadcast.UnregisterPeer(id);
 
-            return NetworkServer.AuthenticatedPeers.TryRemove(id, out _);
+            // Value-matched, mirroring RejectWithReason(NetPeer): the guard above raced against a
+            // reconnect that may have claimed the id since.
+            return ((ICollection<KeyValuePair<int, NetPeer>>)NetworkServer.AuthenticatedPeers)
+                .Remove(new KeyValuePair<int, NetPeer>(id, peer));
         }
 
         public static void HandlePeerDisconnected(NetPeer peer, DisconnectInfo info)
@@ -601,7 +645,7 @@ namespace BasisServerHandle
                 // stale because LNL will not hand us two live peers with the same Id —
                 // evict it synchronously and retry the insert.
                 if (NetworkServer.AuthenticatedPeers.TryGetValue(PeerId, out NetPeer stale) &&
-                    !ReferenceEquals(stale, newPeer))
+                    !Equals(stale, newPeer))
                 {
                     BNL.Log($"Reconnect collision on peer id {PeerId}; evicting stale entry and accepting new connection.");
                     CleanupPeerSubsystems(stale, PeerId);
@@ -778,8 +822,38 @@ namespace BasisServerHandle
             NetworkServer.ReturnWriter(Writer);
         }
 
+        /// <summary>
+        /// True when the global voice lock is on and this peer lacks basis.voice.lockbypass.
+        /// Shared by the normal and shout voice paths.
+        /// </summary>
+        public static bool IsVoiceBlockedFor(NetPeer peer)
+        {
+            return BasisNetworkServer.Security.BasisGlobalLockManager.VoiceChatLocked &&
+                !PermissionIntegration.HasValidRequirement(peer, PermNodes.VoiceLockBypass);
+        }
+
+        /// <summary>
+        /// UUID-keyed form of <see cref="IsVoiceBlockedFor(NetPeer)"/>, mirroring the two
+        /// HasValidRequirement overloads.
+        /// </summary>
+        public static bool IsVoiceBlockedForUuid(string uuid)
+        {
+            return BasisNetworkServer.Security.BasisGlobalLockManager.VoiceChatLocked &&
+                !PermissionIntegration.HasValidRequirement(uuid, PermNodes.VoiceLockBypass);
+        }
+
         public static void HandleVoiceMessage(NetPacketReader reader, NetPeer peer)
         {
+            if (IsVoiceBlockedFor(peer))
+            {
+                // Dropped silently — voice arrives ~50x/sec per speaker, so a reply or log line per
+                // dropped packet would be a far worse amplification vector than the traffic itself.
+                // Clients stop transmitting once they see the broadcast lock state; this is the
+                // backstop for old and modified ones.
+                reader.Recycle();
+                return;
+            }
+
             AudioSegmentDataMessage audioSegment = ThreadSafeMessagePool<AudioSegmentDataMessage>.Rent();
             audioSegment.Deserialize(reader);
             reader.Recycle();
@@ -804,6 +878,12 @@ namespace BasisServerHandle
             if (!BasisSavedState.IsInShoutMode(peer.Id))
             {
                 BNL.LogError($"Peer {peer.Id} sent shout voice but is not in shout mode. Ignoring.");
+                reader.Recycle();
+                return;
+            }
+
+            if (IsVoiceBlockedFor(peer))
+            {
                 reader.Recycle();
                 return;
             }
@@ -914,25 +994,32 @@ namespace BasisServerHandle
             byte channel = largeId ? BasisNetworkCommons.VoiceLargeChannel : BasisNetworkCommons.VoiceChannel;
 
             // Serialize once into a byte[], then send raw to each peer — skips N writer→packet copies.
+            // try/finally: this runs per voice packet, so a single throw mid-fanout must not eat the
+            // rented snapshot and writer — lost writers permanently drain the shared pool.
             var writer = NetworkServer.RentWriter();
-            audioSegment.Serialize(writer, largeId);
-            int len = writer.Length;
-            byte[] data = writer.Data;
-
-            for (int i = 0; i < snapshotCount; i++)
+            try
             {
-                NetPeer client = snapshot[i];
-                if (client == null) continue;
-                if (BasisNetworkServer.BasisServerP2PBroker.IsP2POffloaded(sender.Id, client.Id))
-                {
-                    continue;
-                }
-                client.SendUnreliableRawMerge(data, 0, len, channel);
-                BasisNetworkStatistics.RecordOutbound(channel, len);
-            }
+                audioSegment.Serialize(writer, largeId);
+                int len = writer.Length;
+                byte[] data = writer.Data;
 
-            NetworkServer.ReturnWriter(writer);
-            ArrayPool<NetPeer>.Shared.Return(snapshot, clearArray: true);
+                for (int i = 0; i < snapshotCount; i++)
+                {
+                    NetPeer client = snapshot[i];
+                    if (client == null) continue;
+                    if (BasisNetworkServer.BasisServerP2PBroker.IsP2POffloaded(sender.Id, client.Id))
+                    {
+                        continue;
+                    }
+                    client.SendUnreliableRawMerge(data, 0, len, channel);
+                    BasisNetworkStatistics.RecordOutbound(channel, len);
+                }
+            }
+            finally
+            {
+                NetworkServer.ReturnWriter(writer);
+                ArrayPool<NetPeer>.Shared.Return(snapshot, clearArray: true);
+            }
         }
         public static void UpdateVoiceReceivers(NetPacketReader Reader, NetPeer Peer, bool largeCount)
         {
@@ -1101,11 +1188,10 @@ namespace BasisServerHandle
                 // player's quality tier; a zero here simply means everyone is measured from the origin,
                 // which is the same answer the reduction system would reach a tick later.
                 Basis.Scripts.Networking.Compression.Vector3 viewerPosition = default;
-                // Only High carries the position as 3 float32; the lower tiers use int24 millimetres,
-                // which would decode as garbage here and produce nonsense distances. Clients send High,
-                // so anything else means fall back to the origin (and therefore to High for everyone).
+                // Every quality tier carries the position in the same int24-millimetre form, so
+                // this decodes correctly whatever tier the joiner's pose arrived on. A short/absent
+                // payload falls back to the origin (and therefore to High for everyone).
                 if (joinerPose.array != null
-                    && joinerPose.DataQualityLevel == (byte)Basis.Network.Core.Compression.BasisAvatarBitPacking.BitQuality.High
                     && joinerPose.array.Length >= Basis.Network.Core.Compression.BasisAvatarBitPacking.WritePosition)
                 {
                     byte[] poseBytes = joinerPose.array;
@@ -1349,7 +1435,16 @@ namespace BasisServerHandle
             UnLoadResource.Deserialize(Reader);
             Reader.Recycle();
 
-            switch (UnLoadResource.Mode)
+            // Tier comes from the stored record, not the packet: Mode is client-supplied and is
+            // never compared against the target, so a user denied world-unload could send Mode 0
+            // and have the prop permission checked instead.
+            if (!BasisNetworkResourceManagement.UshortNetworkDatabase.TryGetValue(UnLoadResource.LoadedNetID, out LocalLoadResource TargetResource))
+            {
+                BNL.LogError($"Trying to unload an object that does not exist! ID Provided was [{UnLoadResource.LoadedNetID}]");
+                return;
+            }
+
+            switch (TargetResource.Mode)
             {
                 case 0:
                     if (PermissionIntegration.HasValidRequirement(Peer, PermNodes.ResourceUnloadProp) == false)
@@ -1381,51 +1476,5 @@ namespace BasisServerHandle
             BasisNetworkResourceManagement.SetStatic(modifyResource, Peer);
         }
         #endregion
-        public static void HandleStoreDatabase(NetPacketReader reader, NetPeer peer)
-        {
-            if (NetworkServer.Configuration.DisableWriteUnlessAdminPersistentFlag)
-            {
-                if (!PermissionIntegration.HasValidRequirement(peer, PermNodes.ConfigurationEditor))
-                {
-                    return;
-                }
-            }
-            var dataMessage = new DatabasePrimativeMessage();
-            dataMessage.Deserialize(reader);
-            reader.Recycle();
-
-            var basisData = new BasisData(dataMessage.Name, dataMessage.jsonPayload);
-            BasisPersistentDatabase.AddOrUpdate(basisData);
-        }
-
-        public static void HandleRequestStoreDatabase(NetPacketReader reader, NetPeer peer)
-        {
-            if(NetworkServer.Configuration.DisableReadUnlessAdminPersistentFlag)
-            {
-                if(!PermissionIntegration.HasValidRequirement(peer, PermNodes.ConfigurationEditor))
-                {
-                    return;
-                }
-            }
-            var dataRequest = new DataBaseRequest();
-            dataRequest.Deserialize(reader);
-            reader.Recycle();
-            if (!BasisPersistentDatabase.GetByName(dataRequest.DatabaseID, out var db))
-            {
-                db = new BasisData(dataRequest.DatabaseID, new System.Collections.Concurrent.ConcurrentDictionary<string, object>());
-            }
-
-            var msg = new DatabasePrimativeMessage
-            {
-                Name = db.Name,
-                jsonPayload = db.JsonPayload
-            };
-
-            var writer = NetworkServer.RentWriter();
-            msg.Serialize(writer);
-            BasisNetworkStatistics.RecordOutbound(BasisNetworkCommons.StoreDatabaseChannel, writer.Length);
-            peer.Send(writer, BasisNetworkCommons.StoreDatabaseChannel, DeliveryMethod.ReliableOrdered);
-            NetworkServer.ReturnWriter(writer);
-        }
     }
 }

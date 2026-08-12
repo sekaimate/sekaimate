@@ -9,13 +9,20 @@ namespace Basis.IK
     /// </summary>
     public partial struct BasisEerieMovement
     {
+        static readonly Unity.Profiling.ProfilerMarker sMarkerSpineHips = new Unity.Profiling.ProfilerMarker("BasisEerie.Spine.HipsPlacement");
+        static readonly Unity.Profiling.ProfilerMarker sMarkerSpineChainPrep = new Unity.Profiling.ProfilerMarker("BasisEerie.Spine.ChainPrep");
+        static readonly Unity.Profiling.ProfilerMarker sMarkerSpineSequential = new Unity.Profiling.ProfilerMarker("BasisEerie.Spine.SequentialIK");
+        static readonly Unity.Profiling.ProfilerMarker sMarkerSpineLordosis = new Unity.Profiling.ProfilerMarker("BasisEerie.Spine.Lordosis");
+
         // Hips + the chest/neck/head chain, then the anatomy modifiers that act on the spine after it.
         void SolveSpinePass(BasisPoseStream stream)
         {
             SolveSpine(stream);
             if (anatCervicalLordosis)
             {
+                sMarkerSpineLordosis.Begin();
                 ApplyCervicalLordosis(stream);
+                sMarkerSpineLordosis.End();
             }
         }
 
@@ -25,6 +32,7 @@ namespace Basis.IK
             {
                 return;
             }
+            sMarkerSpineHips.Begin();
             // ---- Read targets ----
             Vector3 headTargetPos = targetPositionHead;
             Vector3 hipsTargetPos = targetPositionHips;
@@ -59,6 +67,19 @@ namespace Basis.IK
                             Vector3 spineDir = spineLen > k_Epsilon ? headToHips / spineLen : hipsTargetRot * Vector3.down;
                             hipsTargetPos = headTargetPos + spineDir * restDist;
                         }
+                        // LockHead's only constraint is that MINIMUM length -- there is no upper bound and no
+                        // lean cap, which is the point of the mode (the pelvis stays free, so
+                        // BasisPelvisPostureModel's squat coupling survives instead of being re-rigidified the
+                        // way LockBoth's ClampHipsAroundHead did). But "free" was also unbounded: when the mode
+                        // became the default it took ClampHipsAroundHead with it, and that clamp had been
+                        // quietly dragging the synthesized pelvis back under the head every frame. Without it a
+                        // stale support base passes straight through and the spine just stretches sideways to
+                        // reach. Bound the HORIZONTAL offset only -- the height stays whatever the posture model
+                        // said, which is the half LockBoth got wrong.
+                        if (!hasHipsTracker)
+                        {
+                            hipsTargetPos = ClampHipsUnderHead(headTargetPos, hipsTargetPos, restDist * HipsUnderHeadMaxLeanFrac, up);
+                        }
                     }
                     break;
 
@@ -90,8 +111,10 @@ namespace Basis.IK
                 handleHips.SetPosition(stream, hipsTargetPos);
                 handleHips.SetRotation(stream, hipDesired);
             }
+            sMarkerSpineHips.End();
             if (hasChestTracker && handleChest.IsValid(stream))
             {
+                sMarkerSpineChainPrep.Begin();
                 // Neck rotation produced by your spine IK pass – we keep this
                 Quaternion neckRot = handleNeck.IsValid(stream) ? handleNeck.GetRotation(stream) : Quaternion.identity;
 
@@ -111,17 +134,24 @@ namespace Basis.IK
                 DistributeSpineBend(stream, headPos);
                 BiasSpineTowardChest(stream);
                 GuardSpineChain(stream);
+                sMarkerSpineChainPrep.End();
+                sMarkerSpineSequential.Begin();
                 SolveSequentialSpineIK(stream, headPos, headRot);
+                sMarkerSpineSequential.End();
             }
             else if (handleChest.IsValid(stream) && handleNeck.IsValid(stream) && handleHead.IsValid(stream))
             {
                 Vector3 headPos = targetPositionHead;
                 Quaternion headRot = targetRotationHead;
 
+                sMarkerSpineChainPrep.Begin();
                 DistributeSpineBend(stream, headPos);
                 ApplyArmSwingChestFollow(stream);
                 GuardSpineChain(stream);
+                sMarkerSpineChainPrep.End();
+                sMarkerSpineSequential.Begin();
                 SolveSequentialSpineIK(stream, headPos, headRot);
+                sMarkerSpineSequential.End();
             }
         }
         public void SolveSequentialSpineIK(BasisPoseStream stream, Vector3 headTargetPos, Quaternion headTargetRot)
@@ -206,7 +236,7 @@ namespace Basis.IK
             // the chest target is off (weight 0). See SolveChestTarget.
             // ==========================================================================================
             SolveChestTarget(stream, headTargetPos, firstJoint, lastJoint, chainLen, jointSpan,
-                cervicalTwistKeep, lumbarTwistKeep, ccdUp, ccdRelax, neckCone, chestCone);
+                cervicalTwistKeep, lumbarTwistKeep, ccdUp, ccdRelax, neckCone, chestCone, tolSqr);
 
             chainHeadToSpine[tipIdx].SetRotation(stream, finalHeadRot);
         }
@@ -249,7 +279,7 @@ namespace Basis.IK
         }
         void SolveChestTarget(BasisPoseStream stream, Vector3 headTargetPos, int firstJoint, int lastJoint,
             int chainLen, float jointSpan, float cervicalTwistKeep, float lumbarTwistKeep, Vector3 ccdUp,
-            float ccdRelax, float neckCone, float chestCone)
+            float ccdRelax, float neckCone, float chestCone, float tolSqr)
         {
             // Off (toggle false -> weight 0): return before touching a single bone, so the head-only solve
             // above is the whole story, bit for bit. This is the "same usability" guarantee.
@@ -280,7 +310,19 @@ namespace Basis.IK
             {
                 // 1) rotate the Spine so the Chest bone slides toward its target.
                 Vector3 spinePos = chainHeadToSpine[lastJoint].GetPosition(stream);
-                Vector3 cCur = chainHeadToSpine[chestBoneIdx].GetPosition(stream) - spinePos;
+                Vector3 chestNow = chainHeadToSpine[chestBoneIdx].GetPosition(stream);
+
+                // Phase A already breaks on this exact criterion. Phase B spent its whole iteration
+                // budget regardless, re-solving a chest and a head that were both already inside the
+                // solver's own tolerance. A zero spineTolerance makes this unreachable, which is the
+                // old behaviour exactly.
+                if ((chestTargetPos - chestNow).sqrMagnitude < tolSqr
+                    && (headTargetPos - chainHeadToSpine[0].GetPosition(stream)).sqrMagnitude < tolSqr)
+                {
+                    break;
+                }
+
+                Vector3 cCur = chestNow - spinePos;
                 Vector3 cTgt = chestTargetPos - spinePos;
                 if (cCur.sqrMagnitude > k_SqrEpsilon && cTgt.sqrMagnitude > k_SqrEpsilon)
                 {
@@ -451,15 +493,18 @@ namespace Basis.IK
         // Pipeline: (chest spring smooths target) → (decompose bend into pitch/roll, twist into yaw)
         //   → (per-axis weight) → (asymmetric clamp) → (apply as hips-local delta).
         // The chest→neck→head two-bone solve afterwards handles whatever residual reach remains.
-        // The neck, estimated RIGIDLY off the head target, and therefore EXACTLY invariant to a gaze: if the
-        // head orbits the neck by Q then Q's two lever arms cancel algebraically (written out in full inside
-        // DistributeSpineBend). Every consumer that wants to know where the TORSO is must read this and not
-        // headTargetPos -- the HMD sits forward of the neck pivot, so the raw head target reports a lean the
-        // moment you look down. Shared by the spine bend, the postural counterbalance and the hip hinge so
-        // the three cannot drift apart.
+        // The neck, estimated off the head target by re-attaching the T-pose lever, and therefore invariant to
+        // a gaze that the neck actually carried: if the head orbits the neck by Q then Q's two lever arms
+        // cancel algebraically (written out in full inside DistributeSpineBend). A look-UP is the one gaze the
+        // neck does NOT carry, so the swing is damped there -- see BasisNeckCueCore, which owns that whole
+        // argument. Every consumer that wants to know where the TORSO is must read this and not headTargetPos
+        // -- the HMD sits forward of the neck pivot, so the raw head target reports a lean the moment you look
+        // down. Shared by the spine bend, the postural counterbalance and the hip hinge so the three cannot
+        // drift apart.
         Vector3 ComputeNeckCue(Vector3 headTargetPos)
         {
-            return headTargetPos + (targetRotationHead * targetOffsetHead) * tposeHeadToNeckLocal;
+            return BasisNeckCueCore.Solve(headTargetPos, targetRotationHead * targetOffsetHead,
+                tposeHeadToNeckLocal, playerUp, neckExtensionDamp);
         }
         // Wrapper for BasisTrunkCounterbalanceCore: the pelvis travels back as the trunk folds forward, so the
         // bend happens at the hip instead of the torso folding down into itself. The cap scales with the
@@ -513,6 +558,12 @@ namespace Basis.IK
             // -- the two lever arms cancel, algebraically, for ANY Q. Not damped, not faded, not clamped:
             // CANCELLED. A gaze cannot move this cue, so it cannot bend the spine, so there is nothing left
             // to tune. BasisSpineGazeContaminationTests pins it at exactly zero.
+            //
+            // ⚠️ THE CANCELLATION ASSUMES THE HEAD ORBITED THE NECK, WHICH A LOOK-UP DOES NOT. Cervical
+            // extension is short and a look-up is mostly thoracic arching, so the skull barely slides back
+            // over the shoulders and the un-orbit over-rotates -- walking the estimated neck out in front of
+            // the body, which reads here as a lean that never happened. BasisNeckCueCore damps the swing on
+            // that side only; look-down and pure yaw come through this line bit-identical.
             //
             // A real human's chest pitches -0.05 deg per degree of gaze -- i.e. not at all -- so zero is not
             // an approximation of the right answer here, it IS the right answer.
@@ -712,6 +763,8 @@ namespace Basis.IK
             input.ExtremeRollBackwardMaxDeg = lordosisExtremeRollBackwardMaxDeg;
             input.ExtremeHipsHorizontalMax = lordosisExtremeHipsHorizontalMax;
             input.ExtremeChestHorizontalMax = lordosisExtremeChestHorizontalMax;
+            input.ExtremeHipsHorizontalLookUp = lordosisExtremeHipsHorizontalLookUp;
+            input.ExtremeChestHorizontalLookUp = lordosisExtremeChestHorizontalLookUp;
             input.ExtremeHipsDownMax = lordosisExtremeHipsDownMax;
             input.ExtremeChestDownMax = lordosisExtremeChestDownMax;
             input.ExtremeHipsDownLookUp = lordosisExtremeHipsDownLookUp;
@@ -805,6 +858,45 @@ namespace Basis.IK
 
             return headPos + dir * Mathf.Clamp(dist, minD, maxD);
         }
+        /// <summary>
+        /// How far the pelvis may sit HORIZONTALLY from the head, as a fraction of the rest spine, when the
+        /// pelvis is synthesized (no hips tracker). This is a sanity bound, not a posture knob: a genuine deep
+        /// forward bow legitimately puts the head a full trunk length ahead of the pelvis (and the trunk
+        /// counterbalance then adds ~0.38 of that again), so anything much below 1.0 would fight a real fold.
+        /// Its job is to make "the pelvis is parked somewhere else in the play space" unreachable, and to leave
+        /// every posture a human actually holds untouched.
+        /// </summary>
+        const float HipsUnderHeadMaxLeanFrac = 1.0f;
+
+        /// <summary>
+        /// Pulls the hips back toward the vertical axis through the head, capping the horizontal offset while
+        /// leaving the height EXACTLY alone. That split is the whole point: the pelvis's vertical answer is
+        /// BasisPelvisPostureModel's fitted squat/waist-bend coupling, and clamping it is what turned LockBoth
+        /// into a tortoise neck (its ClampHipsAroundHead pinned head->hips to within 5% of rest length, so a
+        /// deep squat lost ~22 cm of pelvis travel that the neck then had to find).
+        /// Direction only — the pelvis slides in along its own horizontal offset, so a forward-left drift is
+        /// answered back-right and the result is equivariant under yaw.
+        /// </summary>
+        public static Vector3 ClampHipsUnderHead(Vector3 headPos, Vector3 hipsPos, float maxHorizontal, Vector3 playerUp)
+        {
+            if (maxHorizontal <= 0f)
+            {
+                return hipsPos;
+            }
+
+            Vector3 up = playerUp.sqrMagnitude < k_SqrEpsilon ? Vector3.up : playerUp.normalized;
+            Vector3 diff = hipsPos - headPos;
+            Vector3 lateral = diff - up * Vector3.Dot(diff, up);
+            float lateralLen = lateral.magnitude;
+            if (lateralLen <= maxHorizontal || lateralLen < k_Epsilon)
+            {
+                return hipsPos;
+            }
+
+            // Slide in along the offset's own direction; the vertical component is carried through untouched.
+            return hipsPos - lateral * (1f - maxHorizontal / lateralLen);
+        }
+
         public static Vector3 EnforceSpineBendLimit(Vector3 headPos, Vector3 hipsPos, float maxBendDeg, Vector3 playerUp)
         {
             if (maxBendDeg <= 0f)

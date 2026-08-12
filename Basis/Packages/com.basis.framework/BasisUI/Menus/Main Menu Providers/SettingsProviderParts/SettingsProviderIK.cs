@@ -27,6 +27,7 @@ public static class SettingsProviderIK
     private static PanelToggle _uiEuroRot;
     private static PanelSlider _uiCalibSphereScale;
     private static PanelSlider _avatarScaleSlider;
+    private static PanelSlider _perAvatarSizeSlider;
     private static PanelElementDescriptor _boneEuroEditorGroup;
 
     private struct BoneBindings
@@ -81,6 +82,22 @@ public static class SettingsProviderIK
                     avatarScaleSlider.gameObject.SetActive(visible);
                     RebuildLayoutChain(scaleParent, tabDesc);
                 };
+            }
+
+            // Escape hatch for an avatar whose proportions no automatic fit can rescue. Per-avatar, so
+            // correcting a chibi never distorts the body size you carry onto everything else.
+            BasisPerAvatarScale.RefreshForCurrentAvatar();
+            var perAvatarSizeSlider = PanelSlider.CreateNew(scaleParent);
+            _perAvatarSizeSlider = perAvatarSizeSlider;
+            if (perAvatarSizeSlider != null)
+            {
+                perAvatarSizeSlider.SetSliderSettings(PanelSlider.SliderSettings.Advanced(
+                    BasisLocalization.Get("calibration.avatarNudge"),
+                    BasisPerAvatarScale.Min, BasisPerAvatarScale.Max,
+                    false, 2, ValueDisplayMode.percentageFromZero));
+                perAvatarSizeSlider.Descriptor.SetTooltip(BasisLocalization.Get("calibration.avatarNudge.tooltip"));
+                perAvatarSizeSlider.SetValueWithoutNotify(BasisPerAvatarScale.Current);
+                perAvatarSizeSlider.OnValueChanged += value => BasisPerAvatarScale.SetForCurrentAvatar(value);
             }
         });
 
@@ -673,6 +690,24 @@ public static class SettingsProviderIK
                 neckGazeFollow.Descriptor.SetTooltip(BasisLocalization.Get("settings.bodyTracking.neckGazeFollow.title.tooltip"));
             }
 
+            var vspineGazeSwingRemoval = PanelSlider.CreateAndBind(
+                bendParent,
+                PanelSlider.SliderSettings.Advanced(BasisLocalization.Get("settings.bodyTracking.vspineGazeSwingRemoval.title"), 0f, 1f, false, 2, ValueDisplayMode.Raw),
+                BasisSettingsDefaults.VSpineGazeSwingRemoval);
+            if (vspineGazeSwingRemoval != null)
+            {
+                vspineGazeSwingRemoval.Descriptor.SetTooltip(BasisLocalization.Get("settings.bodyTracking.vspineGazeSwingRemoval.title.tooltip"));
+            }
+
+            var neckExtensionDamp = PanelSlider.CreateAndBind(
+                bendParent,
+                PanelSlider.SliderSettings.Advanced(BasisLocalization.Get("settings.bodyTracking.neckExtensionDamp.title"), 0f, 1f, false, 2, ValueDisplayMode.Raw),
+                BasisSettingsDefaults.FBIKNeckExtensionDamp);
+            if (neckExtensionDamp != null)
+            {
+                neckExtensionDamp.Descriptor.SetTooltip(BasisLocalization.Get("settings.bodyTracking.neckExtensionDamp.title.tooltip"));
+            }
+
             var spineMaxFwd = PanelSlider.CreateAndBind(
                 bendParent,
                 PanelSlider.SliderSettings.Advanced(BasisLocalization.Get("settings.bodyTracking.spineMaxForward.title"), 0f, 90f, false, 0, ValueDisplayMode.Raw),
@@ -776,9 +811,9 @@ public static class SettingsProviderIK
             }
 
             var elbowSwingToggle = PanelToggle.CreateNewEntry(dynamicsParent);
-            elbowSwingToggle.Descriptor.SetTitle("Elbow Swing Smoothing");
+            elbowSwingToggle.Descriptor.SetTitle(BasisLocalization.Get("settings.bodyTracking.elbowSwingSmoothing.title"));
             elbowSwingToggle.AssignBinding(BasisSettingsDefaults.FBIKElbowSwingEnabled);
-            elbowSwingToggle.Descriptor.SetTooltip("Rate-limits the elbow/knee swing and how fast a torso-collision push eases in. Off = the elbow swings freely (test for over-damping).");
+            elbowSwingToggle.Descriptor.SetTooltip(BasisLocalization.Get("settings.bodyTracking.elbowSwingSmoothing.title.tooltip"));
 
             var swingSmooth = PanelSlider.CreateAndBind(
                 dynamicsParent,
@@ -940,6 +975,24 @@ public static class SettingsProviderIK
             if (lordosisExtremeChestHoriz != null)
             {
                 lordosisExtremeChestHoriz.Descriptor.SetTooltip(BasisLocalization.Get("settings.bodyTracking.lordosisExtremeChestHoriz.title.tooltip"));
+            }
+
+            var lordosisExtremeHipsHorizLookUp = PanelSlider.CreateAndBind(
+                dynamicsParent,
+                PanelSlider.SliderSettings.Advanced(BasisLocalization.Get("settings.bodyTracking.lordosisExtremeHipsHorizLookUp.title"), 0f, 0.1f, false, 3, ValueDisplayMode.Raw),
+                BasisSettingsDefaults.FBIKLordosisExtremeHipsHorizontalLookUp);
+            if (lordosisExtremeHipsHorizLookUp != null)
+            {
+                lordosisExtremeHipsHorizLookUp.Descriptor.SetTooltip(BasisLocalization.Get("settings.bodyTracking.lordosisExtremeHipsHorizLookUp.title.tooltip"));
+            }
+
+            var lordosisExtremeChestHorizLookUp = PanelSlider.CreateAndBind(
+                dynamicsParent,
+                PanelSlider.SliderSettings.Advanced(BasisLocalization.Get("settings.bodyTracking.lordosisExtremeChestHorizLookUp.title"), 0f, 0.1f, false, 3, ValueDisplayMode.Raw),
+                BasisSettingsDefaults.FBIKLordosisExtremeChestHorizontalLookUp);
+            if (lordosisExtremeChestHorizLookUp != null)
+            {
+                lordosisExtremeChestHorizLookUp.Descriptor.SetTooltip(BasisLocalization.Get("settings.bodyTracking.lordosisExtremeChestHorizLookUp.title.tooltip"));
             }
 
             var lordosisExtremeHipsDown = PanelSlider.CreateAndBind(
@@ -1258,8 +1311,9 @@ public static class SettingsProviderIK
         // ------------------
         BuildDebugSection(tabDesc);
 
-        // ONE RESET BUTTON FOR THIS PAGE — kept last so debug info sits above it.
-        SettingsProvider.AddResetPageButton(tabDesc.ContentParent, "Body Tracking", ResetIkDefaults);
+        // The tab's own localization key, which is what the header Reset looks this page up by —
+        // a display name would never match and the page would silently lose its reset.
+        SettingsProvider.RegisterPageReset("settings.tab.bodytracking", ResetIkDefaults);
 
         RebuildLayout(tabDesc);
         return tabPage;
@@ -1281,6 +1335,7 @@ public static class SettingsProviderIK
     // One card per category. Each card's description holds all of its metrics as
     // "Label: value" lines, so the panel collapses from ~27 group cards to 6.
     private static readonly List<(string title, string[] labels, PanelElementDescriptor descriptor)> _debugCategories = new();
+    private static PanelElementDescriptor _sizeSummaryCard;
 
     private static void BuildDebugSection(PanelElementDescriptor tabDesc)
     {
@@ -1300,6 +1355,12 @@ public static class SettingsProviderIK
         var debugParent = debugGroup.ContentParent;
 
         _debugCategories.Clear();
+
+        // Plain-language answer to "how well does this avatar match me" — the one readout here that a
+        // player rather than a developer is meant to read, so it goes first.
+        _sizeSummaryCard = PanelElementDescriptor.CreateNew(PanelElementDescriptor.ElementStyles.Group, debugParent);
+        _sizeSummaryCard.SetTitle(BasisLocalization.Get("calibration.report.size.title"));
+        _sizeSummaryCard.SetDescription("");
 
         AddDebugCategory(debugParent, BasisLocalization.Get("settings.bodyTracking.debug.playerMetrics"),
             "Player Eye Height", "Player Arm Span", "Player Hip Height", "Player Eye To Hip Drop",
@@ -1361,6 +1422,20 @@ public static class SettingsProviderIK
 
     private static void RefreshDebugData()
     {
+        if (_sizeSummaryCard != null)
+        {
+            try
+            {
+                _sizeSummaryCard.SetDescription(BasisBodyFitSummary.Build());
+            }
+            catch (Exception e)
+            {
+                // A readout must never be able to break the panel it lives in.
+                BasisDebug.LogError($"Body fit summary failed: {e}", BasisDebug.LogTag.Avatar);
+                _sizeSummaryCard.SetDescription("--");
+            }
+        }
+
         var sb = new System.Text.StringBuilder();
         foreach (var (title, labels, descriptor) in _debugCategories)
         {
@@ -1544,10 +1619,19 @@ public static class SettingsProviderIK
         BasisSettingsDefaults.IKMode.ResetToDefault();
         BasisSettingsDefaults.EnableArmToHeightBlend.ResetToDefault();
         BasisSettingsDefaults.ArmToHeightBlend.ResetToDefault();
+        BasisSettingsDefaults.ContinuousBodyMeasurement.ResetToDefault();
         BasisSettingsDefaults.IKLockMode.ResetToDefault();
         BasisSettingsDefaults.CalibrationMirror.ResetToDefault();
         BasisSettingsDefaults.CustomScale.ResetToDefault();
         BasisSettingsDefaults.SelectedScale.ResetToDefault();
+
+        // Per-avatar size nudge lives on this page but is stored under a hashed avatar key rather than
+        // a binding, so it has to be cleared (and its slider re-read) by hand.
+        BasisPerAvatarScale.ClearForCurrentAvatar();
+        if (_perAvatarSizeSlider != null)
+        {
+            _perAvatarSizeSlider.SetValueWithoutNotify(BasisPerAvatarScale.Current);
+        }
 
         // Playspace Mover
         BasisSettingsDefaults.EnablePlayspaceMover.ResetToDefault();
@@ -1662,6 +1746,8 @@ public static class SettingsProviderIK
         BasisSettingsDefaults.FBIKLordosisExtremeRollBackwardMaxDeg.ResetToDefault();
         BasisSettingsDefaults.FBIKLordosisExtremeHipsHorizontalMax.ResetToDefault();
         BasisSettingsDefaults.FBIKLordosisExtremeChestHorizontalMax.ResetToDefault();
+        BasisSettingsDefaults.FBIKLordosisExtremeHipsHorizontalLookUp.ResetToDefault();
+        BasisSettingsDefaults.FBIKLordosisExtremeChestHorizontalLookUp.ResetToDefault();
         BasisSettingsDefaults.FBIKLordosisExtremeHipsDownMax.ResetToDefault();
         BasisSettingsDefaults.FBIKLordosisExtremeChestDownMax.ResetToDefault();
         BasisSettingsDefaults.FBIKLordosisExtremeHipsDownLookUp.ResetToDefault();
@@ -1687,6 +1773,8 @@ public static class SettingsProviderIK
         BasisSettingsDefaults.FBIKSpineSquishBoost.ResetToDefault();
         BasisSettingsDefaults.FBIKSpineGazeFollow.ResetToDefault();
         BasisSettingsDefaults.FBIKNeckGazeFollow.ResetToDefault();
+        BasisSettingsDefaults.FBIKNeckExtensionDamp.ResetToDefault();
+        BasisSettingsDefaults.VSpineGazeSwingRemoval.ResetToDefault();
         BasisSettingsDefaults.FBIKSpineCCDRelax.ResetToDefault();
         BasisSettingsDefaults.FBIKSpineTwistKeep.ResetToDefault();
         BasisSettingsDefaults.FBIKSpineNeckTwistKeep.ResetToDefault();
@@ -1771,10 +1859,7 @@ public static class SettingsProviderIK
             PanelElementDescriptor.ElementStyles.Group,
             parent);
         boneSelectGroup.SetTitle(BasisLocalization.Get("settings.ik.title.perBoneSettings"));
-        boneSelectGroup.SetDescription(
-            "Pick a bone to inspect or tune. The toggles and sliders below apply only " +
-            "to the bone you select here — switch bones to see each one's settings."
-        );
+        boneSelectGroup.SetDescription(BasisLocalization.Get("settings.ik.title.perBoneSettings.description"));
 
         var boneNames = _bones.Select(b => b.Name).ToList();
         _boneDropdown = PanelDropdown.CreateNewEntry(boneSelectGroup.ContentParent);
@@ -1788,11 +1873,7 @@ public static class SettingsProviderIK
             PanelElementDescriptor.ElementStyles.Group,
             parent);
         _boneEuroEditorGroup.SetTitle(BasisLocalization.Get("settings.ik.title.calibrationSmoothing"));
-        _boneEuroEditorGroup.SetDescription(
-            "Controls for the selected bone. Use For Calibration decides whether trackers " +
-            "can be assigned to this role during full-body calibration; the smoothing and " +
-            "Euro filter toggles below shape how the bone reacts to incoming motion."
-        );
+        _boneEuroEditorGroup.SetDescription(BasisLocalization.Get("settings.ik.title.calibrationSmoothing.description"));
 
         _uiUseCalibration = PanelToggle.CreateNewEntry(_boneEuroEditorGroup.ContentParent);
         _uiUseCalibration.Descriptor.SetTitle(BasisLocalization.Get("settings.ik.title.useForCalibration"));
@@ -1895,22 +1976,7 @@ public static class SettingsProviderIK
     /// </summary>
     private static void RebuildLayoutChain(RectTransform from, PanelElementDescriptor tabDesc)
     {
-        RectTransform stop = tabDesc != null ? tabDesc.ContentParent : null;
-        RectTransform current = from;
-        while (current != null)
-        {
-            if (current.GetComponent<UnityEngine.UI.ILayoutController>() != null)
-            {
-                UnityEngine.UI.LayoutRebuilder.ForceRebuildLayoutImmediate(current);
-            }
-
-            if (current == stop)
-            {
-                return;
-            }
-
-            current = current.parent as RectTransform;
-        }
+        PanelElementDescriptor.RebuildLayoutChain(from, tabDesc != null ? tabDesc.ContentParent : null);
     }
 
     private static void AddSmoothingGroup(PanelElementDescriptor tabDesc, RectTransform parent, BasisSettingsDefaults.SmoothingGroupBindings group)

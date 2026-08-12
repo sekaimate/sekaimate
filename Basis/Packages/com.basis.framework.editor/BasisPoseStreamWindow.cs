@@ -37,7 +37,7 @@ public class BasisPoseStreamWindow : EditorWindow
     string _anchorInfo = "";
     string _calibInfo = "";
 
-    [MenuItem("Basis/Debug/Pose Stream")]
+    [MenuItem("Basis/Debug/Pose Stream", false, 622)]
     public static void Open()
     {
         GetWindow<BasisPoseStreamWindow>("Pose Stream").Show();
@@ -145,6 +145,9 @@ public class BasisPoseStreamWindow : EditorWindow
 
     void OnGUI()
     {
+        BasisEditorUI.Header("Pose Stream",
+            "The bone pose actually being sent and received, frame by frame.");
+
         using (new EditorGUILayout.HorizontalScope())
         {
             if (GUILayout.Button("Refresh", GUILayout.Width(80)))
@@ -162,7 +165,7 @@ public class BasisPoseStreamWindow : EditorWindow
             }
         }
 
-        EditorGUILayout.HelpBox(_status, MessageType.None);
+        BasisEditorUI.Readout(_status);
         if (!string.IsNullOrEmpty(_anchorInfo))
         {
             EditorGUILayout.LabelField(_anchorInfo, EditorStyles.miniLabel);
@@ -223,7 +226,7 @@ public class BasisPoseStreamWindow : EditorWindow
             var style = new GUIStyle(EditorStyles.label);
             if (bad)
             {
-                style.normal.textColor = Color.red;
+                style.normal.textColor = BasisEditorUI.Bad;
             }
 
             using (new EditorGUILayout.HorizontalScope())
@@ -234,7 +237,7 @@ public class BasisPoseStreamWindow : EditorWindow
                 GUILayout.Label(row.Writable ? "*" : "", style, GUILayout.Width(20));
                 float stretch = row.BindLength > 1e-6f ? (row.CurrentLength / row.BindLength - 1f) * 100f : 0f;
                 var stretchStyle = new GUIStyle(style);
-                if (!row.TranslationFree && stretch > 0.5f) { stretchStyle.normal.textColor = new Color(1f, 0.5f, 0f); }
+                if (!row.TranslationFree && stretch > 0.5f) { stretchStyle.normal.textColor = BasisEditorUI.Warn; }
                 GUILayout.Label(row.BindLength.ToString("F4"), style, GUILayout.Width(70));
                 GUILayout.Label(row.CurrentLength.ToString("F4"), style, GUILayout.Width(70));
                 GUILayout.Label(row.TranslationFree ? "free" : stretch.ToString("F2"), stretchStyle, GUILayout.Width(70));

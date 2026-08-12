@@ -55,6 +55,18 @@ namespace Basis.Scripts.BasisSdk
         public int[] FaceVisemeMovement = new int[] { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
 
         /// <summary>
+        /// Optional per-viseme response shaping, parallel to <see cref="FaceVisemeMovement"/>.
+        /// Null or short entries fall back to <see cref="BasisVisemeProfile.Default"/>, which
+        /// reproduces the untouched probability-to-weight behaviour.
+        /// </summary>
+        public BasisVisemeProfile[] FaceVisemeProfiles;
+
+        /// <summary>
+        /// Avatar-wide lip-sync response settings shared by every viseme.
+        /// </summary>
+        public BasisVisemeDriveConfig FaceVisemeDrive = new BasisVisemeDriveConfig();
+
+        /// <summary>
         /// Blend shape indices used for blink animation; -1 indicates unused.
         /// </summary>
         public int[] BlinkViseme = new int[] { -1 };
@@ -123,6 +135,24 @@ namespace Basis.Scripts.BasisSdk
         /// </summary>
         [SerializeField]
         public Renderer[] Renders;
+
+        /// <summary>
+        /// True when this avatar is a runtime-built far LOD proxy standing in for the real
+        /// avatar (out of range, downloading, or platform-missing). It goes through the exact
+        /// same load/calibration/registration pipeline as every other avatar.
+        /// </summary>
+        [System.NonSerialized]
+        public bool IsFarLodAvatar;
+
+        /// <summary>
+        /// Shared far LOD version this avatar was built from, mirrored here from the wearer's
+        /// BasisFarAvatarInstance so the transmit tick can test staleness with a field read.
+        /// That component stays the owner — it keys the shared-asset release in its OnDestroy —
+        /// but reaching it took a GetComponent per far-LOD player per tick. Null on the
+        /// prototype and on every avatar that isn't a far LOD.
+        /// </summary>
+        [System.NonSerialized]
+        public string FarLodSharedVersion;
 
         [System.NonSerialized]
         public SkinnedMeshRenderer[] SkinnedMeshRenderers;

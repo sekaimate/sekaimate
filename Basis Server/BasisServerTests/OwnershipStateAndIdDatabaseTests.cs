@@ -218,15 +218,19 @@ public class BasisNetworkOwnershipTests
     {
         const string key = "own:wire:remove";
         Assert.True(BasisNetworkOwnership.AddOwnership(key, 11));
-        var peer = new OwnershipFakeNetPeer(11);
 
-        BasisNetworkOwnership.RemoveOwnership(BuildReader(12, key), peer);
+        // A non-owner cannot release the object even by naming the real owner in the packet:
+        // authorization comes from the sending peer, not the client-supplied player id.
+        BasisNetworkOwnership.RemoveOwnership(BuildReader(11, key), new OwnershipFakeNetPeer(12));
         Assert.True(BasisNetworkOwnership.DoesObjectExistInDatabase(key));
+
+        var peer = new OwnershipFakeNetPeer(11);
 
         BasisNetworkOwnership.RemoveOwnership(BuildReader(11, "own:wire:remove-unknown"), peer);
         Assert.False(BasisNetworkOwnership.DoesObjectExistInDatabase("own:wire:remove-unknown"));
 
-        BasisNetworkOwnership.RemoveOwnership(BuildReader(11, key), peer);
+        // The owner's own request succeeds; the redundant player id field is ignored.
+        BasisNetworkOwnership.RemoveOwnership(BuildReader(12, key), peer);
         Assert.False(BasisNetworkOwnership.DoesObjectExistInDatabase(key));
     }
 
@@ -793,7 +797,7 @@ public class BasisNetworkIDDatabaseTests
     }
 
     [Fact]
-    public void CounterExhaustion_ThrowsAtUshortLimit_AndStaysFullUntilReset()
+    public void CounterExhaustion_DropsAtUshortLimit_AndStaysFullUntilReset()
     {
         BasisNetworkIDDatabase.Reset();
         var peer = new OwnershipFakeNetPeer(9);
@@ -804,8 +808,10 @@ public class BasisNetworkIDDatabaseTests
         Assert.True(BasisNetworkIDDatabase.UshortNetworkDatabase.TryGetValue("net:cap:" + ushort.MaxValue, out ushort last));
         Assert.Equal(ushort.MaxValue, last);
 
-        Assert.Throws<InvalidOperationException>(() => BasisNetworkIDDatabase.AddOrFindNetworkID(peer, "net:cap:overflow"));
-        Assert.Throws<InvalidOperationException>(() => BasisNetworkIDDatabase.AddOrFindNetworkID(peer, "net:cap:overflow-2"));
+        // At the ceiling requests are dropped, never thrown: ids arrive per client message, and a
+        // throw per message was an exception storm through the message processor.
+        BasisNetworkIDDatabase.AddOrFindNetworkID(peer, "net:cap:overflow");
+        BasisNetworkIDDatabase.AddOrFindNetworkID(peer, "net:cap:overflow-2");
         Assert.False(BasisNetworkIDDatabase.UshortNetworkDatabase.ContainsKey("net:cap:overflow"));
         Assert.Equal(ushort.MaxValue + 1, BasisNetworkIDDatabase.UshortNetworkDatabase.Count);
 

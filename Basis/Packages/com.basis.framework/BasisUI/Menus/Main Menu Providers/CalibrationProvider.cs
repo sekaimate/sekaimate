@@ -65,6 +65,15 @@ namespace Basis.BasisUI
             Button.Descriptor.SetTitle(BasisLocalization.Get("calibration.calibrate"));
             Button.Descriptor.SetTooltip(BasisLocalization.Get("calibration.calibrate.tooltip"));
 
+            // Sizing no longer needs the T-pose ritual — that is for assigning full-body trackers and
+            // capturing their offsets. Measuring the player only needs them to stand tall and reach out
+            // once, which the sampler picks up on its own, so it gets its own low-friction button. For a
+            // desktop or 3-point player this is the only calibration they ever needed.
+            PanelButton measureButton = PanelButton.CreateNew(PanelButton.ButtonStyles.Default, container);
+            measureButton.OnClicked += OnMeasureMeClicked;
+            measureButton.Descriptor.SetTitle(BasisLocalization.Get("calibration.measureMe"));
+            measureButton.Descriptor.SetTooltip(BasisLocalization.Get("calibration.measureMe.tooltip"));
+
             // See-through calibration mirror (implementation registers from the examples assembly):
             // shows only your avatar + calibration visuals, and unlike the pinned Personal Mirror it
             // spawns without closing the menu. Off by default.
@@ -97,16 +106,8 @@ namespace Basis.BasisUI
                 };
             }
 
-            // Calibration quality report — filled in after a calibration completes.
-            _reportGroup = null;
-            if (BasisSettingsDefaults.DevShowCalibrationDebug.RawValue)
-            {
-                _reportGroup = PanelElementDescriptor.CreateNew(PanelElementDescriptor.ElementStyles.Group, container);
-                _reportGroup.SetTitle("Calibration Report");
-                _reportGroup.SetDescription(BasisCalibrationQualityReport.HasReport ? BasisCalibrationQualityReport.Summary : "Calibrate to see a quality report.");
-            }
-
-            // Calibration modes (moved here from Body Tracking settings): seated/standing, avatar scaling, spine lock.
+            // Seated/standing stays out front: it is the one mode that changes what every other
+            // control below is even doing.
             var seatedModeDropdown = PanelDropdown.CreateNewEntry(container);
             seatedModeDropdown.Descriptor.SetTitle(BasisLocalization.Get("settings.bodyTracking.seatedMode"));
             seatedModeDropdown.Descriptor.SetTooltip(BasisLocalization.Get("settings.bodyTracking.seatedMode.tooltip"));
@@ -114,84 +115,7 @@ namespace Basis.BasisUI
                 new List<string> { SettingsProviderIK.SeatedMode_Standing, SettingsProviderIK.SeatedMode_Seated },
                 new List<string> { "settings.bodyTracking.seatedMode.standing", "settings.bodyTracking.seatedMode.seated" });
             seatedModeDropdown.AssignBinding(BasisSettingsDefaults.SitStand);
-
-            var scalingModeDropdown = PanelDropdown.CreateNewEntry(container);
-            scalingModeDropdown.Descriptor.SetTitle(BasisLocalization.Get("settings.bodyTracking.ikMode"));
-            scalingModeDropdown.Descriptor.SetTooltip(BasisLocalization.Get("settings.bodyTracking.ikMode.tooltip"));
-            scalingModeDropdown.AssignLocalizedEntries(
-                new List<string> { "Auto", "Eye Height", "Arm Distance" },
-                new List<string> { "settings.bodyTracking.ikMode.auto", "settings.bodyTracking.ikMode.eyeHeight", "settings.bodyTracking.ikMode.armDistance" });
-            scalingModeDropdown.AssignBinding(BasisSettingsDefaults.IKMode);
-
-            // Arm To Height Ratio: scale by a percentage between the two measurements instead of a single
-            // scaling mode. Overrides the Avatar Scaling Mode dropdown while enabled (VR only).
-            var armToHeightToggle = PanelToggle.CreateNewEntry(container);
-            armToHeightToggle.Descriptor.SetTitle("Arm To Height Ratio");
-            armToHeightToggle.Descriptor.SetTooltip(
-                "Scale the avatar by a percentage between your two measurements instead of a single scaling mode: " +
-                "0% uses eye height, 100% uses arm distance, and values outside that range keep going in the " +
-                "same direction. Overrides Avatar Scaling Mode while enabled.");
-            armToHeightToggle.AssignBinding(BasisSettingsDefaults.EnableArmToHeightBlend);
-
-            var armToHeightSlider = PanelSlider.CreateAndBind(
-                container,
-                PanelSlider.SliderSettings.Advanced("Arm To Height Ratio",
-                    BasisCalibrationMath.ArmToHeightBlendMin, BasisCalibrationMath.ArmToHeightBlendMax,
-                    false, 2, ValueDisplayMode.percentageFromZero),
-                BasisSettingsDefaults.ArmToHeightBlend);
-
-            var spineLockModeDropdown = PanelDropdown.CreateNewEntry(container);
-            spineLockModeDropdown.Descriptor.SetTitle(BasisLocalization.Get("settings.bodyTracking.spineLockMode"));
-            spineLockModeDropdown.Descriptor.SetTooltip(BasisLocalization.Get("settings.bodyTracking.spineLockMode.tooltip"));
-            spineLockModeDropdown.AssignLocalizedEntries(
-                new List<string> { "Lock Hips", "Lock Head", "Lock Both" },
-                new List<string> { "settings.bodyTracking.spineLock.hips", "settings.bodyTracking.spineLock.head", "settings.bodyTracking.spineLock.both" });
-            spineLockModeDropdown.AssignBinding(BasisSettingsDefaults.IKLockMode);
-
-            // Slim calibration panel: inset each dropdown control's left edge so its label isn't squished.
             NarrowDropdownForPanel(seatedModeDropdown);
-            NarrowDropdownForPanel(scalingModeDropdown);
-            NarrowDropdownForPanel(spineLockModeDropdown);
-
-            // Avatar Scaling Mode is moot in seated mode (a fixed height is used) and while the
-            // Arm To Height Ratio blend replaces it, so disable it there.
-            void UpdateScalingModeInteractable()
-            {
-                bool isSeated = seatedModeDropdown.DropdownComponent.options[seatedModeDropdown.DropdownComponent.value].text == SettingsProviderIK.SeatedMode_Seated;
-                bool blendActive = BasisSettingsDefaults.EnableArmToHeightBlend.RawValue;
-                scalingModeDropdown.SetInteractable(!isSeated && !blendActive,
-                    isSeated ? BasisLocalization.Get("settings.bodyTracking.ikMode.disabledSeated")
-                    : blendActive ? "Disabled while Arm To Height Ratio is enabled." : null);
-            }
-            seatedModeDropdown.OnValueChanged += _ => UpdateScalingModeInteractable();
-            UpdateScalingModeInteractable();
-
-            if (armToHeightSlider != null)
-            {
-                armToHeightSlider.Descriptor.SetTooltip(
-                    "Percentage between the two measurements: 0% scales by eye height, 100% by arm distance. " +
-                    "Negative pushes past eye height, above 100% pushes past arm distance.");
-                armToHeightSlider.gameObject.SetActive(BasisSettingsDefaults.EnableArmToHeightBlend.RawValue);
-            }
-            armToHeightToggle.OnValueChanged += enabled =>
-            {
-                if (armToHeightSlider != null)
-                {
-                    armToHeightSlider.gameObject.SetActive(enabled);
-                }
-                UpdateScalingModeInteractable();
-                layout.ForceRebuild();
-            };
-
-            // Lock-in guides toggle (shrinking spheres + foot-forward guide while calibrating).
-            if (BasisSettingsDefaults.DevShowCalibrationDebug.RawValue)
-            {
-                var lockInGuidesToggle = PanelToggle.CreateNewEntry(container);
-                lockInGuidesToggle.Descriptor.SetTitle(BasisLocalization.Get("calibration.lockInGuides"));
-                lockInGuidesToggle.Descriptor.SetTooltip(BasisLocalization.Get("calibration.lockInGuides.tooltip"));
-                lockInGuidesToggle.SetValueWithoutNotify(BasisCalibrationLockInVisualizer.Enabled);
-                lockInGuidesToggle.OnValueChanged += value => BasisCalibrationLockInVisualizer.Enabled = value;
-            }
 
             // Avatar scale
             var customScaleToggle = PanelToggle.CreateNewEntry(container);
@@ -214,6 +138,131 @@ namespace Basis.BasisUI
                     layout.ForceRebuild();
                 };
             }
+
+            // Everything a player only touches when the automatic fit is not doing what they want.
+            // Collapsed by default so the panel is a Calibrate button, a Measure Me button and a mode.
+            // The report lives in there, so drop the previous panel's reference whether or not the
+            // section rebuilds it.
+            _reportGroup = null;
+            PanelSlider armToHeightSlider = null;
+            PanelSectionToggleHelpers.CreateCollapsibleFlatSection(
+                container,
+                BasisLocalization.Get("ui.advanced"),
+                () => armToHeightSlider = BuildAdvancedSection(container, layout, seatedModeDropdown),
+                false,
+                visible =>
+                {
+                    // The section restores every row it owns; the ratio slider is only meant to be
+                    // up while its toggle is on, so re-apply that after an expand.
+                    if (visible && armToHeightSlider != null)
+                    {
+                        armToHeightSlider.gameObject.SetActive(BasisSettingsDefaults.EnableArmToHeightBlend.RawValue);
+                    }
+                    layout.ForceRebuild();
+                });
+        }
+
+        /// <summary>Builds the advanced rows into <paramref name="container"/> and returns the
+        /// Arm To Height Ratio slider, whose visibility the section has to re-apply on expand.</summary>
+        private PanelSlider BuildAdvancedSection(RectTransform container, PanelElementDescriptor layout, PanelDropdown seatedModeDropdown)
+        {
+            // Calibration quality report — filled in after a calibration completes.
+            _reportGroup = null;
+            if (BasisSettingsDefaults.DevShowCalibrationDebug.RawValue)
+            {
+                _reportGroup = PanelElementDescriptor.CreateNew(PanelElementDescriptor.ElementStyles.Group, container);
+                _reportGroup.SetTitle(BasisLocalization.Get("calibration.report.title"));
+                _reportGroup.SetDescription(BasisCalibrationQualityReport.HasReport ? BasisCalibrationQualityReport.Summary : BasisLocalization.Get("calibration.report.empty"));
+            }
+
+            // The single most reliable measurement available, and the only one a permanently-seated
+            // player has: their own answer.
+            var heightField = PanelTextField.CreateNewEntry(container);
+            heightField.Descriptor.SetTitle(BasisLocalization.Get("settings.calibration.yourHeight"));
+            heightField.Descriptor.SetTooltip(BasisLocalization.Get("settings.calibration.yourHeight.tooltip"));
+            heightField.SetValueWithoutNotify(BasisStatedHeight.FormatCompact(BasisStatedHeight.Meters));
+            heightField.OnValueChanged += text => OnStatedHeightEntered(heightField, text);
+
+            var scalingModeDropdown = PanelDropdown.CreateNewEntry(container);
+            scalingModeDropdown.Descriptor.SetTitle(BasisLocalization.Get("settings.bodyTracking.ikMode"));
+            scalingModeDropdown.Descriptor.SetTooltip(BasisLocalization.Get("settings.bodyTracking.ikMode.tooltip"));
+            scalingModeDropdown.AssignLocalizedEntries(
+                new List<string> { "Auto", "Eye Height", "Arm Distance" },
+                new List<string> { "settings.bodyTracking.ikMode.auto", "settings.bodyTracking.ikMode.eyeHeight", "settings.bodyTracking.ikMode.armDistance" });
+            scalingModeDropdown.AssignBinding(BasisSettingsDefaults.IKMode);
+
+            // Keep observing the player's real size while they play instead of trusting the pose they
+            // happened to be in when an avatar loaded (VR only; see BasisBodyEvidenceSampler).
+            var continuousMeasureToggle = PanelToggle.CreateNewEntry(container);
+            continuousMeasureToggle.Descriptor.SetTitle(BasisLocalization.Get("settings.calibration.continuousBodyMeasurement"));
+            continuousMeasureToggle.Descriptor.SetTooltip(BasisLocalization.Get("settings.calibration.continuousBodyMeasurement.tooltip"));
+            continuousMeasureToggle.AssignBinding(BasisSettingsDefaults.ContinuousBodyMeasurement);
+
+            // Arm To Height Ratio: scale by a percentage between the two measurements instead of a single
+            // scaling mode. Overrides the Avatar Scaling Mode dropdown while enabled (VR only).
+            var armToHeightToggle = PanelToggle.CreateNewEntry(container);
+            armToHeightToggle.Descriptor.SetTitle(BasisLocalization.Get("settings.calibration.armToHeightRatio"));
+            armToHeightToggle.Descriptor.SetTooltip(BasisLocalization.Get("settings.calibration.armToHeightRatio.tooltip"));
+            armToHeightToggle.AssignBinding(BasisSettingsDefaults.EnableArmToHeightBlend);
+
+            var armToHeightSlider = PanelSlider.CreateAndBind(
+                container,
+                PanelSlider.SliderSettings.Advanced(BasisLocalization.Get("settings.calibration.armToHeightRatio"),
+                    BasisCalibrationMath.ArmToHeightBlendMin, BasisCalibrationMath.ArmToHeightBlendMax,
+                    false, 2, ValueDisplayMode.percentageFromZero),
+                BasisSettingsDefaults.ArmToHeightBlend);
+
+            var spineLockModeDropdown = PanelDropdown.CreateNewEntry(container);
+            spineLockModeDropdown.Descriptor.SetTitle(BasisLocalization.Get("settings.bodyTracking.spineLockMode"));
+            spineLockModeDropdown.Descriptor.SetTooltip(BasisLocalization.Get("settings.bodyTracking.spineLockMode.tooltip"));
+            spineLockModeDropdown.AssignLocalizedEntries(
+                new List<string> { "Lock Hips", "Lock Head", "Lock Both" },
+                new List<string> { "settings.bodyTracking.spineLock.hips", "settings.bodyTracking.spineLock.head", "settings.bodyTracking.spineLock.both" });
+            spineLockModeDropdown.AssignBinding(BasisSettingsDefaults.IKLockMode);
+
+            // Slim calibration panel: inset each dropdown control's left edge so its label isn't squished.
+            NarrowDropdownForPanel(scalingModeDropdown);
+            NarrowDropdownForPanel(spineLockModeDropdown);
+
+            // Avatar Scaling Mode is moot in seated mode (a fixed height is used) and while the
+            // Arm To Height Ratio blend replaces it, so disable it there.
+            void UpdateScalingModeInteractable()
+            {
+                bool isSeated = seatedModeDropdown.DropdownComponent.options[seatedModeDropdown.DropdownComponent.value].text == SettingsProviderIK.SeatedMode_Seated;
+                bool blendActive = BasisSettingsDefaults.EnableArmToHeightBlend.RawValue;
+                scalingModeDropdown.SetInteractable(!isSeated && !blendActive,
+                    isSeated ? BasisLocalization.Get("settings.bodyTracking.ikMode.disabledSeated")
+                    : blendActive ? "Disabled while Arm To Height Ratio is enabled." : null);
+            }
+            seatedModeDropdown.OnValueChanged += _ => UpdateScalingModeInteractable();
+            UpdateScalingModeInteractable();
+
+            if (armToHeightSlider != null)
+            {
+                armToHeightSlider.Descriptor.SetTooltip(BasisLocalization.Get("settings.calibration.armToHeightRatio.slider.tooltip"));
+                armToHeightSlider.gameObject.SetActive(BasisSettingsDefaults.EnableArmToHeightBlend.RawValue);
+            }
+            armToHeightToggle.OnValueChanged += enabled =>
+            {
+                if (armToHeightSlider != null)
+                {
+                    armToHeightSlider.gameObject.SetActive(enabled);
+                }
+                UpdateScalingModeInteractable();
+                layout.ForceRebuild();
+            };
+
+            // Lock-in guides toggle (shrinking spheres + foot-forward guide while calibrating).
+            if (BasisSettingsDefaults.DevShowCalibrationDebug.RawValue)
+            {
+                var lockInGuidesToggle = PanelToggle.CreateNewEntry(container);
+                lockInGuidesToggle.Descriptor.SetTitle(BasisLocalization.Get("calibration.lockInGuides"));
+                lockInGuidesToggle.Descriptor.SetTooltip(BasisLocalization.Get("calibration.lockInGuides.tooltip"));
+                lockInGuidesToggle.SetValueWithoutNotify(BasisCalibrationLockInVisualizer.Enabled);
+                lockInGuidesToggle.OnValueChanged += value => BasisCalibrationLockInVisualizer.Enabled = value;
+            }
+
+            return armToHeightSlider;
         }
 
         private static string FormatScaleMeters(float meters) => meters.ToString("0.##") + " m";
@@ -242,6 +291,61 @@ namespace Basis.BasisUI
             }
 
             Calibrate();
+        }
+
+        /// <summary>
+        /// Re-measures the player from scratch without the T-pose ritual. Everything observed so far is
+        /// dropped — that is the point: the high-water estimate can only rise, so if it is wrong (a bad
+        /// tracking episode, or someone else in the headset) discarding it is the only way out.
+        /// </summary>
+        private void OnMeasureMeClicked()
+        {
+            BasisBodyEvidenceSampler.ResetEvidence();
+            BasisHeightDriver.HasGenuinePlayerEyeHeight = false;
+            BasisHeightDriver.HasGenuinePlayerArmSpan = false;
+            BasisHeightDriver.CapturePlayerHeight();
+            BasisHeightDriver.ApplyScaleAndHeight();
+
+            BasisNotificationCenter.LogResolved(
+                BasisLocalization.Get("calibration.measureMe"),
+                BasisLocalization.Get("calibration.measureMe.prompt"),
+                AddressableAssets.Sprites.Information,
+                BasisNotificationStatus.Accepted);
+        }
+
+        private void OnStatedHeightEntered(PanelTextField field, string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                BasisSettingsDefaults.StatedBodyHeight.SetValue(0f);
+                ReapplyAfterSizeChange();
+                return;
+            }
+
+            if (!BasisStatedHeight.TryParse(text, out float meters))
+            {
+                field.Descriptor.SetTooltip(BasisLocalization.Get("settings.calibration.yourHeight.rejected"));
+                field.SetValueWithoutNotify(BasisStatedHeight.FormatCompact(BasisStatedHeight.Meters));
+                return;
+            }
+
+            BasisSettingsDefaults.StatedBodyHeight.SetValue(meters);
+            // Echo it back in a canonical form so the player can see we understood them.
+            field.SetValueWithoutNotify(BasisStatedHeight.FormatCompact(meters));
+            field.Descriptor.SetTooltip(BasisLocalization.Get("settings.calibration.yourHeight.tooltip"));
+            ReapplyAfterSizeChange();
+        }
+
+        /// <summary>
+        /// A stated height only ever FILLS IN for a missing measurement, so it cannot take effect while
+        /// a stale one is still marked genuine. Dropping that flag lets the normal capture path decide
+        /// afresh which source wins.
+        /// </summary>
+        private void ReapplyAfterSizeChange()
+        {
+            BasisHeightDriver.HasGenuinePlayerEyeHeight = false;
+            BasisHeightDriver.CapturePlayerHeight(recaptureEyeHeight: false);
+            BasisHeightDriver.ApplyScaleAndHeight();
         }
 
         public void Calibrate()

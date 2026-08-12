@@ -1,6 +1,6 @@
 /* Blocking TCP client sockets (Winsock / BSD). No TLS — plaintext rtsp/rtmp and
  * plaintext http only. TLS streams use the platform stacks (WinHTTP on Windows,
- * AMediaExtractor on Android). */
+ * JNI HttpsURLConnection on Android). */
 #ifndef BASIS_IO_H
 #define BASIS_IO_H
 
@@ -29,6 +29,16 @@ int basis_io_write_full(basis_io_t* io, const uint8_t* buf, int len);
 void basis_io_set_read_timeout(basis_io_t* io, int timeout_ms);
 
 void basis_io_close(basis_io_t* io);
+
+/* Unblocks a read parked on this socket, without freeing anything: the descriptor
+ * stays valid so the reader can return through its own error path and the owner
+ * still closes it. For interrupting a reader before joining its thread. */
+void basis_io_shutdown(basis_io_t* io);
+
+/* Overrides the default write deadline on this socket. For a last write on a path
+ * that must not hold a thread up — the default is sized for a request that matters,
+ * not for one sent on the way out. */
+void basis_io_set_send_timeout(basis_io_t* io, int timeout_ms);
 
 /* Numeric peer address of a connected socket (e.g. "203.0.113.7"), for reusing
  * one validated resolution across further connections. Returns 0 on success. */
@@ -61,8 +71,24 @@ int basis_io_poll_read(basis_io_t** ios, int n, int timeout_ms);
  * non-global-unicast guard basis_io_connect enforces. Resolves the name and
  * returns 1 if it is empty, unresolvable (fail-closed), or resolves to any
  * non-global-unicast address (loopback / RFC1918 / link-local / ULA /
- * multicast). Honours the same BASIS_MEDIA_ALLOW_LOCAL escape hatch. */
+ * multicast). Honours the same BASIS_MEDIA_ALLOW_LOCAL escape hatch.
+ * An IPv6 literal may be passed either bare or in the brackets a URL writes it
+ * with. Call it for the entry URL and again for every redirect hop — the
+ * platform stacks re-resolve names when they connect, so this bounds which
+ * targets are attempted, not which address a later lookup returns. */
 int basis_io_host_is_blocked(const char* host);
+
+/* Resolve `host` to a single vetted numeric address literal for a caller that owns
+ * its own sockets (e.g. librist) and would otherwise re-resolve the name at connect
+ * time. Applies the same non-global-unicast guard basis_io_connect uses to the
+ * resolved addresses and writes the first allowed one, in numeric form, to `out_ip`
+ * (at most out_cap bytes incl. the terminator) plus its address family to
+ * *out_family. Returns 0 on success; -1 if the host is empty, unresolvable, or every
+ * resolved address is blocked (fail-closed). Pinning the caller to this literal
+ * closes the DNS-rebind window that basis_io_host_is_blocked alone leaves open.
+ * Honours the same BASIS_MEDIA_ALLOW_LOCAL escape hatch; accepts a bare or
+ * bracketed IPv6 literal like basis_io_host_is_blocked. */
+int basis_io_resolve_checked(const char* host, char* out_ip, int out_cap, int* out_family);
 
 /* Process-wide one-time init/teardown (WSAStartup on Windows; no-op elsewhere). */
 void basis_io_global_init(void);

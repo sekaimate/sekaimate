@@ -10,13 +10,20 @@ using static Basis.Network.Core.Compression.BasisAvatarBitPacking;
 namespace Basis.Scripts.Networking.NetworkedAvatar
 {
     /// <summary>
-    /// Burst-compiled job that computes T-pose-relative bone deltas and compresses them
-    /// into a packed byte buffer using smallest-three quaternion encoding.
+    /// Burst-compiled job that converts bone local rotations into the rig-neutral generic
+    /// rotation space and compresses them into a packed byte buffer using smallest-three
+    /// quaternion encoding.
     ///
     /// Replaces the main-thread ExtractBoneDeltas() + CompressBoneRotations() calls
     /// with a single Burst-optimized pass. The job reads current bone local rotations
-    /// (written by a prior TransformAccessArray read), computes deltas against cached
-    /// T-pose rotations, and writes the compressed bitstream.
+    /// (written by a prior TransformAccessArray read), maps them into generic space with the
+    /// folded operators cached at calibration, and writes the compressed bitstream.
+    ///
+    /// The mapped value is <c>g = pre * currentLocal * post</c> — see
+    /// <see cref="Basis.Network.Core.Compression.BasisGenericBoneRotation"/> for what g means and
+    /// why the operators fold this way. Conjugation preserves rotation angle, so g occupies
+    /// exactly the same magnitude range the old T-pose-relative local delta did and the
+    /// smallest-three budget below is unchanged.
     ///
     /// This runs as an IJob (not parallel) because the bit-packed output is sequential.
     /// Burst still provides significant wins via SIMD quaternion math and branch elimination.
@@ -27,8 +34,16 @@ namespace Basis.Scripts.Networking.NetworkedAvatar
         /// <summary>Current local rotations read from transforms. Length = SyncBoneCount.</summary>
         [ReadOnly] public NativeArray<quaternion> CurrentLocalRotations;
 
-        /// <summary>T-pose local rotations per bone slot. Length = SyncBoneCount.</summary>
-        [ReadOnly] public NativeArray<quaternion> TposeLocalRotations;
+        /// <summary>
+        /// Left factor of the generic-space encode, per bone slot: <c>restFrame * conj(tposeLocal)</c>.
+        /// Length = SyncBoneCount. Folded at capture rather than rebuilt per bone per tick — the
+        /// rest pose is fixed for the life of the avatar, so deriving it inside the encode loop
+        /// would recompute a constant every send.
+        /// </summary>
+        [ReadOnly] public NativeArray<quaternion> EncodePre;
+
+        /// <summary>Right factor of the generic-space encode, per bone slot: <c>conj(restFrame)</c>.</summary>
+        [ReadOnly] public NativeArray<quaternion> EncodePost;
 
         /// <summary>Bits-per-component per slot. Length = SyncBoneCount.</summary>
         [ReadOnly] public NativeArray<byte> BitsPerComponent;
@@ -43,10 +58,15 @@ namespace Basis.Scripts.Networking.NetworkedAvatar
         /// <summary>Byte offset where the rotation bitstream starts (after position bytes).</summary>
         public int RotationByteOffset;
 
-        /// <summary>Number of bones to process.</summary>
+        /// <summary>Explicit bone slots to encode (wire slots 0..BoneCount-1).</summary>
         public int BoneCount;
 
-        /// <summary>Computed bone deltas, written for other consumers (e.g., interpolation).</summary>
+        /// <summary>Ten curl/splay pairs appended after the explicit slots. See BasisBoneRotationCompression.</summary>
+        [ReadOnly] public NativeArray<float2> FingerPercentages;
+        public int CurlBits;
+        public int SplayBits;
+
+        /// <summary>Computed generic-space rotations, written for other consumers (e.g., interpolation).</summary>
         public NativeArray<quaternion> BoneDeltas;
 
         public void Execute()
@@ -55,10 +75,9 @@ namespace Basis.Scripts.Networking.NetworkedAvatar
 
             for (int slot = 0; slot < BoneCount; slot++)
             {
-                // Delta = inverse(tpose) * current
-                quaternion tpose = TposeLocalRotations[slot];
+                // generic = (restFrame * conj(tpose)) * current * conj(restFrame)
                 quaternion current = CurrentLocalRotations[slot];
-                quaternion delta = math.mul(math.inverse(tpose), current);
+                quaternion delta = math.mul(math.mul(EncodePre[slot], current), EncodePost[slot]);
 
                 // Normalize
                 float4 dv = delta.value;
@@ -76,6 +95,29 @@ namespace Basis.Scripts.Networking.NetworkedAvatar
                 WriteBits(bitPos, packed, totalBits);
                 bitPos += totalBits;
             }
+
+            int fingerWidth = CurlBits + SplayBits;
+            for (int finger = 0; finger < FingerPercentages.Length; finger++)
+            {
+                float2 pct = FingerPercentages[finger];
+                ulong curl = EncodeSignedUnit(pct.x, CurlBits);
+                ulong splay = EncodeSignedUnit(pct.y, SplayBits);
+                WriteBits(bitPos, curl | (splay << CurlBits), fingerWidth);
+                bitPos += fingerWidth;
+            }
+        }
+
+        /// <summary>
+        /// Burst-compatible mirror of BasisBoneRotationCompression.EncodeSignedUnit. Clamps rather
+        /// than wraps, and maps a non-finite input to the midpoint so an overshooting gain or a
+        /// dropped tracking frame cannot encode as a full-scale curl.
+        /// </summary>
+        private static ulong EncodeSignedUnit(float value, int bits)
+        {
+            uint maxQ = (uint)((1 << bits) - 1);
+            if (math.isnan(value)) return (maxQ + 1) >> 1;
+            float clamped = math.clamp(value, -1f, 1f);
+            return Clamp((uint)math.round((clamped * 0.5f + 0.5f) * maxQ), 0, maxQ);
         }
 
         // Burst-compatible encode (inlined from BasisBoneRotationCompression)

@@ -156,16 +156,16 @@ public class ServerConfigurationDefaultsTests
         Assert.Equal(10667, cfg.ApiPort);
         Assert.Equal("", cfg.ApiKey);
         Assert.True(cfg.CrashReportingEnabled);
-        Assert.Equal(10000, cfg.MaxDatabaseEntries);
-        Assert.Equal(256, cfg.MaxDatabaseNameLength);
-        Assert.Equal(1000, cfg.MaxDatabasePayloadEntries);
         Assert.Equal(32, cfg.MaxContentSpheresPerPlayer);
     }
 
     [Fact]
     public void Defaults_VersioningAndFolderConstants()
     {
-        Assert.Equal(4, Configuration.CurrentConfigVersion);
+        // 5: added EnableUplinkAvatarStream, so existing files get rewritten with its doc comment.
+        // 6: added BSRMaxSliceCount.
+        // 7: removed EnableUplinkAvatarStream again.
+        Assert.Equal(7, Configuration.CurrentConfigVersion);
         Assert.Equal(0, new Configuration().ConfigVersion);
         Assert.Equal("config", Configuration.ConfigFolderName);
         Assert.Equal("logs", Configuration.LogsFolderName);
@@ -311,8 +311,17 @@ public class TransportConfigStoreTests
     public void LnlTransportConfig_Defaults()
     {
         var cfg = new LNLTransportConfig();
-        Assert.Equal(2, LNLTransportConfig.CurrentConfigVersion);
+        // 7: added MergeHoldMs, PeerUpdateParallelism, MaxUnreliableQueuePerPeer,
+        // PeerUpdatePeersPerWorker and MaxSendSockets, so existing files get rewritten with them.
+        // 8: MaxUnreliableQueuePerPeer and PacketPoolSizeMax became 0 = auto-scaled, and the old
+        // fixed values are actively migrated away because they were harmful at scale.
+        Assert.Equal(8, LNLTransportConfig.CurrentConfigVersion);
+        Assert.Equal(0, cfg.MaxSendSockets);   // 0 = auto: half the cores, 4 to 64
+        Assert.Equal(0, cfg.PeerUpdatePeersPerWorker);
+        Assert.Equal(0, cfg.MaxUnreliableQueuePerPeer);   // 0 = auto from population + memory
         Assert.Equal(0, cfg.ConfigVersion);
+        Assert.Equal(3f, cfg.MergeHoldMs);
+        Assert.Equal(0, cfg.PeerUpdateParallelism);
         Assert.True(cfg.UseNativeSockets);
         Assert.True(cfg.NatPunchEnabled);
         Assert.Equal(32, cfg.NatPortPredictionRange);
@@ -336,7 +345,7 @@ public class TransportConfigStoreTests
         // Packet pool scales with peer count rather than sitting at a fixed ceiling; the floor
         // stays PacketPoolSize, so small servers behave exactly as before.
         Assert.Equal(48, cfg.PacketPoolSizePerPeer);
-        Assert.Equal(262144, cfg.PacketPoolSizeMax);
+        Assert.Equal(0, cfg.PacketPoolSizeMax);   // 0 = auto from population + memory
     }
 
     [Fact]
@@ -882,8 +891,6 @@ public class ServerMessageRegistryBindingTableTests
         BasisNetworkCommons.ContentShareChannel,
         BasisNetworkCommons.DeltaAvatarChannel,
         BasisNetworkCommons.ServerBoundChannel,
-        BasisNetworkCommons.StoreDatabaseChannel,
-        BasisNetworkCommons.RequestStoreDatabaseChannel,
         BasisNetworkCommons.AdminChannel,
         BasisNetworkCommons.ServerStatisticsChannel,
         BasisNetworkCommons.CameraPIPStateChannel,

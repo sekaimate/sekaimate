@@ -136,9 +136,10 @@ public static class BasisStorageManagement
             return false;
 
         bool removedAny = false;
+        string canonicalUrl = BasisIOManagement.CanonicalizeRemoteUrl(remoteUrl);
         foreach (var kvp in BasisLoadHandler.OnDiscData.ToList())
         {
-            if (!string.Equals(kvp.Value.StoredRemote.RemoteBeeFileLocation, remoteUrl, StringComparison.Ordinal))
+            if (!string.Equals(BasisIOManagement.CanonicalizeRemoteUrl(kvp.Value.StoredRemote.RemoteBeeFileLocation), canonicalUrl, StringComparison.Ordinal))
             {
                 continue;
             }
@@ -176,12 +177,16 @@ public static class BasisStorageManagement
 
         foreach (var loadedEntry in BasisLoadHandler.LoadedBundles.ToList())
         {
+            if (loadedEntry.Value != null && loadedEntry.Value.IsInUse)
+            {
+                continue;
+            }
             if (BasisLoadHandler.LoadedBundles.TryRemove(loadedEntry.Key, out BasisTrackedBundleWrapper wrapper) &&
                 wrapper?.AssetBundle != null)
             {
                 try
                 {
-                    wrapper.AssetBundle.Unload(true);
+                    BasisLoadHandler.TryUnloadBundleAssets(wrapper);
                 }
                 catch (Exception ex)
                 {

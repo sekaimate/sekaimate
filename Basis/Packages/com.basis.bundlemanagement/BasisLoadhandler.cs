@@ -65,6 +65,49 @@ public static class BasisLoadHandler
         }
     }
     /// <summary>
+    /// Destroys a wrapper's AssetBundle assets, but only when no other registered wrapper pointing
+    /// at that same AssetBundle still holds reservations. Wrappers alias one AssetBundle whenever
+    /// the registry key changes for content already in memory, and each counts its worn instances
+    /// separately, so an unload driven by one count reaching zero must not destroy the meshes and
+    /// rigs another wrapper's live avatars are still driven with.
+    /// </summary>
+    public static bool TryUnloadBundleAssets(BasisTrackedBundleWrapper wrapper)
+    {
+        AssetBundle bundle = wrapper?.AssetBundle;
+        if (bundle == null)
+        {
+            return false;
+        }
+        foreach (BasisTrackedBundleWrapper other in LoadedBundles.Values)
+        {
+            if (other == null || ReferenceEquals(other, wrapper) || !ReferenceEquals(other.AssetBundle, bundle))
+            {
+                continue;
+            }
+            if (other.IsInUse)
+            {
+                BasisDebug.Log($"Skipping unload of {bundle.name}; another loaded wrapper still has instances of it.", BasisDebug.LogTag.Event);
+                return false;
+            }
+        }
+        wrapper.IsUnloaded = true;
+        foreach (KeyValuePair<string, BasisTrackedBundleWrapper> pair in LoadedBundles)
+        {
+            BasisTrackedBundleWrapper other = pair.Value;
+            if (other == null || ReferenceEquals(other, wrapper) || !ReferenceEquals(other.AssetBundle, bundle))
+            {
+                continue;
+            }
+            other.IsUnloaded = true;
+            if (LoadedBundles.TryGetValue(pair.Key, out BasisTrackedBundleWrapper current) && ReferenceEquals(current, other))
+            {
+                LoadedBundles.Remove(pair.Key, out var husk);
+            }
+        }
+        bundle.Unload(true);
+        return true;
+    }
+    /// <summary>
     /// this will take 30 seconds to execute
     /// after that we wait for 30 seconds to see if we can also remove the bundle!
     /// </summary>
@@ -73,14 +116,32 @@ public static class BasisLoadHandler
     public static async Task RequestDeIncrementOfBundle(BasisLoadableBundle loadableBundle)
     {
         string CombinedURL = loadableBundle.BasisRemoteBundleEncrypted.RemoteBeeFileLocation;
-        string Key = GetBundleKey(loadableBundle);
+        // Release against the wrapper the reservation was actually taken on, and consume the
+        // ticket so the same reservation can never be paid twice. Recomputing the key here reads
+        // a version tag that other systems write onto this record after the load reserved, and a
+        // drifted key silently decrements whichever wrapper it lands on instead — a count that
+        // belongs to somebody else's live avatar.
+        string Key = loadableBundle.ReservedWrapperKey;
+        loadableBundle.ReservedWrapperKey = null;
+        if (string.IsNullOrEmpty(Key))
+        {
+            Key = GetBundleKey(loadableBundle);
+            BasisDebug.LogWarning($"No load reservation recorded for {CombinedURL}; releasing against recomputed key '{Key}'. Either this is a double release, or the content was loaded by a path that never reserved.", BasisDebug.LogTag.Event);
+        }
         if (LoadedBundles.TryGetValue(Key, out BasisTrackedBundleWrapper Wrapper))
         {
             Wrapper.DeIncrement();
             bool State = await Wrapper.UnloadIfReady();
             if (State)
             {
-                LoadedBundles.Remove(Key, out var data);
+                // Only remove OUR wrapper: a lookup during the unload continuation may have
+                // seen IsUnloaded, dropped the husk, and registered a fresh wrapper under the
+                // same key — removing blindly here would tear that replacement out.
+                string registeredKey = Wrapper.RegisteredKey ?? Key;
+                if (LoadedBundles.TryGetValue(registeredKey, out BasisTrackedBundleWrapper current) && ReferenceEquals(current, Wrapper))
+                {
+                    LoadedBundles.Remove(registeredKey, out var data);
+                }
                 return;
             }
         }
@@ -88,7 +149,11 @@ public static class BasisLoadHandler
         {
             if (CombinedURL.ToLower() != BasisBeeConstants.DefaultAvatar.ToLower())
             {
-                BasisDebug.LogError($"tried to find Loaded Key {CombinedURL} but could not find it!");
+                // The key is logged because a miss here is almost always key drift rather than a
+                // genuinely absent bundle: the reservation stays held, so the wrapper never
+                // unloads, and whatever DID get found under the drifted key was decremented in
+                // its place.
+                BasisDebug.LogError($"tried to find Loaded Key {CombinedURL} (key '{Key}') but could not find it!");
             }
         }
     }
@@ -99,20 +164,49 @@ public static class BasisLoadHandler
         string Key = GetBundleKey(loadableBundle);
         if (LoadedBundles.TryGetValue(Key, out BasisTrackedBundleWrapper wrapper))
         {
-            try
+            if (wrapper.IsUnloaded)
             {
-                await wrapper.WaitForBundleLoadAsync();
-
-                // ensure the bundle connector is updated from the wrapper
-                loadableBundle.BasisBundleConnector = wrapper.LoadableBundle.BasisBundleConnector;
-
-                return await BasisBundleLoadAsset.LoadFromWrapper(DisabledGameobject,wrapper, useContentRemoval, Position, Rotation, ModifyScale, Scale, Selector, Parent, DestroyColliders, ChangeColidersToCorrectLayer, HarvestedHeadChop);
+                // Unload(true) already destroyed this wrapper's assets — instantiating from
+                // it produces an avatar whose Animator.avatar and meshes are dead. Drop the
+                // husk and load fresh.
+                if (LoadedBundles.TryGetValue(Key, out BasisTrackedBundleWrapper stale) && ReferenceEquals(stale, wrapper))
+                {
+                    LoadedBundles.Remove(Key, out var husk);
+                }
             }
-            catch (Exception ex)
+            else
             {
-                BasisDebug.LogError($"Failed to load content: {ex}");
-                LoadedBundles.Remove(Key, out var data);
-                return null;
+                // Reserve BEFORE any await: the unload grace period re-checks the count, and
+                // the budgeted instantiate spans frames. Incrementing only at instantiate-end
+                // (the old LoadFromWrapper behavior) let the grace expire mid-load on a
+                // range-boundary re-entry and Unload(true) killed the clone's assets.
+                wrapper.Increment();
+                // Ticket the reservation with the wrapper it was taken on, so the release finds
+                // this exact wrapper rather than re-deriving a key that may have drifted.
+                loadableBundle.ReservedWrapperKey = wrapper.RegisteredKey ?? Key;
+                try
+                {
+                    await wrapper.WaitForBundleLoadAsync();
+
+                    // ensure the bundle connector is updated from the wrapper
+                    loadableBundle.BasisBundleConnector = wrapper.LoadableBundle.BasisBundleConnector;
+
+                    GameObject result = await BasisBundleLoadAsset.LoadFromWrapper(DisabledGameobject,wrapper, useContentRemoval, Position, Rotation, ModifyScale, Scale, Selector, Parent, DestroyColliders, ChangeColidersToCorrectLayer, HarvestedHeadChop);
+                    if (result == null)
+                    {
+                        wrapper.DeIncrement();
+                        loadableBundle.ReservedWrapperKey = null;
+                    }
+                    return result;
+                }
+                catch (Exception ex)
+                {
+                    wrapper.DeIncrement();
+                    loadableBundle.ReservedWrapperKey = null;
+                    BasisDebug.LogError($"Failed to load content: {ex}");
+                    LoadedBundles.Remove(Key, out var data);
+                    return null;
+                }
             }
         }
 
@@ -123,25 +217,49 @@ public static class BasisLoadHandler
         await EnsureInitializationComplete();
 
         string Key = GetBundleKey(loadableBundle);
-        if (LoadedBundles.TryGetValue(Key, out BasisTrackedBundleWrapper wrapper))
+        if (LoadedBundles.TryGetValue(Key, out BasisTrackedBundleWrapper wrapper) && wrapper.IsUnloaded)
+        {
+            // Dead husk from a completed unload — drop it and take the first-load path.
+            if (LoadedBundles.TryGetValue(Key, out BasisTrackedBundleWrapper stale) && ReferenceEquals(stale, wrapper))
+            {
+                LoadedBundles.Remove(Key, out var husk);
+            }
+            wrapper = null;
+        }
+        if (wrapper != null)
         {
             BasisDebug.Log($"Bundle On Disc Loading", BasisDebug.LogTag.Networking);
-            if (wrapper.AssetBundle == null)
+            // Reserve BEFORE any await, exactly as the GameObject path does. A scene wrapper sits
+            // at zero between unloads (its durable count is taken by LoadSceneFromBundleAsync only
+            // once the scene is live), so without this the awaits below span a window where the
+            // grace period can expire — or an aliasing wrapper reaching zero can Unload(true) the
+            // bundle we are about to load the scene out of.
+            wrapper.Increment();
+            try
             {
-                await BasisBeeManagement.HandleBundleAndMetaLoading(wrapper, report, cancellationToken, MaxDownloadSizeInMB);
-            }
-            else
-            {
-                await wrapper.WaitForBundleLoadAsync();
-            }
+                if (wrapper.AssetBundle == null)
+                {
+                    await BasisBeeManagement.HandleBundleAndMetaLoading(wrapper, report, cancellationToken, MaxDownloadSizeInMB);
+                }
+                else
+                {
+                    await wrapper.WaitForBundleLoadAsync();
+                }
 
-            if (wrapper.AssetBundle == null)
-            {
-                BasisDebug.LogError("Scene bundle was not available after load attempt.");
-                return new Scene();
+                if (wrapper.AssetBundle == null)
+                {
+                    BasisDebug.LogError("Scene bundle was not available after load attempt.");
+                    return new Scene();
+                }
+                BasisDebug.Log($"Bundle Loaded, Loading Scene", BasisDebug.LogTag.Networking);
+                return await BasisBundleLoadAsset.LoadSceneFromBundleAsync(wrapper, makeActiveScene, report);
             }
-            BasisDebug.Log($"Bundle Loaded, Loading Scene", BasisDebug.LogTag.Networking);
-            return await BasisBundleLoadAsset.LoadSceneFromBundleAsync(wrapper, makeActiveScene, report);
+            finally
+            {
+                // Hand-off, not a release: a scene that came up holds its own reservation, paired
+                // with SceneUnloaded. This only gives back the one held across the load.
+                wrapper.DeIncrement();
+            }
         }
 
         return await HandleFirstSceneLoad(loadableBundle, makeActiveScene, report, cancellationToken, MaxDownloadSizeInMB);
@@ -150,7 +268,7 @@ public static class BasisLoadHandler
     private static async Task<Scene> HandleFirstSceneLoad(BasisLoadableBundle loadableBundle, bool makeActiveScene, BasisProgressReport report, CancellationToken cancellationToken, long MaxDownloadSizeInMB = 4L * 1024 * 1024 * 1024)
     {
         string Key = GetBundleKey(loadableBundle);
-        BasisTrackedBundleWrapper wrapper = new BasisTrackedBundleWrapper { AssetBundle = null, LoadableBundle = loadableBundle };
+        BasisTrackedBundleWrapper wrapper = new BasisTrackedBundleWrapper { AssetBundle = null, LoadableBundle = loadableBundle, RegisteredKey = Key };
 
         if (!LoadedBundles.TryAdd(Key, wrapper))
         {
@@ -158,6 +276,10 @@ public static class BasisLoadHandler
             return new Scene();
         }
 
+        // Held across the load for the same reason as the GameObject path: until the scene is
+        // live nothing counts this wrapper as in use, and an aliasing wrapper reaching zero
+        // would Unload(true) the bundle out from under the load in flight.
+        wrapper.Increment();
         try
         {
             await BasisBeeManagement.HandleBundleAndMetaLoading(wrapper, report, cancellationToken, MaxDownloadSizeInMB);
@@ -166,13 +288,18 @@ public static class BasisLoadHandler
         catch
         {
             wrapper.DidErrorOccur = true;
-            if (wrapper.AssetBundle != null)
+            if (TryUnloadBundleAssets(wrapper))
             {
-                wrapper.AssetBundle.Unload(true);
                 wrapper.AssetBundle = null;
             }
             LoadedBundles.Remove(Key, out var data);
             throw;
+        }
+        finally
+        {
+            // Hand-off, not a release: a scene that came up holds its own reservation, paired
+            // with SceneUnloaded. This only gives back the one held across the load.
+            wrapper.DeIncrement();
         }
     }
 
@@ -182,7 +309,8 @@ public static class BasisLoadHandler
         BasisTrackedBundleWrapper wrapper = new BasisTrackedBundleWrapper
         {
             AssetBundle = null,
-            LoadableBundle = loadableBundle
+            LoadableBundle = loadableBundle,
+            RegisteredKey = Key
         };
 
         if (!LoadedBundles.TryAdd(Key, wrapper))
@@ -191,30 +319,52 @@ public static class BasisLoadHandler
             return null;
         }
 
+        // The instantiate reservation, held from registration so the unload grace can never
+        // fire between the download completing and the budgeted instantiate finishing.
+        wrapper.Increment();
+        // Ticket the reservation with the wrapper it was taken on, so the release finds this
+        // exact wrapper rather than re-deriving a key that may have drifted.
+        loadableBundle.ReservedWrapperKey = wrapper.RegisteredKey ?? Key;
         try
         {
             await BasisBeeManagement.HandleBundleAndMetaLoading(wrapper, report, cancellationToken, MaxDownloadSizeInMB);
-            return await BasisBundleLoadAsset.LoadFromWrapper(DisabledGameobject, wrapper, useContentRemoval, Position, Rotation, ModifyScale, Scale, Selector, Parent, DestroyColliders, ChangeColidersToCorrectLayer, HarvestedHeadChop);
+            GameObject result = await BasisBundleLoadAsset.LoadFromWrapper(DisabledGameobject, wrapper, useContentRemoval, Position, Rotation, ModifyScale, Scale, Selector, Parent, DestroyColliders, ChangeColidersToCorrectLayer, HarvestedHeadChop);
+            if (result == null)
+            {
+                wrapper.DeIncrement();
+                loadableBundle.ReservedWrapperKey = null;
+            }
+            return result;
         }
         catch (Exception ex)
         {
             BasisDebug.LogError($"{ex.Message} {ex.StackTrace}");
+            wrapper.DeIncrement();
+            loadableBundle.ReservedWrapperKey = null;
             wrapper.DidErrorOccur = true;
-            if (wrapper.AssetBundle != null)
+            if (TryUnloadBundleAssets(wrapper))
             {
-                wrapper.AssetBundle.Unload(true);
                 wrapper.AssetBundle = null;
             }
+            wrapper.UnloadGltfTemplate();
             LoadedBundles.Remove(Key, out var data);
             CleanupFiles(loadableBundle.BasisLocalEncryptedBundle);
             return null;
         }
     }
 
-    private static string GetBundleKey(BasisLoadableBundle loadableBundle)
+    public static string GetBundleKey(BasisLoadableBundle loadableBundle)
     {
-        string url = loadableBundle?.BasisRemoteBundleEncrypted?.RemoteBeeFileLocation ?? string.Empty;
-        return $"{url}|{HashUnlockPassword(loadableBundle?.UnlockPassword)}";
+        string url = BasisIOManagement.CanonicalizeRemoteUrl(loadableBundle?.BasisRemoteBundleEncrypted?.RemoteBeeFileLocation);
+        string key = $"{url}|{HashUnlockPassword(loadableBundle?.UnlockPassword)}";
+
+        // Version-aware only when a version is actually declared, so unversioned content produces
+        // the exact key it did before and its load/DeIncrement pairing is untouched. When a url is
+        // republished, this is what stops two players wearing the same url at different versions
+        // from collapsing onto one wrapper — the in-memory cache is keyed by url alone otherwise,
+        // and would hand the stale bundle to whoever asked for the new one.
+        string versionTag = BasisContentVersion.Normalize(loadableBundle?.BasisRemoteBundleEncrypted?.RemoteVersionTag);
+        return versionTag.Length == 0 ? key : $"{key}|{versionTag}";
     }
 
     // Hashing the unlock password (SHA256.Create + ComputeHash) is the bulk of GetBundleKey's
@@ -255,9 +405,10 @@ public static class BasisLoadHandler
             return;
         }
         List<string> keysToRemove = new List<string>();
+        string canonicalUrl = BasisIOManagement.CanonicalizeRemoteUrl(remoteUrl);
         foreach (KeyValuePair<string, BasisTrackedBundleWrapper> kvp in LoadedBundles)
         {
-            if (kvp.Value?.LoadableBundle?.BasisRemoteBundleEncrypted?.RemoteBeeFileLocation == remoteUrl)
+            if (BasisIOManagement.CanonicalizeRemoteUrl(kvp.Value?.LoadableBundle?.BasisRemoteBundleEncrypted?.RemoteBeeFileLocation) == canonicalUrl)
             {
                 keysToRemove.Add(kvp.Key);
             }
@@ -269,12 +420,20 @@ public static class BasisLoadHandler
                 BasisDebug.LogError($"Skipping in-memory unload for: {remoteUrl}; bundle is still in use.");
                 continue;
             }
-            if (LoadedBundles.TryRemove(key, out BasisTrackedBundleWrapper removed) && removed?.AssetBundle != null)
+            if (LoadedBundles.TryRemove(key, out BasisTrackedBundleWrapper removed) && removed != null)
             {
                 try
                 {
-                    BasisDebug.Log($"Unloading in-memory AssetBundle for: {remoteUrl}", BasisDebug.LogTag.Event);
-                    removed.AssetBundle.Unload(true);
+                    if (removed.AssetBundle != null)
+                    {
+                        BasisDebug.Log($"Unloading in-memory AssetBundle for: {remoteUrl}", BasisDebug.LogTag.Event);
+                        TryUnloadBundleAssets(removed);
+                    }
+                    else
+                    {
+                        removed.IsUnloaded = true;
+                    }
+                    removed.UnloadGltfTemplate();
                 }
                 catch (Exception ex)
                 {
@@ -286,7 +445,7 @@ public static class BasisLoadHandler
 
     public static string GetDiscInfoKey(string remoteUrl, string downloadedPlatform)
     {
-        string safeUrl = remoteUrl ?? string.Empty;
+        string safeUrl = BasisIOManagement.CanonicalizeRemoteUrl(remoteUrl);
         string safePlatform = string.IsNullOrWhiteSpace(downloadedPlatform) ? "legacy" : downloadedPlatform.Trim();
         return $"{safePlatform}|{safeUrl}";
     }
@@ -361,6 +520,7 @@ public static class BasisLoadHandler
         }
 
         BasisBEEExtensionMeta legacyCandidate = null;
+        string canonicalUrl = BasisIOManagement.CanonicalizeRemoteUrl(metaUrl);
 
         foreach (string file in Directory.GetFiles(path, $"*{BasisBeeConstants.BasisMetaExtension}"))
         {
@@ -368,7 +528,7 @@ public static class BasisLoadHandler
             {
                 byte[] fileData = File.ReadAllBytes(file);
                 BasisBEEExtensionMeta discInfo = BasisSerialization.DeserializeValue<BasisBEEExtensionMeta>(fileData);
-                if (discInfo?.StoredRemote?.RemoteBeeFileLocation != metaUrl)
+                if (BasisIOManagement.CanonicalizeRemoteUrl(discInfo?.StoredRemote?.RemoteBeeFileLocation) != canonicalUrl)
                 {
                     continue;
                 }
@@ -409,10 +569,11 @@ public static class BasisLoadHandler
     private static bool TryGetInMemoryDiscInfo(string MetaURL, out BasisBEEExtensionMeta info)
     {
         BasisBEEExtensionMeta legacyCandidate = null;
+        string canonicalUrl = BasisIOManagement.CanonicalizeRemoteUrl(MetaURL);
 
         foreach (var discInfo in OnDiscData.Values)
         {
-            if (discInfo.StoredRemote.RemoteBeeFileLocation == MetaURL)
+            if (BasisIOManagement.CanonicalizeRemoteUrl(discInfo.StoredRemote.RemoteBeeFileLocation) == canonicalUrl)
             {
                 if (!string.IsNullOrWhiteSpace(discInfo.DownloadedPlatform) &&
                     !BasisIOManagement.CachePlatformMatchesCurrent(discInfo.DownloadedPlatform))

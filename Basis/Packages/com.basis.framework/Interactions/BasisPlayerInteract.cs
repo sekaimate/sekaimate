@@ -203,6 +203,11 @@ namespace Basis.Scripts.BasisSdk.Interactions
                 bool gripPressedAgain = gripDown && !interactInput.wasGripDown;
                 interactInput.wasGripDown = gripDown;
 
+                bool triggerDown = interactInput.input.CurrentInputState.Trigger >= BasisJiggleGrabDriver.GrabTriggerThreshold;
+                bool triggerPressedAgain = triggerDown && !interactInput.wasTriggerDown;
+                interactInput.wasTriggerDown = triggerDown;
+                bool desktopEye = IsDesktopCenterEye(interactInput.input);
+
                 // After a grab-again drop, wait for grip release so the same press can't re-grab the pickup
                 if (interactInput.suppressGrabUntilRelease)
                 {
@@ -230,6 +235,16 @@ namespace Basis.Scripts.BasisSdk.Interactions
                     interactInput.suppressGrabUntilRelease = true;
                     InteractInputs[index] = interactInput;
                     continue;
+                }
+
+                // Jiggle grabbing takes grip OR trigger. Grip stays behind the pickup chain below so
+                // props keep winning it, but trigger is not the pickup button in VR, so it is tried
+                // here instead — down in the chain a hand ray that merely crossed an interactable
+                // would swallow a press that was meant for a chain. Desktop keeps both in the chain:
+                // there the trigger IS the pickup button.
+                if (!desktopEye && triggerPressedAgain)
+                {
+                    BasisJiggleGrabDriver.TryBeginGrab(interactInput.input, true);
                 }
 
                 BasisHoverSphere hoverSphere = interactInput.input.hoverSphere;
@@ -269,6 +284,14 @@ namespace Basis.Scripts.BasisSdk.Interactions
                 {
                     HandleDirectGrab(grabTarget, ref interactInput);
                 }
+                // Jiggle grab on the pickup button: runs only when ray, hover and direct grab all
+                // missed, and never touches lastTarget, so pickup priority and the interact state
+                // machine hold. A trigger press in VR was already offered a grab above; if it took
+                // one, the hand reads as busy here and this is a no-op.
+                else if (BasisJiggleGrabDriver.TryBeginGrab(interactInput.input,
+                    desktopEye ? triggerPressedAgain : gripPressedAgain))
+                {
+                }
                 // Hover missed entirely. Test for drop & clear hover
                 else
                 {
@@ -298,7 +321,18 @@ namespace Basis.Scripts.BasisSdk.Interactions
             for (int index = 0; index < interactInputsCount; index++)
             {
                 var input = InteractInputs[index];
-                if (input.lastTarget != null && input.lastTarget.RequiresUpdateLoop)
+                if (input.lastTarget == null || !input.lastTarget.RequiresUpdateLoop)
+                {
+                    continue;
+                }
+                // One update per target, not per input. Two inputs sharing a target (both hands on the same
+                // pickup) drove its grab ease at double rate and fired its use events twice a frame.
+                bool alreadyUpdated = false;
+                for (int prior = 0; prior < index && !alreadyUpdated; prior++)
+                {
+                    alreadyUpdated = ReferenceEquals(InteractInputs[prior].lastTarget, input.lastTarget);
+                }
+                if (!alreadyUpdated)
                 {
                     input.lastTarget.InputUpdate();
                 }
@@ -988,6 +1022,34 @@ namespace Basis.Scripts.BasisSdk.Interactions
                     }
                 }
 
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Drives a grab from code, as though the player had reached out and taken the object.
+        /// Used by the spawn path to put a freshly spawned prop straight into a hand.
+        /// </summary>
+        /// <param name="target">The interactable to hand over.</param>
+        /// <param name="input">The device that should end up holding it.</param>
+        /// <returns><c>true</c> when the grab was started.</returns>
+        public bool TryDirectGrab(BasisInteractableObject target, BasisInput input)
+        {
+            if (target == null || input == null || !target.CanDirectGrab(input))
+            {
+                return false;
+            }
+
+            for (int Index = 0; Index < InteractInputs.Length; Index++)
+            {
+                if (InteractInputs[Index].input == null || !InteractInputs[Index].IsInput(input))
+                {
+                    continue;
+                }
+
+                HandleDirectGrab(target, ref InteractInputs[Index]);
                 return true;
             }
 

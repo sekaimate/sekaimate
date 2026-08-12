@@ -153,13 +153,6 @@ int basis_decoder_submit_video(basis_decoder_t* dec, const uint8_t* annexb, int 
 int basis_decoder_submit_audio(basis_decoder_t* dec, const uint8_t* data, int len,
                                int64_t pts_us);
 
-/* Optional: platforms whose OS layer can demux a URL itself (Android's
- * AMediaExtractor handles https TS/MP4 incl. TLS) take ownership here. Returns 1
- * if the decoder now owns the URL (the core must NOT run a demuxer and must not
- * call submit_*), 0 if the core should demux and feed submit_*(). The Windows
- * backend always returns 0. */
-int basis_decoder_try_open_url(basis_decoder_t* dec, const char* url);
-
 /* Render thread: publish the newest decoded frame into the Unity-visible texture,
  * and release GPU resources. */
 int  basis_decoder_render_update(basis_decoder_t* dec);
@@ -244,6 +237,10 @@ int basis_gfx_vk_access_texture(void* native_texture,
 /* Thread-safe state/error helpers implemented in basis_media_core.c. */
 void        basis_engine_set_state(basis_media_engine_t* engine, basis_media_state_t state);
 void        basis_engine_set_error(basis_media_engine_t* engine, const char* message);
+/* Total media duration for a backend that demuxes the container itself (the
+ * demuxer sinks report theirs via on_duration). <= 0 is ignored: 0 means
+ * unknown/live, and a known duration must never be downgraded to it. */
+void        basis_engine_set_duration(basis_media_engine_t* engine, int64_t duration_us);
 basis_decoder_t* basis_engine_get_decoder(basis_media_engine_t* engine);
 
 /* Render-thread entry point (the Unity plugin's OnRenderEvent forwards here). The
@@ -260,6 +257,19 @@ int basis_engine_is_running(basis_media_engine_t* engine);
 /* Non-zero when the source opened in paced (VOD) mode: the platform backend
  * presents on a fixed 1x-from-first-PTS clock instead of the live-edge clock. */
 int basis_engine_is_paced(basis_media_engine_t* engine);
+
+/* RTP loss accounting, reported by the depacketiser. A gap is a sequence
+ * discontinuity, which only UDP transports can see. Both are invisible in
+ * delivery timing and queue depths, so without these the cost of packet loss
+ * cannot be measured.
+ *
+ * from_gap separates the two reasons an access unit gets discarded: a sequence
+ * gap left it incomplete, or reassembly failed locally (allocation, or the
+ * per-AU ceiling refusing an unbounded reassembly). The second can happen with
+ * no packet loss on any transport, so counting them together would report a
+ * malformed source as network loss. */
+void basis_engine_note_rtp_gap(basis_media_engine_t* engine, int is_video);
+void basis_engine_note_video_au_dropped(basis_media_engine_t* engine, int from_gap);
 
 /* Leading frames of a decoded audio block that sit ahead of the media-time
  * origin, and so must not reach the PCM ring.

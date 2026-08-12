@@ -33,6 +33,10 @@ namespace BasisPermissions
         public const string ResourceLockBypassWorld = "basis.resource.lockbypass.world";
         /// <summary>Bypass <c>ServersLocked</c> when initiating a server share.</summary>
         public const string ResourceLockBypassServer = "basis.resource.lockbypass.server";
+        /// <summary>Bypass <c>TextChatLocked</c> — keep sending text chat while the global chat lock is on.</summary>
+        public const string ChatLockBypass = "basis.chat.lockbypass";
+        /// <summary>Bypass <c>VoiceChatLocked</c> — keep transmitting voice while the global voice lock is on.</summary>
+        public const string VoiceLockBypass = "basis.voice.lockbypass";
 
         public const string OwnershipTransfer = "basis.ownership.transfer";
         public const string OwnershipRemove = "basis.ownership.remove";
@@ -800,6 +804,8 @@ namespace BasisPermissions
                     adm.Nodes.Add(PermNodes.ResourceLockBypassProp);
                     adm.Nodes.Add(PermNodes.ResourceLockBypassWorld);
                     adm.Nodes.Add(PermNodes.ResourceLockBypassServer);
+                    adm.Nodes.Add(PermNodes.ChatLockBypass);
+                    adm.Nodes.Add(PermNodes.VoiceLockBypass);
 
                     _store.Groups["moderator"] = adm;
                 }
@@ -1061,6 +1067,9 @@ namespace BasisPermissions
                 // Ensure saved
                 Manager.SaveToXmlDebounced();
 
+                // Init runs on every StartServer against a process-lifetime Manager; -= first so a
+                // restart cannot stack a second subscription (each would resend every update).
+                Manager.OnPermissionsChanged -= HandlePermissionsChanged;
                 Manager.OnPermissionsChanged += HandlePermissionsChanged;
             }
             public static void InitWithoutDisc()
@@ -1068,6 +1077,7 @@ namespace BasisPermissions
                 // Optional defaults if file was empty/nonexistent
                 Manager.EnsureDefaults();
 
+                Manager.OnPermissionsChanged -= HandlePermissionsChanged;
                 Manager.OnPermissionsChanged += HandlePermissionsChanged;
             }
 
@@ -1099,18 +1109,16 @@ namespace BasisPermissions
 
             public static bool HasValidRequirement(string uuid, string permNode)
             {
-                bool hasPermission = Manager.Has(uuid, permNode);
-                bool isAdmin = Manager.Has(uuid, PermNodes.All);
-
-                return hasPermission || isAdmin;
+                // Has() resolves '*' itself as its last fallthrough, so a wildcard holder is still
+                // allowed anything they have not been explicitly denied. Re-checking '*' here and
+                // OR-ing it in would resurrect exactly the nodes a '-node' deny entry just refused.
+                return Manager.Has(uuid, permNode);
             }
             public static bool HasValidRequirement(NetPeer peer, string permNode)
             {
                 if (NetworkServer.AuthIdentity.NetIDToUUID(peer, out string uuid))
                 {
-                    bool hasPermission = Manager.Has(uuid, permNode);
-                    bool isAdmin = Manager.Has(uuid, PermNodes.All);
-                    if (hasPermission || isAdmin)
+                    if (Manager.Has(uuid, permNode))
                     {
                         return true;
                     }
@@ -1171,6 +1179,7 @@ namespace BasisPermissions
                 NetDataWriter writer = NetworkServer.RentWriter();
                 msg.Serialize(writer);
                 NetworkServer.TrySend(peer, writer, BasisNetworkCommons.metaDataChannel, DeliveryMethod.ReliableOrdered);
+                NetworkServer.ReturnWriter(writer);
             }
         }
     }

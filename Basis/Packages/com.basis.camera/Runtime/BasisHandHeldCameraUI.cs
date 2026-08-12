@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Threading.Tasks;
 using Basis.BasisUI;
@@ -156,6 +157,7 @@ public partial class BasisHandHeldCameraUI
         HHC.MetaData.filmGrain = GetOrAddOverride<UnityEngine.Rendering.Universal.FilmGrain>();
         HHC.MetaData.whiteBalance = GetOrAddOverride<UnityEngine.Rendering.Universal.WhiteBalance>();
         HHC.MetaData.lensDistortion = GetOrAddOverride<UnityEngine.Rendering.Universal.LensDistortion>();
+        HHC.MetaData.motionBlur = GetOrAddOverride<UnityEngine.Rendering.Universal.MotionBlur>();
     }
 
     private T GetOrAddOverride<T>() where T : UnityEngine.Rendering.VolumeComponent
@@ -253,11 +255,11 @@ public partial class BasisHandHeldCameraUI
                 break;
 
             case BasisCameraButtonAction.DepthModeAuto:
-                button.onClick.AddListener(() => SetDepthMode(DepthMode.Auto));
+                button.onClick.AddListener(() => SetFocusFollowsSubject(true));
                 break;
 
             case BasisCameraButtonAction.DepthModeManual:
-                button.onClick.AddListener(() => SetDepthMode(DepthMode.Manual));
+                button.onClick.AddListener(() => SetFocusFollowsSubject(false));
                 break;
 
             case BasisCameraButtonAction.OpenCameraPanel:
@@ -296,8 +298,8 @@ public partial class BasisHandHeldCameraUI
     private void SetupSliderRanges()
     {
         if (DepthApertureSlider != null) { DepthApertureSlider.minValue = MinAperture; DepthApertureSlider.maxValue = MaxAperture; }
-        if (FOVSlider != null) { FOVSlider.minValue = 20f; FOVSlider.maxValue = 120f; }
-        if (DepthFocusDistanceSlider != null) { DepthFocusDistanceSlider.minValue = 0.1f; DepthFocusDistanceSlider.maxValue = 100f; }
+        if (FOVSlider != null) { FOVSlider.minValue = MinFov; FOVSlider.maxValue = MaxFov; }
+        if (DepthFocusDistanceSlider != null) { DepthFocusDistanceSlider.minValue = MinFocusDistance; DepthFocusDistanceSlider.maxValue = MaxFocusDistance; }
 
         if (HHC != null && HHC.captureCamera != null && FOVSlider != null)
             FOVSlider.SetValueWithoutNotify(HHC.captureCamera.fieldOfView);
@@ -480,18 +482,48 @@ public partial class BasisHandHeldCameraUI
 
     private void CycleResolutionPreset()
     {
-        currentResolutionIndex = (currentResolutionIndex + 1) % 4;
-
-        if (HHC != null)
-            HHC.ChangeResolution(currentResolutionIndex);
-
-        UpdateResolutionSprites();
+        SetResolutionIndex((currentResolutionIndex + 1) % 4);
 
         // Make the Toggle behave like a momentary "cycle" control (prevents it staying checked)
         if (Resolution != null)
             Resolution.SetIsOnWithoutNotify(false);
+    }
+
+    /// <summary>
+    /// Single owner of the capture resolution preset. The index is what a save records and what
+    /// the prop's sprite strip and its cycle button both read, while
+    /// <see cref="BasisHandHeldCamera.ChangeResolution"/> only writes the pixel dimensions — so a
+    /// caller that goes straight to the camera (the panel dropdown did) leaves the index behind:
+    /// the choice is not saved, the prop keeps lighting the old sprite, and the next press of the
+    /// cycle button steps on from the stale index instead of the one on screen.
+    /// </summary>
+    public void SetResolutionIndex(int index)
+    {
+        if (HHC == null || HHC.MetaData == null || HHC.MetaData.resolutions == null) return;
+        if (index < 0 || index >= HHC.MetaData.resolutions.Length) return;
+
+        currentResolutionIndex = index;
+        HHC.ChangeResolution(index);
+        UpdateResolutionSprites();
 
         BasisDebug.Log($"[Resolution] Changed to index {currentResolutionIndex}");
+    }
+
+    /// <summary>
+    /// Single owner of the focus mode. Auto means the depth of field tracks the follow subject's
+    /// distance every frame; Manual means the focus slider owns it.
+    ///
+    /// <para>Two pieces of state say this — <c>currentDepthMode</c>, which the prop's sprites and
+    /// slider visibility read, and <see cref="BasisHandHeldCamera.autoFocusFollowSubject"/>, which
+    /// is what actually gates <c>UpdateAutoFocus</c> — and writing only one of them leaves the
+    /// camera contradicting its own readout. Auto without the flag lights the Auto sprite over a
+    /// camera that never focuses; Manual without clearing it shows the focus slider while
+    /// auto-focus overwrites whatever the user drags it to, every frame.</para>
+    /// </summary>
+    public void SetFocusFollowsSubject(bool follows)
+    {
+        if (HHC != null) HHC.autoFocusFollowSubject = follows;
+        SetDepthMode(follows ? DepthMode.Auto : DepthMode.Manual);
     }
 
     private void UpdateResolutionSprites()
@@ -524,9 +556,9 @@ public partial class BasisHandHeldCameraUI
         var cameraInteractable = HHC.GetComponent<BasisHandHeldCameraInteractable>();
         cameraInteractable?.ReleasePlayerLocks();
 
-        // only hide the cursor if the basis main menu is not there
-        if(BasisMainMenu.Instance == null)
-            Cursor.visible = false;
+        // Hands the cursor back through the request list, so the menu keeping it free also keeps
+        // look blocked instead of leaving a free cursor with live mouse-look.
+        cameraInteractable?.ReleaseCursorLock();
     }
 
     /// <summary>
@@ -573,13 +605,42 @@ public partial class BasisHandHeldCameraUI
         }
     }
 
+    /// <summary>
+    /// The last file applied to this camera. Not every persisted setting has somewhere live to be
+    /// read back from — some are applied to the capture camera in a form that cannot be reversed
+    /// (an index resolved to an f-stop), and some belong to a component that is platform-gated and
+    /// may be absent. Those carry forward from here instead of falling back to a constructor
+    /// default, which would quietly reset them on the next save.
+    /// </summary>
+    private CameraSettings lastAppliedSettings = new CameraSettings();
+
     private CameraSettings CreateCurrentCameraSettings()
     {
         var bloom = HHC != null ? HHC.MetaData.bloom : null;
         var colorAdjustments = HHC != null ? HHC.MetaData.colorAdjustments : null;
+        var baseline = lastAppliedSettings ?? new CameraSettings();
+
+        // Only the panel's tick re-derives the mode, and a save can happen with the panel shut —
+        // on close, or on the prop being put away — so settle it here rather than writing whatever
+        // label was last current when someone happened to be looking at it.
+        if (HHC != null) HHC.RefreshCameraMode();
 
         var settings = new CameraSettings
         {
+            cameraMode = HHC != null ? (int)HHC.CameraMode : baseline.cameraMode,
+
+            // No live source: carried forward so a save cannot drop them.
+            apertureIndex = baseline.apertureIndex,
+            shutterSpeedIndex = baseline.shutterSpeedIndex,
+            isoIndex = baseline.isoIndex,
+            focusDistance = baseline.focusDistance,
+            sensorSizeX = HHC != null && HHC.captureCamera != null
+                ? HHC.captureCamera.sensorSize.x
+                : baseline.sensorSizeX,
+            sensorSizeY = HHC != null && HHC.captureCamera != null
+                ? HHC.captureCamera.sensorSize.y
+                : baseline.sensorSizeY,
+
             resolutionIndex = currentResolutionIndex,
             formatIndex = GetFormatIndex(),
             msaaSamples = HHC != null ? HHC.msaaSamples : 2,
@@ -601,9 +662,11 @@ public partial class BasisHandHeldCameraUI
             dofBladeCount = HHC != null && HHC.MetaData.depthOfField != null ? HHC.MetaData.depthOfField.bladeCount.value : 5,
             exposureIndex = Mathf.Clamp((int)(ExposureSlider != null ? ExposureSlider.value : 6), 0, ExposureStops.Length - 1),
             showExposureOnCamera = ShowExposureOnCamera,
-            VolumetricFogVolumedensity = 0.01f,
-            VolumetricFogenableAPVContribution = true,
-            VolumetricFogenableMainLightContribution = true,
+            // Volumetric fog is platform-gated. Where it is compiled out there is no component to
+            // read, so the last applied values carry forward rather than resetting to the defaults.
+            VolumetricFogVolumedensity = baseline.VolumetricFogVolumedensity,
+            VolumetricFogenableAPVContribution = baseline.VolumetricFogenableAPVContribution,
+            VolumetricFogenableMainLightContribution = baseline.VolumetricFogenableMainLightContribution,
             hueShift = HHC != null && HHC.MetaData.colorAdjustments != null ? HHC.MetaData.colorAdjustments.hueShift.value : 0f,
             vignette = HHC != null && HHC.MetaData.vignette != null ? HHC.MetaData.vignette.intensity.value : 0f,
             chromaticAberration = HHC != null && HHC.MetaData.chromaticAberration != null ? HHC.MetaData.chromaticAberration.intensity.value : 0f,
@@ -611,20 +674,35 @@ public partial class BasisHandHeldCameraUI
             whiteBalanceTemperature = HHC != null && HHC.MetaData.whiteBalance != null ? HHC.MetaData.whiteBalance.temperature.value : 0f,
             whiteBalanceTint = HHC != null && HHC.MetaData.whiteBalance != null ? HHC.MetaData.whiteBalance.tint.value : 0f,
             lensDistortion = HHC != null && HHC.MetaData.lensDistortion != null ? HHC.MetaData.lensDistortion.intensity.value : 0f,
+            motionBlurIntensity = HHC != null && HHC.MetaData.motionBlur != null ? HHC.MetaData.motionBlur.intensity.value : 0f,
+            motionBlurClamp = HHC != null && HHC.MetaData.motionBlur != null ? HHC.MetaData.motionBlur.clamp.value : baseline.motionBlurClamp,
+            motionBlurQuality = HHC != null && HHC.MetaData.motionBlur != null ? (int)HHC.MetaData.motionBlur.quality.value : baseline.motionBlurQuality,
+            motionBlurMode = HHC != null && HHC.MetaData.motionBlur != null ? (int)HHC.MetaData.motionBlur.mode.value : baseline.motionBlurMode,
             autoFocusFollowSubject = HHC != null && HHC.autoFocusFollowSubject,
             autoFollowPositionOffset = HHC != null ? HHC.autoFollowPositionOffset : new Vector3(0.5f, 0f, 1.4f),
             autoFollowRotationOffset = HHC != null ? HHC.autoFollowRotationOffset : Vector3.zero,
             autoFollowPlayspace = HHC == null || HHC.autoFollowPlayspace,
             autoFollowLookAtPlayer = HHC == null || HHC.autoFollowLookAtPlayer,
             autoFollowLookAtHeightOffset = HHC != null ? HHC.autoFollowLookAtHeightOffset : 0f,
+            autoFollowLateralTracking = HHC != null ? HHC.autoFollowLateralTracking : 0.5f,
+            detachedMarker = HHC != null ? (int)HHC.detachedMarker : (int)BasisCameraDetachedMarker.Puck,
             capture360 = HHC != null && HHC.capture360Enabled,
             useAutoLeveling = HHC != null && HHC.useAutoLeveling,
             useVRHandheldSmoothing = HHC != null && HHC.useVRHandheldSmoothing,
+            backgroundMode = HHC != null ? (int)HHC.backgroundMode : 0,
+            backgroundCustomColor = HHC != null ? HHC.backgroundCustomColor : BasisHandHeldCamera.ChromaGreen,
+            backgroundKeepsWorld = HHC != null && HHC.backgroundKeepsWorld,
+            subjectFramingRadius = HHC != null ? HHC.subjectFramingRadius : 0.45f,
+            cinematicShots = HHC != null ? HHC.SaveShots() : new System.Collections.Generic.List<Basis.Cinematics.BasisCameraShot>(),
         };
 
 #if Basis_VOLUMETRIC_SUPPORTED
         if (HHC != null && HHC.MetaData.VolumetricFogVolume != null)
+        {
             settings.VolumetricFogVolumedensity = HHC.MetaData.VolumetricFogVolume.density.value;
+            settings.VolumetricFogenableAPVContribution = HHC.MetaData.VolumetricFogVolume.enableAPVContribution.value;
+            settings.VolumetricFogenableMainLightContribution = HHC.MetaData.VolumetricFogVolume.enableMainLightContribution.value;
+        }
 #endif
 
         return settings;
@@ -728,17 +806,57 @@ public partial class BasisHandHeldCameraUI
             settings.dofFocalLength = defaults.dofFocalLength;
         }
 
+        if (settings.settingsVersion < 6)
+        {
+            // Both zero-fill to values that are not just wrong but harmful: a transparent black
+            // custom background, and a zero framing radius that would dolly the camera into the
+            // subject's face the moment Framing mode was picked.
+            var defaults = new CameraSettings();
+            settings.backgroundCustomColor = defaults.backgroundCustomColor;
+            settings.subjectFramingRadius = defaults.subjectFramingRadius;
+        }
+
+        if (settings.settingsVersion < 7)
+        {
+            // Modes did not exist, so these settings were tuned by hand and there is nothing to
+            // claim. Custom is the honest label; the re-derive on load promotes it to a preset if
+            // the values turn out to match one exactly.
+            settings.cameraMode = (int)BasisCameraMode.Custom;
+        }
+
+        if (settings.settingsVersion < 8)
+        {
+            // Neither zero-fills to its default. Lateral tracking would come back as 0, so the
+            // camera stops closing the gap when the subject strafes and they slide out of frame;
+            // the detached marker would come back as Off, leaving nothing on screen to show where
+            // a camera that has flown away went — and nothing to grab it back by.
+            var defaults = new CameraSettings();
+            settings.autoFollowLateralTracking = defaults.autoFollowLateralTracking;
+            settings.detachedMarker = defaults.detachedMarker;
+        }
+
         settings.settingsVersion = CameraSettings.CurrentVersion;
     }
 
 #if UNITY_INCLUDE_TESTS
     /// <summary>Test-only access to the private migration.</summary>
     public static void MigrateSettingsForTest(CameraSettings settings) => MigrateSettings(settings);
+
+    /// <summary>Test-only access to the private apply, so the apply/capture pair can be checked as one.</summary>
+    public void ApplySettingsForTest(CameraSettings settings) => ApplySettings(settings);
+
+    /// <summary>Test-only access to the private capture, so the apply/capture pair can be checked as one.</summary>
+    public CameraSettings CreateCurrentCameraSettingsForTest() => CreateCurrentCameraSettings();
 #endif
 
     private void ApplySettings(CameraSettings settings)
     {
         if (HHC == null) return;
+
+        // Recorded before the apply, not after: the apply is wrapped in a catch, and a file that
+        // only half-landed is still what the user last chose. Losing it would mean the next save
+        // wrote constructor defaults over their settings.
+        lastAppliedSettings = settings;
 
         // DOF interaction handler first (if present)
         HHC.BasisDOFInteractionHandler?.SetDoFState(settings.depthIsActive);
@@ -746,8 +864,11 @@ public partial class BasisHandHeldCameraUI
         try
         {
             // MSAA before resolution: ChangeResolution rebuilds the RT, so the sample count must
-            // be in place first or the preview keeps the old one until the next rebuild.
-            HHC.msaaSamples = settings.msaaSamples;
+            // be in place first or the preview keeps the old one until the next rebuild. Routed
+            // through the setter rather than the field because a settings file is just text on
+            // disk — a count the GPU does not accept fails the render target with nothing useful
+            // to go on, and the dropdown that normally guarantees 1/2/4/8 is not involved here.
+            HHC.SetMsaaSamples(settings.msaaSamples);
 
             // Resolution & indicator sprites
             currentResolutionIndex = settings.resolutionIndex;
@@ -781,7 +902,7 @@ public partial class BasisHandHeldCameraUI
                 // Aperture
                 if (settings.apertureIndex >= 0 && settings.apertureIndex < HHC.MetaData.apertures.Length)
                 {
-                    HHC.captureCamera.aperture = float.Parse(HHC.MetaData.apertures[settings.apertureIndex].TrimStart('f', '/'));
+                    HHC.captureCamera.aperture = ParseAperture(HHC.MetaData.apertures[settings.apertureIndex]);
                 }
                 else
                 {
@@ -792,7 +913,9 @@ public partial class BasisHandHeldCameraUI
                 if (settings.shutterSpeedIndex >= 0 && settings.shutterSpeedIndex < HHC.MetaData.shutterSpeeds.Length)
                 {
                     string[] parts = HHC.MetaData.shutterSpeeds[settings.shutterSpeedIndex].Split('/');
-                    if (parts.Length == 2 && float.TryParse(parts[1], out float denominator) && denominator != 0f)
+                    if (parts.Length == 2 &&
+                        float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float denominator) &&
+                        denominator != 0f)
                         HHC.captureCamera.shutterSpeed = 1f / denominator;
                     else
                         BasisDebug.LogWarning($"[ApplySettings] Invalid shutter speed format: {HHC.MetaData.shutterSpeeds[settings.shutterSpeedIndex]}");
@@ -805,7 +928,7 @@ public partial class BasisHandHeldCameraUI
                 // ISO
                 if (settings.isoIndex >= 0 && settings.isoIndex < HHC.MetaData.isoValues.Length)
                 {
-                    HHC.captureCamera.iso = int.Parse(HHC.MetaData.isoValues[settings.isoIndex]);
+                    HHC.captureCamera.iso = int.Parse(HHC.MetaData.isoValues[settings.isoIndex], CultureInfo.InvariantCulture);
                 }
                 else
                 {
@@ -816,9 +939,25 @@ public partial class BasisHandHeldCameraUI
             // Post-processing
             ApplyPostProcessingSettings(settings);
 
+            // Cinematic rig. Shots load before the background so a colour mode caches a culling
+            // mask that already reflects everything else this method applied.
+            HHC.subjectFramingRadius = settings.subjectFramingRadius > 0f ? settings.subjectFramingRadius : 0.45f;
+            HHC.LoadShots(settings.cinematicShots);
+
+            HHC.backgroundCustomColor = settings.backgroundCustomColor.a > 0f
+                ? settings.backgroundCustomColor
+                : BasisHandHeldCamera.ChromaGreen;
+            HHC.backgroundKeepsWorld = settings.backgroundKeepsWorld;
+            HHC.SetBackgroundMode((BasisCameraBackgroundMode)settings.backgroundMode);
+
             // Depth UI mode & cursor
             SetDepthMode(settings.useManualFocus ? DepthMode.Manual : DepthMode.Auto);
             focusCursor?.SetActive(settings.depthIsActive);
+
+            // Last: the mode is a statement about everything above it, so it can only be restored
+            // once all of it has landed. Restoring earlier would have the re-derive compare the
+            // saved mode against values the apply had not reached yet and call it Custom.
+            HHC.RestoreCameraMode((BasisCameraMode)settings.cameraMode);
 
             // Update readouts
             RefreshAllReadouts();
@@ -877,6 +1016,12 @@ public partial class BasisHandHeldCameraUI
         ChangeWhiteBalanceTemperature(settings.whiteBalanceTemperature);
         ChangeWhiteBalanceTint(settings.whiteBalanceTint);
         ChangeLensDistortion(settings.lensDistortion);
+        // Quality and mode before the strength: the strength owns whether the effect is on, so the
+        // shot is never rendered for a frame at the right strength with last session's quality.
+        SetMotionBlurQuality(settings.motionBlurQuality);
+        SetMotionBlurMode(settings.motionBlurMode);
+        ChangeMotionBlurClamp(settings.motionBlurClamp);
+        ChangeMotionBlur(settings.motionBlurIntensity);
 
         HHC.autoFocusFollowSubject = settings.autoFocusFollowSubject;
 
@@ -885,6 +1030,9 @@ public partial class BasisHandHeldCameraUI
         HHC.autoFollowPlayspace = settings.autoFollowPlayspace;
         HHC.autoFollowLookAtPlayer = settings.autoFollowLookAtPlayer;
         HHC.autoFollowLookAtHeightOffset = settings.autoFollowLookAtHeightOffset;
+        HHC.autoFollowLateralTracking = Mathf.Clamp01(settings.autoFollowLateralTracking);
+        HHC.SetDetachedMarker((BasisCameraDetachedMarker)Mathf.Clamp(
+            settings.detachedMarker, 0, (int)BasisCameraDetachedMarker.Gizmo));
         HHC.capture360Enabled = settings.capture360;
         HHC.useAutoLeveling = settings.useAutoLeveling;
         HHC.useVRHandheldSmoothing = settings.useVRHandheldSmoothing;
@@ -936,6 +1084,39 @@ public partial class BasisHandHeldCameraUI
     /// <summary>Range URP clamps <c>DepthOfField.aperture</c> to; anything outside it is dead slider travel.</summary>
     public const float MinAperture = 1f;
     public const float MaxAperture = 32f;
+
+    // The prop HUD and the main-menu panel both offer these settings, so both size their handles
+    // from here. Authored separately they drift, and the same setting then reads a different range
+    // depending on which surface you opened — with the narrower one silently clamping the other.
+    // The depth-of-field pair mirror URP's own ClampedFloatParameter limits; travel outside those
+    // is dead, since the parameter's setter clamps before anything renders.
+
+    /// <summary>Field of view range offered on both the prop and the panel.</summary>
+    public const float MinFov = 20f;
+    public const float MaxFov = 120f;
+
+    /// <summary>Focus distance range, in metres. The usable floor is per-lens — see <c>MinimumFocusDistance</c>.</summary>
+    public const float MinFocusDistance = 0.1f;
+    public const float MaxFocusDistance = 100f;
+
+    /// <summary>Range URP clamps <c>DepthOfField.focalLength</c> to, in millimetres.</summary>
+    public const float MinFocalLength = 1f;
+    public const float MaxFocalLength = 300f;
+
+    /// <summary>Range URP clamps <c>DepthOfField.bladeCount</c> to.</summary>
+    public const int MinBladeCount = 3;
+    public const int MaxBladeCount = 9;
+
+    /// <summary>Range URP clamps <c>MotionBlur.intensity</c> to — a plain multiplier on velocity.</summary>
+    public const float MinMotionBlur = 0f;
+    public const float MaxMotionBlur = 1f;
+
+    /// <summary>
+    /// Range URP clamps <c>MotionBlur.clamp</c> to. It is the longest a streak may get, as a
+    /// fraction of the frame, so 0.2 is a fifth of the screen and there is nothing above it.
+    /// </summary>
+    public const float MinMotionBlurClamp = 0f;
+    public const float MaxMotionBlurClamp = 0.2f;
 
     public void DepthChangeFocusDistance(float value)
     {
@@ -1118,6 +1299,68 @@ public partial class BasisHandHeldCameraUI
         }
     }
 
+    /// <summary>
+    /// Motion blur strength. Zero switches the override off outright: URP only runs the pass while
+    /// the intensity is above zero, and leaving an inactive effect overridden still costs the
+    /// depth texture the pass asks for.
+    /// </summary>
+    public void ChangeMotionBlur(float value)
+    {
+        if (HHC.MetaData.motionBlur != null)
+        {
+            HHC.MetaData.motionBlur.intensity.overrideState = true;
+            HHC.MetaData.motionBlur.intensity.value = Mathf.Clamp(value, MinMotionBlur, MaxMotionBlur);
+            HHC.MetaData.motionBlur.active = HHC.MetaData.motionBlur.intensity.value > 0f;
+        }
+    }
+
+    /// <summary>
+    /// The longest a streak may get, as a fraction of the frame. Kept separate from the strength
+    /// because it is what stops a fast whip-pan from smearing the whole shot into mush.
+    /// </summary>
+    public void ChangeMotionBlurClamp(float value)
+    {
+        if (HHC.MetaData.motionBlur != null)
+        {
+            HHC.MetaData.motionBlur.clamp.overrideState = true;
+            HHC.MetaData.motionBlur.clamp.value = Mathf.Clamp(value, MinMotionBlurClamp, MaxMotionBlurClamp);
+        }
+    }
+
+    /// <summary>Motion blur quality: 0 = Low, 1 = Medium, 2 = High. More samples per streak.</summary>
+    public int MotionBlurQuality => HHC != null && HHC.MetaData.motionBlur != null
+        ? (int)HHC.MetaData.motionBlur.quality.value
+        : 0;
+
+    public void SetMotionBlurQuality(int quality)
+    {
+        if (HHC == null || HHC.MetaData.motionBlur == null) return;
+
+        HHC.MetaData.motionBlur.quality.overrideState = true;
+        HHC.MetaData.motionBlur.quality.value =
+            (UnityEngine.Rendering.Universal.MotionBlurQuality)Mathf.Clamp(quality, 0, 2);
+    }
+
+    /// <summary>Motion blur mode: 0 = camera movement only, 1 = camera and moving objects.</summary>
+    public int MotionBlurMode => HHC != null && HHC.MetaData.motionBlur != null
+        ? (int)HHC.MetaData.motionBlur.mode.value
+        : 0;
+
+    /// <summary>
+    /// Camera And Objects blurs things that move in front of a still camera, at the cost of a
+    /// motion vector pass. URP decides whether to render that pass from the volume stack, which it
+    /// rebuilds per camera against this camera's own trigger and mask, so switching the mode here
+    /// is enough to get the pass — no renderer feature and no project-wide setting.
+    /// </summary>
+    public void SetMotionBlurMode(int mode)
+    {
+        if (HHC == null || HHC.MetaData.motionBlur == null) return;
+
+        HHC.MetaData.motionBlur.mode.overrideState = true;
+        HHC.MetaData.motionBlur.mode.value =
+            (UnityEngine.Rendering.Universal.MotionBlurMode)Mathf.Clamp(mode, 0, 1);
+    }
+
     public void ChangeFOV(float value)
     {
         // Applies the field of view directly. (Follow distance is a plain dolly, not a lens zoom.)
@@ -1134,22 +1377,34 @@ public partial class BasisHandHeldCameraUI
         DepthChangeFocusDistance(value);
     }
 
+    /// <summary>
+    /// Reads an f-stop out of its own preset label. Invariant culture is not optional here: three
+    /// of the presets carry a decimal point ("f/1.4", "f/2.8", "f/5.6"), and parsed under a locale
+    /// that separates decimals with a comma they come back as 14, 28 and 56 — apertures no lens
+    /// has, silently applied to every capture.
+    /// </summary>
+    public static float ParseAperture(string label) =>
+        float.TryParse(label.TrimStart('f', '/'), NumberStyles.Float, CultureInfo.InvariantCulture, out float stop)
+            ? stop
+            : 0f;
+
     public void ChangeAperture(int index)
     {
         if (HHC.captureCamera == null) return;
-        HHC.captureCamera.aperture = float.Parse(HHC.MetaData.apertures[index].TrimStart('f', '/'));
+        HHC.captureCamera.aperture = ParseAperture(HHC.MetaData.apertures[index]);
     }
 
     public void ChangeShutterSpeed(int index)
     {
         if (HHC.captureCamera == null) return;
-        HHC.captureCamera.shutterSpeed = 1 / float.Parse(HHC.MetaData.shutterSpeeds[index].Split('/')[1]);
+        HHC.captureCamera.shutterSpeed = 1 / float.Parse(HHC.MetaData.shutterSpeeds[index].Split('/')[1],
+            NumberStyles.Float, CultureInfo.InvariantCulture);
     }
 
     public void ChangeISO(int index)
     {
         if (HHC.captureCamera == null) return;
-        HHC.captureCamera.iso = int.Parse(HHC.MetaData.isoValues[index]);
+        HHC.captureCamera.iso = int.Parse(HHC.MetaData.isoValues[index], CultureInfo.InvariantCulture);
     }
 
     public void ChangeVolumetricDensity(float value)

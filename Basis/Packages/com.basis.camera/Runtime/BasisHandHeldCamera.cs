@@ -110,6 +110,14 @@ public partial class BasisHandHeldCamera : BasisHandHeldCameraInteractable
 
     public RenderTexture PreviewTexture => renderTexture;
 
+    /// <summary>
+    /// True from the moment a still capture takes the RT to its capture size until the readback
+    /// has landed. The RT is freed and rebuilt on every resize, so anything that sizes the feed
+    /// on its own schedule — Direct To Screen follows the window — has to stand off for that
+    /// window or it destroys the texture the readback is reading.
+    /// </summary>
+    private bool captureInFlight;
+
     /// <summary>Last RT bound to material (to avoid redundant sets).</summary>
     private RenderTexture lastAssignedRenderTexture = null;
 
@@ -118,6 +126,9 @@ public partial class BasisHandHeldCamera : BasisHandHeldCameraInteractable
 
     /// <summary>Pooled CPU-side texture for async GPU readbacks.</summary>
     private Texture2D pooledScreenshot;
+
+    /// <summary>8-bit sRGB target the HDR capture frame is resolved into before readback.</summary>
+    private RenderTexture srgbResolveTexture;
 
     /// <summary>Bitmask for the UI layer toggle in <see cref="Nameplates"/>.</summary>
     private int uiLayerMask;
@@ -140,10 +151,20 @@ public partial class BasisHandHeldCamera : BasisHandHeldCameraInteractable
     /// culling mask so it is the single source of truth — the Render Layers "Nameplates" toggle
     /// and this can never disagree.
     /// </summary>
-    public bool ShowUIInCapture => captureCamera != null && uiLayerMask != 0 && (captureCamera.cullingMask & uiLayerMask) != 0;
+    public bool ShowUIInCapture => captureCamera != null && uiLayerMask != 0 && (WorldCullingMask & uiLayerMask) != 0;
 
     /// <summary>Last visibility state reported by the mesh renderer check.</summary>
     public bool LastVisibilityState = false;
+
+    /// <summary>
+    /// Whether the prop's viewfinder mesh is in some camera's view. Starts true: a renderer that
+    /// has never been culled has never reported either way, and a camera that has just spawned
+    /// should be rendering rather than waiting to be looked at.
+    /// </summary>
+    private bool rendererVisible = true;
+
+    /// <summary>True while the settings panel is bound to this camera and showing its preview.</summary>
+    private bool panelPreviewActive;
 
     /// <summary>Renderer visibility observer.</summary>
     private BasisMeshRendererCheck basisMeshRendererCheck;
@@ -250,15 +271,15 @@ public partial class BasisHandHeldCamera : BasisHandHeldCameraInteractable
 
         base.Awake();
 
-        SetResolution(PreviewCaptureWidth, PreviewCaptureHeight, AntialiasingQuality.Low, PreviewRenderTextureFormat);
+        ApplyPreviewResolution();
         captureCamera.targetTexture = renderTexture;
         captureCamera.gameObject.SetActive(true);
 
         SubscribePreviewScreen();
 
-        // Ordered late phase instead of Unity's LateUpdate, so this always runs after the camera
+        // Ordered render phase instead of Unity's LateUpdate, so this always runs after the camera
         // has been moved for the frame rather than racing it.
-        BasisLocalPlayer.AfterSimulateOnLate.AddAction(SimulateLatePriority, SimulateLate);
+        BasisLocalPlayer.AfterSimulateOnRender.AddAction(SimulateLatePriority, SimulateLate);
 
         RenderPipelineManager.beginCameraRendering += OnBeginCameraRendering;
         BasisDeviceManagement.OnBootModeChanged += OnBootModeChanged;
@@ -327,6 +348,7 @@ public partial class BasisHandHeldCamera : BasisHandHeldCameraInteractable
         BasisMirrorViewerRegistry.Unregister(captureCamera);
         ReleaseRenderTexture();
         if (pooledScreenshot != null) { Destroy(pooledScreenshot); pooledScreenshot = null; }
+        ReleaseSrgbResolveTarget();
         if (actualMaterial != null) { Destroy(actualMaterial); actualMaterial = null; }
 
         if (HandHeld != null)
@@ -336,7 +358,7 @@ public partial class BasisHandHeldCamera : BasisHandHeldCameraInteractable
         }
         
 
-        BasisLocalPlayer.AfterSimulateOnLate.RemoveAction(SimulateLatePriority, SimulateLate);
+        BasisLocalPlayer.AfterSimulateOnRender.RemoveAction(SimulateLatePriority, SimulateLate);
 
         RenderPipelineManager.beginCameraRendering -= OnBeginCameraRendering;
         BasisDeviceManagement.OnBootModeChanged -= OnBootModeChanged;
@@ -356,8 +378,11 @@ public partial class BasisHandHeldCamera : BasisHandHeldCameraInteractable
     /// </summary>
     private void OnEnable()
     {
-        SetResolution(PreviewCaptureWidth, PreviewCaptureHeight, AntialiasingQuality.Low, PreviewRenderTextureFormat);
-        BasisDebug.Log($"[HandHeldCamera] Preview reset to {PreviewCaptureWidth}x{PreviewCaptureHeight} @ {AntialiasingQuality.Low}");
+        ApplyPreviewResolution();
+        if (renderTexture != null)
+        {
+            BasisDebug.Log($"[HandHeldCamera] Preview reset to {renderTexture.width}x{renderTexture.height} @ {AntialiasingQuality.Low}");
+        }
         captureCamera.targetTexture = renderTexture;
         BasisCullingCameraRegistry.Register(captureCamera);
         BasisMirrorViewerRegistry.Register(captureCamera);
@@ -473,7 +498,7 @@ public partial class BasisHandHeldCamera : BasisHandHeldCameraInteractable
 
         // Hiding the preview mesh drops Renderer.isVisible, which would otherwise cull the
         // capture camera and stop the feed the moment the prop went invisible.
-        VisibilityFlag(Renderer != null && Renderer.isVisible);
+        UpdateRenderGate();
         UpdateOnPropUIVisibility();
     }
 
@@ -488,6 +513,7 @@ public partial class BasisHandHeldCamera : BasisHandHeldCameraInteractable
         SetCameraHidden(false);
         SetAutoFollowEnabled(false);
         PinSpace = CameraPinSpace.HandHeld;
+        AcquireCursorLock();
     }
 
     /// <summary>Forward distance the camera spawns at, matching the Photo Camera catalog offset (0,0,0.5).</summary>
@@ -541,9 +567,11 @@ public partial class BasisHandHeldCamera : BasisHandHeldCameraInteractable
 
     /// <summary>
     /// Layers the render-layers UI must not expose, because the camera manages them itself.
-    /// OverlayUI is the prop's own HUD — showing it would leak the viewfinder into every shot.
+    /// OverlayUI carries the camera's own world markers — the detached preview screen, the
+    /// follow-PIP puck and the dolly waypoints — which would leak the rig into every shot.
     /// The UI layer (players' nameplates) is exposed there as its own toggle, so there is no
-    /// separate "Show Nameplates" control.
+    /// separate "Show Nameplates" control, and HandHeldCameraUI (the prop's HUD) is exposed
+    /// as its own toggle too, off by default.
     /// </summary>
     private static readonly string[] ManagedCaptureLayers = { "OverlayUI" };
 
@@ -564,7 +592,7 @@ public partial class BasisHandHeldCamera : BasisHandHeldCameraInteractable
     public bool IsCaptureLayerEnabled(int layer)
     {
         if (captureCamera == null || layer < 0 || layer > 31) return false;
-        return (captureCamera.cullingMask & (1 << layer)) != 0;
+        return (WorldCullingMask & (1 << layer)) != 0;
     }
 
     /// <summary>
@@ -575,8 +603,8 @@ public partial class BasisHandHeldCamera : BasisHandHeldCameraInteractable
     public void SetCaptureLayerEnabled(int layer, bool enabled)
     {
         if (captureCamera == null || !IsCaptureLayerUserTogglable(layer)) return;
-        if (enabled) captureCamera.cullingMask |= 1 << layer;
-        else captureCamera.cullingMask &= ~(1 << layer);
+        if (enabled) WorldCullingMask |= 1 << layer;
+        else WorldCullingMask &= ~(1 << layer);
     }
 
     /// <summary>Fetches Tonemapping from the profile and sets default mode.</summary>
@@ -835,7 +863,7 @@ public partial class BasisHandHeldCamera : BasisHandHeldCameraInteractable
     {
         bool textureChanged = false;
 
-        int samples = SanitizeMsaaSamples(msaaSamples);
+        int samples = BasisCameraTargetMsaa.Clamp(SanitizeMsaaSamples(msaaSamples));
 
         if (renderTexture == null || renderTexture.width != width || renderTexture.height != height || renderTexture.format != RenderTextureFormat || renderTexture.antiAliasing != samples)
         {
@@ -873,6 +901,75 @@ public partial class BasisHandHeldCamera : BasisHandHeldCameraInteractable
             Renderer.sharedMaterial = actualMaterial;
             lastAssignedMaterial = actualMaterial;
             lastAssignedRenderTexture = renderTexture;
+            ApplyViewfinderCrop();
+        }
+    }
+
+    /// <summary>
+    /// Sizes the feed for how it is currently being shown: the screen's shape while Direct To
+    /// Screen is presenting it, the authored preview size otherwise. Every path that leaves the RT
+    /// at some other size — a capture, a re-enable, toggling the mode — comes back through here
+    /// instead of assuming the preview size, which would put the letterbox bars back for as long
+    /// as the mode stayed on.
+    /// </summary>
+    private void ApplyPreviewResolution()
+    {
+        if (captureInFlight) return;
+
+        if (IsOverridingDesktopView)
+        {
+            // A window that reports nothing to fill — minimised — leaves the feed where it is.
+            // Falling back to the preview size would rebuild the RT twice per restore.
+            if (TryGetDirectToScreenFeedSize(out int screenWidth, out int screenHeight))
+            {
+                SetResolution(screenWidth, screenHeight, AntialiasingQuality.Low, PreviewRenderTextureFormat);
+            }
+            return;
+        }
+
+        SetResolution(PreviewCaptureWidth, PreviewCaptureHeight, AntialiasingQuality.Low, PreviewRenderTextureFormat);
+    }
+
+    /// <summary>
+    /// Keeps the prop's viewfinder undistorted. The quad is a fixed shape, so a feed that is not
+    /// the capture aspect — which is what Direct To Screen produces, since the feed then follows
+    /// the screen — gets squashed onto it. Showing the middle of the feed instead keeps faces the
+    /// right width; the full frame is still there on the floating preview screen and the menu
+    /// panel, both of which size themselves to the feed. Identity whenever the feed and the
+    /// capture aspect agree, which is every case except that mode.
+    /// </summary>
+    private void ApplyViewfinderCrop()
+    {
+        if (actualMaterial == null) return;
+
+        Vector2 scale = Vector2.one;
+        Vector2 offset = Vector2.zero;
+
+        if (renderTexture != null && renderTexture.height > 0 && captureWidth > 0 && captureHeight > 0)
+        {
+            float feedAspect = (float)renderTexture.width / renderTexture.height;
+            float shotAspect = (float)captureWidth / captureHeight;
+
+            if (feedAspect > shotAspect)
+            {
+                scale.x = shotAspect / feedAspect;
+                offset.x = (1f - scale.x) * 0.5f;
+            }
+            else if (feedAspect < shotAspect)
+            {
+                scale.y = feedAspect / shotAspect;
+                offset.y = (1f - scale.y) * 0.5f;
+            }
+        }
+
+        // Both, because the preview material's main texture is _MainTex on some shaders and
+        // _BaseMap on the URP ones — the same reason the texture itself is assigned twice above.
+        actualMaterial.mainTextureScale = scale;
+        actualMaterial.mainTextureOffset = offset;
+        if (actualMaterial.HasProperty("_MainTex"))
+        {
+            actualMaterial.SetTextureScale("_MainTex", scale);
+            actualMaterial.SetTextureOffset("_MainTex", offset);
         }
     }
 
@@ -884,6 +981,7 @@ public partial class BasisHandHeldCamera : BasisHandHeldCameraInteractable
     /// <param name="Format">RT format for rendering the frame.</param>
     public IEnumerator TakeScreenshot(TextureFormat TextureFormat, RenderTextureFormat Format = RenderTextureFormat.ARGBFloat)
     {
+        captureInFlight = true;
         SetResolution(captureWidth, captureHeight, AntialiasingQuality.High, Format);
         yield return new WaitForEndOfFrame();
 
@@ -894,10 +992,15 @@ public partial class BasisHandHeldCamera : BasisHandHeldCameraInteractable
 
         BasisHandHeldCameraPhotoMetadata.PhotoMetadata photoMetadata = BasisHandHeldCameraPhotoMetadata.CollectMetadata(captureCamera, transform);
 
-        EnsureTexturePool(renderTexture.width, renderTexture.height, TextureFormat);
+        bool resolved = NeedsSrgbResolve(TextureFormat, renderTexture);
+        RenderTexture readbackSource = resolved ? ResolveToSrgb(renderTexture) : renderTexture;
 
-        AsyncGPUReadback.Request(renderTexture, 0, request =>
+        EnsureTexturePool(readbackSource.width, readbackSource.height, TextureFormat);
+
+        AsyncGPUReadback.Request(readbackSource, 0, request =>
         {
+            if (resolved) ReleaseSrgbResolveTarget();
+
             if (request.hasError)
             {
                 BasisDebug.LogError("GPU Readback failed.");
@@ -922,6 +1025,84 @@ public partial class BasisHandHeldCamera : BasisHandHeldCameraInteractable
             if (pooledScreenshot != null)
                 Destroy(pooledScreenshot);
             pooledScreenshot = new Texture2D(width, height, format, false);
+        }
+    }
+
+    /// <summary>
+    /// HDR render texture format for still capture. URP takes an external target's format as its
+    /// own internal colour buffer format — see the note in <c>CreateRenderTextureDescriptor</c> —
+    /// so an 8-bit target clamps every shading result to 1.0 before tonemapping runs. Per-channel
+    /// clamping is what shifts hue in bright scenes: a highlight of (3.0, 1.4, 0.5) lands as
+    /// (1, 1, 0.5) and reads yellow rather than orange, and ACES then has no headroom left to roll
+    /// off. Half float matches the pipeline asset's own 64-bit HDR buffer precision.
+    /// </summary>
+    private static RenderTextureFormat CaptureHdrRenderTextureFormat =>
+        SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.ARGBHalf)
+            ? RenderTextureFormat.ARGBHalf
+            : RenderTextureFormat.ARGB32;
+
+    /// <summary>
+    /// True when the capture frame still has to be display encoded before it can be read into an
+    /// 8-bit buffer. Float render textures have no hardware sRGB write, so an HDR target holds
+    /// linear values whatever the descriptor's sRGB flag says; writing those bytes straight into a
+    /// PNG is what makes an HDR capture come out dark and over-contrasty.
+    /// </summary>
+    private static bool NeedsSrgbResolve(TextureFormat format, RenderTexture source) =>
+        format == TextureFormat.RGBA32
+        && source != null
+        && !UnityEngine.Experimental.Rendering.GraphicsFormatUtility.IsSRGBFormat(source.graphicsFormat);
+
+    /// <summary>
+    /// Blits the HDR capture frame into an 8-bit sRGB target and returns it for readback. The
+    /// hardware sRGB write on that target is what performs the linear-to-display encode. Freed
+    /// again as soon as the readback lands — at the 8K preset it is 133MB that nothing else needs.
+    /// </summary>
+    private RenderTexture ResolveToSrgb(RenderTexture source)
+    {
+        ReleaseSrgbResolveTarget();
+
+        var descriptor = new RenderTextureDescriptor(source.width, source.height, RenderTextureFormat.ARGB32, 0)
+        {
+            msaaSamples = 1,
+            useMipMap = false,
+            autoGenerateMips = false,
+            sRGB = true
+        };
+        srgbResolveTexture = new RenderTexture(descriptor) { name = "BasisCaptureSrgbResolve" };
+        srgbResolveTexture.Create();
+
+        bool previousSrgbWrite = GL.sRGBWrite;
+        GL.sRGBWrite = true;
+        Graphics.Blit(source, srgbResolveTexture);
+        GL.sRGBWrite = previousSrgbWrite;
+
+        return srgbResolveTexture;
+    }
+
+    /// <summary>Frees the sRGB resolve target.</summary>
+    private void ReleaseSrgbResolveTarget()
+    {
+        if (srgbResolveTexture == null) return;
+        srgbResolveTexture.Release();
+        Destroy(srgbResolveTexture);
+        srgbResolveTexture = null;
+    }
+
+    /// <summary>
+    /// Render and readback formats for a still capture. PNG renders HDR and is resolved to sRGB
+    /// before readback; EXR keeps the float frame linear, which is what the format wants.
+    /// </summary>
+    private void GetCaptureFormats(out TextureFormat textureFormat, out RenderTextureFormat renderFormat)
+    {
+        if (captureFormat == "EXR")
+        {
+            textureFormat = TextureFormat.RGBAFloat;
+            renderFormat = RenderTextureFormat.ARGBFloat;
+        }
+        else
+        {
+            textureFormat = TextureFormat.RGBA32;
+            renderFormat = CaptureHdrRenderTextureFormat;
         }
     }
     /// <summary>Starts a 5-second countdown and triggers a capture at the end.</summary>
@@ -983,18 +1164,7 @@ public partial class BasisHandHeldCamera : BasisHandHeldCameraInteractable
         yield return new WaitForSeconds(0.5f);
 
         // Choose formats based on captureFormat
-        TextureFormat format;
-        RenderTextureFormat renderFormat;
-        if (captureFormat == "EXR")
-        {
-            format = TextureFormat.RGBAFloat;
-            renderFormat = RenderTextureFormat.ARGBFloat;
-        }
-        else
-        {
-            format = TextureFormat.RGBA32;
-            renderFormat = RenderTextureFormat.ARGB32;
-        }
+        GetCaptureFormats(out TextureFormat format, out RenderTextureFormat renderFormat);
 
         // Play shutter sound locally (network was already notified via SendCountdown)
         if (BasisDeviceManagement.Instance.CameraShutterSound != null)
@@ -1020,28 +1190,23 @@ public partial class BasisHandHeldCamera : BasisHandHeldCameraInteractable
             return;
         }
 
-        if ((captureCamera.cullingMask & uiLayerMask) != 0)
-            captureCamera.cullingMask &= ~uiLayerMask;
+        if ((WorldCullingMask & uiLayerMask) != 0)
+            WorldCullingMask &= ~uiLayerMask;
         else
-            captureCamera.cullingMask |= uiLayerMask;
+            WorldCullingMask |= uiLayerMask;
     }
 
     /// <summary>Immediate photo capture using the current format choice (EXR/PNG).</summary>
     public void CapturePhoto()
     {
-        TextureFormat format;
-        RenderTextureFormat renderFormat;
+        // Refused before the shutter sound so a locked capture doesn't look like it worked.
+        if (BasisNetworkModeration.CameraCaptureBlockedLocally)
+        {
+            BasisDebug.LogWarning("CapturePhoto blocked: camera capture is locked by an admin.", BasisDebug.LogTag.Camera);
+            return;
+        }
 
-        if (captureFormat == "EXR")
-        {
-            format = TextureFormat.RGBAFloat;
-            renderFormat = RenderTextureFormat.ARGBFloat;
-        }
-        else
-        {
-            format = TextureFormat.RGBA32;
-            renderFormat = RenderTextureFormat.ARGB32;
-        }
+        GetCaptureFormats(out TextureFormat format, out RenderTextureFormat renderFormat);
 
         // Play shutter sound locally at the camera position
         if (BasisDeviceManagement.Instance.CameraShutterSound != null)
@@ -1073,23 +1238,23 @@ public partial class BasisHandHeldCamera : BasisHandHeldCameraInteractable
     public bool IsDirectToScreen => IsOverridingDesktopView;
     private BasisRenderRateLimiter renderRateLimiter;
 
-    /// <summary>Late-phase priority: after the camera has been moved (202) and the PIP driver (203).</summary>
+    /// <summary>Render-phase priority: after the camera has been moved (202).</summary>
     private const int SimulateLatePriority = 204;
 
     /// <summary>
-    /// Per-frame camera upkeep, run from <see cref="BasisLocalPlayer.AfterSimulateOnLate"/> rather
+    /// Per-frame camera upkeep, run from <see cref="BasisLocalPlayer.AfterSimulateOnRender"/> rather
     /// than a Unity LateUpdate.
     /// <para>
     /// Everything here reads the capture camera's pose — the preview screen, the detached marker,
-    /// and the networked PIP position. The camera is moved by UpdateCamera at priority 202 inside
-    /// the player's own late simulate, so a plain LateUpdate raced it: with no script execution
-    /// order set, this could run either side of the move and would intermittently publish and
-    /// place things from the previous frame's pose. That inconsistency read as jitter.
+    /// and the networked PIP position. The camera is moved by UpdateCamera at priority 202 in the
+    /// same render phase, so a plain LateUpdate raced it: with no script execution order set, this
+    /// could run either side of the move and would intermittently publish and place things from the
+    /// previous frame's pose. That inconsistency read as jitter.
     /// </para>
     /// </summary>
     private void SimulateLate()
     {
-        ApplyRenderRateLimit();
+        UpdateRenderGate();
 
         if (IsOverridingDesktopView)
         {
@@ -1130,7 +1295,7 @@ public partial class BasisHandHeldCamera : BasisHandHeldCameraInteractable
 
         SetDirectToScreenOverlayActive(IsOverridingDesktopView);
 
-        VisibilityFlag(Renderer != null && Renderer.isVisible);
+        UpdateRenderGate();
         UpdatePreviewScreen();
     }
 
@@ -1172,6 +1337,8 @@ public partial class BasisHandHeldCamera : BasisHandHeldCameraInteractable
         if (index >= 0 && index < MetaData.resolutions.Length)
         {
             (captureWidth, captureHeight) = MetaData.resolutions[index];
+            // The viewfinder crop is framed against the capture aspect, so a new preset re-frames it.
+            ApplyViewfinderCrop();
         }
     }
 
@@ -1187,9 +1354,10 @@ public partial class BasisHandHeldCamera : BasisHandHeldCameraInteractable
     /// </summary>
     public void SetNormalAfterCapture()
     {
+        captureInFlight = false;
         ToggleToneMapping(TonemappingMode.Neutral);
         BasisLocalAvatarDriver.ScaleHeadToZero();
-        SetResolution(PreviewCaptureWidth, PreviewCaptureHeight, AntialiasingQuality.Low, PreviewRenderTextureFormat);
+        ApplyPreviewResolution();
     }
 
     /// <summary>Sets the URP tonemapping mode on the active profile.</summary>
@@ -1243,11 +1411,52 @@ public partial class BasisHandHeldCamera : BasisHandHeldCameraInteractable
     }
 
     /// <summary>
-    /// Gates the capture camera to the developer render-rate override (0 = uncapped); never throttles the desktop-override output.
+    /// True while something other than the prop's own viewfinder is showing this camera's feed:
+    /// the settings panel's preview, the detached preview screen, the desktop output, or a live
+    /// video stream. Each draws the render texture somewhere the prop's own visibility says
+    /// nothing about, so each has to keep the camera rendering on its own account — otherwise it
+    /// freezes on whatever frame the prop was last on screen for.
     /// </summary>
-    private void ApplyRenderRateLimit()
+    private bool HasOffPropFeedConsumer =>
+        IsOverridingDesktopView || IsAnyVideoOutputActive || panelPreviewActive || IsPreviewScreenVisible;
+
+    /// <summary>
+    /// Told by the settings panel while it is open on this camera. Its preview is a second window
+    /// onto the same feed, drawn wherever the menu is rather than on the prop, so the camera has
+    /// to keep rendering for it even when the prop itself is nowhere in view.
+    /// </summary>
+    public void SetPanelPreviewActive(bool active)
     {
-        if (!LastVisibilityState) return;
+        if (panelPreviewActive == active) return;
+        panelPreviewActive = active;
+        UpdateRenderGate();
+    }
+
+    /// <summary>
+    /// Decides whether the capture camera renders this frame and how often: off entirely when
+    /// nothing is showing the feed, otherwise gated to the developer render-rate override
+    /// (0 = uncapped), and never throttled while it is driving the desktop output.
+    /// <para>
+    /// Re-evaluated every frame from <see cref="SimulateLate"/> rather than only when the prop's
+    /// visibility changes. A viewer can arrive or leave while the prop is off screen — opening the
+    /// settings panel on a camera you have flown away is the obvious one — and a gate that ran
+    /// only on visibility transitions would not hear about it until the prop was next looked at.
+    /// </para>
+    /// </summary>
+    private void UpdateRenderGate()
+    {
+        if (captureCamera == null) return;
+
+        // Hiding the prop drops its renderer's visibility, which must not stop the camera: a
+        // hidden camera is still live and everything downstream of it keeps running.
+        bool shouldRender = rendererVisible || cameraHidden || HasOffPropFeedConsumer;
+        LastVisibilityState = shouldRender;
+        if (!shouldRender)
+        {
+            captureCamera.enabled = false;
+            return;
+        }
+
         if (IsOverridingDesktopView)
         {
             captureCamera.enabled = true;
@@ -1283,20 +1492,28 @@ public partial class BasisHandHeldCamera : BasisHandHeldCameraInteractable
     }
 
     /// <summary>
-    /// Called when the preview renderer enters/exits visibility; toggles camera.enabled accordingly.
+    /// Called when the prop's viewfinder mesh enters or leaves every camera's view. It only
+    /// records the state: whether that stops the capture camera is <see cref="UpdateRenderGate"/>'s
+    /// call, since the viewfinder is not the only surface that can be showing the feed.
     /// </summary>
     private void VisibilityFlag(bool isVisible)
     {
         if (BasisLocalPlayer.Instance == null)
             return;
 
-        // While streaming, the RT feeds a receiver that has no idea whether the prop is on
-        // screen — culling the capture camera would freeze the stream on its last frame.
-        bool shouldRender = isVisible || IsOverridingDesktopView || IsAnyVideoOutputActive || cameraHidden;
-        if (shouldRender == LastVisibilityState)
-            return;
-
-        captureCamera.enabled = shouldRender;
-        LastVisibilityState = shouldRender;
+        rendererVisible = isVisible;
+        UpdateRenderGate();
     }
+
+#if UNITY_INCLUDE_TESTS
+    /// <summary>
+    /// Test-only stand-in for the prop's viewfinder entering or leaving view, which otherwise
+    /// only arrives from Unity's culling through <see cref="BasisMeshRendererCheck"/>.
+    /// </summary>
+    public void SetRendererVisibleForTest(bool visible)
+    {
+        rendererVisible = visible;
+        UpdateRenderGate();
+    }
+#endif
 }

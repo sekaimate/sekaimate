@@ -85,10 +85,20 @@ namespace Basis.Scripts.Networking.Receivers
         }
 
         /// <summary>
-        /// T-pose local rotations for this receiver's avatar bones.
-        /// Set during calibration and passed to RemoteBoneJobSystem for the skeleton apply job.
+        /// Folded operators that turn the incoming RIG-NEUTRAL bone rotations into THIS avatar's
+        /// bone local rotations: <c>localRotation = BoneDecodePre[slot] * generic * BoneDecodePost[slot]</c>.
+        /// Slot order is BasisBoneRotationCompression.BONE_WRITE_ORDER.
+        ///
+        /// Built during calibration from this rig's own rest pose — see
+        /// <see cref="Basis.Network.Core.Compression.BasisGenericBoneRotation"/>. Because they are
+        /// derived purely from the LOCAL avatar's rest data, the sender's rig never enters into it,
+        /// which is what lets any incoming pose play back on whatever avatar is worn here.
+        /// Passed to RemoteBoneJobSystem for the skeleton compose job.
         /// </summary>
-        [System.NonSerialized] public NativeArray<quaternion> TposeLocalRotations;
+        [System.NonSerialized] public NativeArray<quaternion> BoneDecodePre;
+
+        /// <summary>Right factor of the pair above; see <see cref="BoneDecodePre"/>.</summary>
+        [System.NonSerialized] public NativeArray<quaternion> BoneDecodePost;
 
         /// <summary>
         /// Bone transforms for this receiver's avatar.
@@ -590,6 +600,16 @@ namespace Basis.Scripts.Networking.Receivers
                     // Catmull-Rom tangents one-sided — the spline stays bounded, no branch needed.
                     var p0 = HasPreviousBuffer ? Previous : p1;
                     var p3 = _stagedRing.TryPeekOldest(out var peek) ? peek : p2;
+
+                    // Expand the finger channels through THIS avatar's grid before the window is
+                    // handed to the interpolator. It happens here, not in the decompressor, because
+                    // a P2P frame is decoded on the socket thread and the grid belongs to the
+                    // avatar — its lifetime is only ours to reason about on the frame path.
+                    ExpandFingerChannels(p0);
+                    ExpandFingerChannels(p1);
+                    ExpandFingerChannels(p2);
+                    ExpandFingerChannels(p3);
+
                     BasisRemoteNetworkDriver.SetFrameInputs(
                         playerId,
                         CachedHumanScale,
@@ -607,6 +627,24 @@ namespace Basis.Scripts.Networking.Receivers
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             UnityEngine.Profiling.Profiler.EndSample();
 #endif
+        }
+
+        /// <summary>
+        /// Fills this buffer's finger slots from its ten curl/splay channels, once per avatar
+        /// generation. Cheap to call repeatedly — the four window buffers overlap heavily frame to
+        /// frame, and re-sampling settled fingers would defeat the apply path's write mask.
+        /// </summary>
+        private void ExpandFingerChannels(BasisAvatarBuffer buffer)
+        {
+            if (buffer == null) return;
+
+            var driver = RemotePlayer != null ? RemotePlayer.RemoteAvatarDriver : null;
+            if (driver == null || !driver.HandGrid.IsCreated) return;
+            if (buffer.FingerExpansionGeneration == driver.HandGridGeneration) return;
+
+            driver.HandGrid.ExpandInto(buffer.FingerPercentages, buffer.BoneRotations,
+                Basis.Network.Core.Compression.BasisBoneRotationCompression.WireBoneSlotCount);
+            buffer.FingerExpansionGeneration = driver.HandGridGeneration;
         }
 
         /// <summary>
@@ -654,6 +692,23 @@ namespace Basis.Scripts.Networking.Receivers
 
         public void EnQueueAvatarBuffer(BasisAvatarBuffer avatarBuffer)
         {
+            // Single choke point for every decoded remote pose (keyframe and delta). One
+            // non-finite component would snap this player's skeleton (and everything keyed off
+            // it — far avatar root, mouth/eye outputs, nameplate) to NaN on every client that
+            // receives it, and the transforms never recover. Drop the pose and keep the last
+            // good one instead.
+            if (!IsFinite(avatarBuffer.Position) || !IsFinite(avatarBuffer.Rotation) || !IsFinite(avatarBuffer.Scale))
+            {
+                BasisDebug.LogErrorOnce($"Dropped a non-finite network pose for player {playerId}: pos={avatarBuffer.Position} rot={avatarBuffer.Rotation} scale={avatarBuffer.Scale}", BasisDebug.LogTag.Networking);
+                return;
+            }
+            // Finite is not enough: a value near 3.4e38 overflows the per-frame filter's
+            // derivative term to Inf, and the resulting NaN latches into the filter history.
+            if (!IsWithinWorldBounds(avatarBuffer.Position))
+            {
+                BasisDebug.LogErrorOnce($"Dropped an out-of-range network pose for player {playerId}: pos={avatarBuffer.Position}", BasisDebug.LogTag.Networking);
+                return;
+            }
             Interlocked.Increment(ref _poseVersion);
             _latestNetworkPosition = avatarBuffer.Position;
             _latestNetworkRotation = avatarBuffer.Rotation;
@@ -662,6 +717,15 @@ namespace Basis.Scripts.Networking.Receivers
             PayloadQueue.Enqueue(avatarBuffer);
             System.Threading.Interlocked.Increment(ref _pendingCount);
         }
+
+        /// <summary>Half-extent of the coordinate range a remote pose may occupy (1000 km).</summary>
+        const float MaxNetworkPositionMagnitude = 1e6f;
+
+        static bool IsWithinWorldBounds(float3 v) => math.all(math.abs(v) < MaxNetworkPositionMagnitude);
+
+        static bool IsFinite(float3 v) => math.all(math.isfinite(v));
+
+        static bool IsFinite(quaternion q) => math.all(math.isfinite(q.value));
 
         public override void Initialize()
         {
@@ -709,6 +773,7 @@ namespace Basis.Scripts.Networking.Receivers
             // before CalibrationComplete fires, so no reset is needed here.
             AudioReceiverModule.AvatarChanged(this, true);
 
+            int behaviourCount = NetworkBehaviours != null ? NetworkBehaviours.Length : 0;
             List<byte> keysToRemove = new List<byte>();
             foreach (KeyValuePair<byte, ServerAvatarDataMessageQueue> message in NextMessages)
             {
@@ -720,23 +785,40 @@ namespace Basis.Scripts.Networking.Receivers
                 bool isSameAvatar = Remote.AvatarLinkIndex == LastLinkedAvatarIndex;
                 if (isSameAvatar)
                 {
-                    if (message.Value.Direct)
-                    {
-                        NetworkBehaviours[message.Key].OnDirectNetworkMessageReceived(
-                            playerIdMessage.playerID,
-                            Remote.payload,
-                            message.Value.Method
-                        );
-                    }
-                    else
-                    {
-                        NetworkBehaviours[message.Key].OnNetworkMessageReceived(
-                            playerIdMessage.playerID,
-                            Remote.payload,
-                            message.Value.Method
-                        );
-                    }
                     keysToRemove.Add(message.Key);
+
+                    var behaviour = message.Key < behaviourCount ? NetworkBehaviours[message.Key] : null;
+                    if (behaviour == null)
+                    {
+                        Interlocked.Increment(ref BasisAdditionalDataDiagnostics.ReceiverAvatarChannelDropped);
+                        continue;
+                    }
+
+                    try
+                    {
+                        if (message.Value.Direct)
+                        {
+                            behaviour.OnDirectNetworkMessageReceived(
+                                playerIdMessage.playerID,
+                                Remote.payload,
+                                message.Value.Method
+                            );
+                        }
+                        else
+                        {
+                            behaviour.OnNetworkMessageReceived(
+                                playerIdMessage.playerID,
+                                Remote.payload,
+                                message.Value.Method
+                            );
+                        }
+                        Interlocked.Increment(ref BasisAdditionalDataDiagnostics.ReceiverAvatarChannelDispatched);
+                    }
+                    catch (Exception ex)
+                    {
+                        Interlocked.Increment(ref BasisAdditionalDataDiagnostics.ReceiverAvatarChannelDropped);
+                        BasisDebug.LogError($"Queued avatar message for behaviour {message.Key} threw during calibration replay: {ex}");
+                    }
                 }
                 else
                 {
@@ -786,7 +868,8 @@ namespace Basis.Scripts.Networking.Receivers
 
             ClearAndRelease();
 
-            if (TposeLocalRotations.IsCreated) TposeLocalRotations.Dispose();
+            if (BoneDecodePre.IsCreated) BoneDecodePre.Dispose();
+            if (BoneDecodePost.IsCreated) BoneDecodePost.Dispose();
             BoneTransforms = null;
 
             if (hasEvents && RemotePlayer != null && RemotePlayer.RemoteAvatarDriver != null)

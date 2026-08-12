@@ -19,11 +19,32 @@ namespace BasisServerTests;
 
 internal sealed class FakeNetPeer : NetPeer
 {
+    // Stands in for the transport peer the real LNLNetPeer wraps. LNLNetPeer is allocated fresh on
+    // every event — connect, disconnect, each received packet — and gets its identity from this,
+    // not from the wrapper object, so anything comparing peers with ReferenceEquals is always false
+    // in production while looking correct in a test that reuses one instance.
+    private readonly object _connection;
+
     public FakeNetPeer(int id, string address)
     {
         Id = id;
         Address = IPAddress.Parse(address);
+        _connection = new object();
     }
+
+    private FakeNetPeer(int id, IPAddress address, object connection)
+    {
+        Id = id;
+        Address = address;
+        _connection = connection;
+    }
+
+    /// <summary>A distinct wrapper object over the same connection, as the transport hands out.</summary>
+    public FakeNetPeer Wrap() => new(Id, Address, _connection);
+
+    public override bool Equals(object obj) => obj is FakeNetPeer other && ReferenceEquals(_connection, other._connection);
+
+    public override int GetHashCode() => _connection.GetHashCode();
 
     public List<(byte[] Data, byte Channel, DeliveryMethod Method)> Sent { get; } = new();
     public List<byte[]> DisconnectData { get; } = new();
@@ -66,11 +87,20 @@ internal sealed class MapAuthIdentity : IAuthIdentity
 {
     private readonly ConcurrentDictionary<string, int> _uuidToId = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<int, string> _idToUuid = new();
+    private readonly ConcurrentDictionary<int, NetPeer> _owner = new();
+
+    public readonly List<int> Released = new();
 
     public void Register(string uuid, int netId)
     {
         _uuidToId[uuid] = netId;
         _idToUuid[netId] = uuid;
+    }
+
+    public void Register(string uuid, int netId, NetPeer owner)
+    {
+        Register(uuid, netId);
+        _owner[netId] = owner;
     }
 
     public void ProcessConnection(Configuration Configuration, ConnectionRequest ConnectionRequest, NetPeer NetPeer)
@@ -81,7 +111,22 @@ internal sealed class MapAuthIdentity : IAuthIdentity
     {
     }
 
-    public void RemoveConnection(int NetPeer) => _idToUuid.TryRemove(NetPeer, out _);
+    public void RemoveConnection(int NetPeer) => RemoveConnection(NetPeer, null);
+
+    public bool RemoveConnection(int Id, NetPeer Expected)
+    {
+        if (Expected != null && _owner.TryGetValue(Id, out NetPeer? owner) && !Equals(owner, Expected))
+        {
+            return false;
+        }
+        if (!_idToUuid.TryRemove(Id, out _))
+        {
+            return false;
+        }
+        _owner.TryRemove(Id, out _);
+        lock (Released) { Released.Add(Id); }
+        return true;
+    }
 
     public bool NetIDToUUID(NetPeer Peer, out string UUID)
     {
@@ -326,6 +371,8 @@ public class PermissionManagerTests
         Assert.True(m.Has(mod, PermNodes.ModerationBan));
         Assert.True(m.Has(mod, PermNodes.PermissionsView));
         Assert.True(m.Has(mod, PermNodes.ResourceLockBypassAvatar));
+        Assert.True(m.Has(mod, PermNodes.ChatLockBypass));
+        Assert.True(m.Has(mod, PermNodes.VoiceLockBypass));
         Assert.True(m.Has(mod, PermNodes.help)); // via "default" parent
         Assert.False(m.Has(mod, PermNodes.PermissionsEdit));
         Assert.False(m.Has(mod, PermNodes.ConfigurationEditor));
@@ -340,7 +387,7 @@ public class PermissionManagerTests
         Assert.Contains("*", m.GetAllAllowedRules(admin));
 
         Assert.True(m.TryGetGroup("moderator", out var modGroup));
-        Assert.Equal(18, modGroup.Nodes.Count);
+        Assert.Equal(20, modGroup.Nodes.Count);
         Assert.Contains("default", modGroup.Parents);
 
         Assert.True(m.TryGetGroup("admin", out var adminGroup));

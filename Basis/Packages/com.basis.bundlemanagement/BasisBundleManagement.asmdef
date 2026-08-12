@@ -6,7 +6,9 @@
         "BasisSDK",
         "BasisDebug",
         "Unity.Addressables",
-        "Unity.ResourceManager"
+        "Unity.ResourceManager",
+        "glTFast",
+        "BasisCommon"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

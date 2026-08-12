@@ -55,32 +55,43 @@ mis-configured feed wastes far more time than the 30 seconds a probe takes.
 
 | Rule | Effect on testing |
 | --- | --- |
-| Loopback allowed **in the Editor only** | `localhost` streams work for fast in-editor iteration; the same URL is refused in a build |
-| Non-global-unicast addresses always blocked | RFC1918 (`192.168.*`, `10.*`, `172.16-31.*`), CGNAT, loopback, link-local, and the IANA special-use reserves (TEST-NET, benchmarking, 6to4 relay). LAN servers never work, Editor included — don't bother |
+| Loopback: **Editor only, and only with the opt-in** | `localhost` works for fast in-editor iteration *if* `BASIS_MEDIA_ALLOW_LOCAL` is set for that Editor process (see the native re-check row below). Without it, or in a build, it is refused — and that refusal is correct, not a regression |
+| Every other non-global-unicast address: **always blocked** | RFC1918 (`192.168.*`, `10.*`, `172.16-31.*`), CGNAT, link-local, and the IANA special-use reserves (TEST-NET, benchmarking, 6to4 relay). No env var relaxes the C# gate for these, so LAN servers never work, Editor included — don't bother. Loopback is the one exception, and only as described in the row above |
 | Hostnames are DNS-validated, fail-closed | A name that resolves to any of the above (or doesn't resolve) is refused |
 | Scheme allowlist | `http`, `https`, `rtsp`, `rtspt`, `rtmp`, `rtmps`, `rist` — anything else (incl. `file://`) is refused. Passing the gate isn't the same as playable, though: `rtmps` (RTMP-over-TLS) is allowlisted but the player rejects it (use `rtmp://`, or an https fMP4/TS URL), and `rist` only works in the opt-in `-DBASIS_WITH_RIST=ON` build |
 
 Practical consequences:
 
 - **Editor iteration:** point at a public endpoint, or run your own server (RTSP/RTMP/HTTP) locally
-  and use `localhost` URLs.
-- **Builds, Quest, multi-client tests:** the stream must come from a **public host with real DNS** —
-  a public endpoint below, or your own content on any cheap VPS.
+  and use `localhost` URLs. A local server needs `BASIS_MEDIA_ALLOW_LOCAL` set for the Editor
+  process before you launch it — on every transport, not just the native ones. Without it the
+  refusal is correct behaviour, and it reads exactly like a transport regression if you aren't
+  expecting it.
+- **Builds, Quest, multi-client tests:** the stream must come from a **publicly reachable host, or a
+  public IP literal** — a public endpoint below, or your own content on any cheap VPS. Where a
+  *hostname* is used it must resolve in real DNS (the gate is fail-closed on lookup). A bare public
+  IP literal is legitimate and is required by one of the redirect rows below, so don't read "real
+  DNS" as "a name is mandatory".
 - **Quest/Android:** the OS cleartext policy blocks plain `http://` on the JNI fetch path —
   HTTP-TS and HLS lanes need `https://` with a certificate chain the device actually trusts
   (serve the full chain; standalone headsets are missing more roots than desktop browsers).
   `rtsp://` is unaffected.
-- **Native local-address re-check (RTSP/RTMP/HLS):** the C# gate above is the first line and is
+- **Native local-address re-check (every transport):** the C# gate above is the first line and is
   **not** affected by the env var below — a top-level RFC1918 URL stays refused by C# regardless,
   and a top-level `localhost` URL works only in the Editor (the C# rule). Behind it, the native
-  layer independently re-checks resolved addresses for the transports it opens directly — RTSP/RTMP
-  (via `basis_io`) and every HLS playlist/segment fetch (the SSRF re-check that stops a hostile
-  playlist steering a sub-resource URI at an internal host). That native re-check has no Editor
+  layer independently re-checks resolved addresses for everything it opens: RTSP/RTMP (via
+  `basis_io`), every HLS playlist/segment fetch (the SSRF re-check that stops a hostile playlist
+  steering a sub-resource URI at an internal host), plain HTTP(S) MP4/TS through the platform
+  stack, and **every redirect hop** on those HTTP(S) lanes. That native re-check has no Editor
   concept, so it refuses `localhost` (and any private address it is handed directly, e.g. an HLS
   segment URI the C# gate never saw) unless `BASIS_MEDIA_ALLOW_LOCAL` is set (any non-empty value).
   Setting it relaxes **only** that native re-check, not the C# gate — so its practical use is
-  running your own RTSP/RTMP/HLS server at `localhost` in the Editor. Plain HTTP(S) MP4/TS via the
-  platform stack (WinHTTP/JNI) has no native re-check and needs no opt-in.
+  running your own server at `localhost` in the Editor, on any transport including plain HTTP(S).
+  **Scope it to the Editor session that needs it.** Any non-empty value turns the re-check off for
+  every transport and every redirect hop, and a process inherits it from whatever launched it — so
+  set it per-run, never machine-wide, and never for a player build or a CI job. Every negative test
+  in the security rows below must run with it **unset**, or it passes for the wrong reason: check
+  the environment first if a gate that should refuse lets something through.
 - The separate world-content trust allowlist (`BasisDefaultTrustedUrls`, https-only) gates the
   sandboxed `VideoPlayer` shim path, not this package — but streams hosted on already-trusted
   domains spare testers a consent prompt when worlds use the same URL.
@@ -94,7 +105,7 @@ fine for interactive test sessions, not for soak loops.
 | --- | --- | --- |
 | `rtsp://stream.vrcdn.live/live/vrcdn` | RTSP live, H.264 720p + AAC 2.0 @ 48 kHz | VRCDN's own 24/7 channel; the primary PC low-latency lane; host is on the default trust list |
 | `https://stream.vrcdn.live/live/vrcdn.live.ts` | MPEG-TS over HTTPS, live | Same channel, the standalone-friendly lane (https, so Quest-safe) |
-| `https://download.blender.org/peach/bigbuckbunny_movies/BigBuckBunny_640x360.m4v` | Progressive MP4 VOD, range/`206` | Official Blender hosting of the full 10-minute film, H.264 + AAC (`.m4v` is recognised as an MP4 extension). Good for seek/pause and delivery auto-detect testing |
+| `https://www2.iis.fraunhofer.de/AAC/ChID-BLITS-EBU.mp4` | Progressive MP4 VOD, range/`206` | 800x600 (4:3), H.264 + AAC 5.1 @ 44.1 kHz, ~47 s. The seek/pause and delivery auto-detect lane. Doubles as the non-16:9 case — the aspect ratio must be preserved, not stretched to the quad — and as a non-48 kHz source, so it exercises the resample path |
 | `https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8` | HLS VOD, multi-variant master | Exercises the panel's bitrate dropdown |
 | [Fraunhofer AAC multichannel page](https://www2.iis.fraunhofer.de/AAC/multichannel.html) | AAC 5.1/7.1 VOD fixtures | Includes adversarial layouts: PCE-signalled 7.1 must fail **gracefully** on Windows (muted audio or a clean error — never a crash) |
 
@@ -157,7 +168,7 @@ Run the rows your change plausibly touches; run everything before a release-boun
 | RTSP forced TCP | `rtspt://` form of any RTSP URL | No UDP attempt at all (no UDP `SETUP` in the server log); Console logs `RTSP over TCP` |
 | HTTP-TS live | VRCDN `.live.ts`, or your own `ffmpeg`-served TS | Same checks over plain TS; on Quest use the https lane |
 | HLS VOD | Mux master, or your own HLS packaging | Variant switch via panel bitrate dropdown mid-play |
-| Progressive/fMP4 MP4 | Big Buck Bunny | `Delivery=Auto` detects OnDemand (needs the 206); seek slider works |
+| Progressive/fMP4 MP4 | Fraunhofer ChID-BLITS, or your own MP4 with *working* byte ranges — a `Range` request must answer `206` with a valid `Content-Range`, not merely advertise `Accept-Ranges: bytes` | `Delivery=Auto` detects OnDemand; seek slider works; 4:3 source keeps its aspect on the quad rather than stretching. Advertising alone still reads as on-demand for pacing but refuses to seek, so a host that advertises and then serves `200` looks like a player bug and isn't. Integrated fMP4 has its own `global_sidx` recipe under **Seek (integrated fMP4)** below |
 | RTMP | your own RTMP server (e.g. MediaMTX) | Minimal client — plain `rtmp://` pull only |
 | RIST plain + AES | your own RIST sender (ffmpeg/librist) | Requires RIST-enabled plugin build; loss recovery under induced packet loss |
 | WAV audio-only | your own WAV over HTTP | 16/24-bit, up to 8 ch; no video track is not an error |
@@ -166,7 +177,7 @@ Run the rows your change plausibly touches; run everything before a release-boun
 ### Content and codecs
 
 No public host carries every codec in every container flavour, so generate these from a CC
-clip — Big Buck Bunny (full URL in the endpoints table above) or any Blender open movie — with
+clip — any Blender open movie, from [Blender Studio's films](https://studio.blender.org/films/) — with
 the `ffmpeg` recipe in each row. `in.mp4` below is that source clip. For higher-res / 4K masters,
 [media.xiph.org](https://media.xiph.org/) mirrors the Blender films losslessly (e.g. Sintel 4K at
 `https://media.xiph.org/sintel/sintel-4k.y4m.xz`, and `sintel-4k-png/` frame sets) — grab one and
@@ -204,6 +215,7 @@ covered bit-for-bit by the CI conformance gate; these rows are the real decode +
 | CEA-608 captions | A caption-bearing TS you generate (no public stream carries captions reliably): cues appear on time, accented characters correct, clear-cue clears, CC toggle + opacity sliders live-apply |
 | 44.1 kHz audio | Resamples cleanly to the DSP rate (dominant path is 48 kHz — don't let 44.1k rot) |
 | Non-16-aligned coded height | No pad strip on the video edge (a thin top strip on Windows, a grey bottom strip on Android) and the RenderTexture matches the display aspect. 720p and other 16-aligned heights are clean, so test a padded height specifically — 1080p (→1088) on Windows, 640×360 (→368) on Android |
+| Mid-stream resolution change | The visible size changing part-way through a single elementary stream — ordinary content (a new SPS), and the only thing that makes the backend tear down and rebuild its shared output texture while playing. No public endpoint does it on demand, so build one: encode slices of the same clip at two sizes (`-vf scale=1280:534` and `-vf scale=640:268`) to MPEG-TS, each with `-output_ts_offset <start>` so timestamps stay continuous across the join, then concatenate the parts bytewise. Alternate every couple of seconds so one play-through covers a dozen switches. Video keeps playing across every switch and settles at each new size, with no black or stretched frame held, no frame torn between the two sizes, and no crash. Confirm the fixture really switches before trusting a pass — `ffprobe -v error -select_streams v:0 -show_frames -show_entries frame=width,height -of csv=p=0 <fixture.ts> \| sort -u` must report both sizes (`-show_entries` only selects fields; without `-show_frames` there are no frame sections to select from, so the command prints nothing and a broken fixture looks the same as a good one). Windows D3D11 and D3D12 (`-force-d3d12`) reach this through separate texture paths, so run both; Android takes a Unity-owned RenderTexture instead and re-sizes it from C# |
 
 ### Platforms and backends
 
@@ -295,6 +307,50 @@ and that a late joiner receives it too. Worth a pass on a peer with
 `AutoPlayOnSourceAssigned` unticked, which is the case that relies on the owner's advertised
 state rather than local autoplay.
 
+**Audio source controls and filters** — `AudioSource.volume` and `.mute` are per output, not
+per player: with a stream playing, drag one output's `Volume` to zero and back and only that
+source's level moves, and `Mute` silences that source alone. The player-wide controls are
+`BasisMediaPlayerAudio`'s `VolumeGain` / `Mute` (what the panel slider drives), and the three
+multiply. The multichannel prefab is the row that matters here — set each of the eight outputs
+to a different level and confirm the balance holds, rather than one slider dragging the rest
+with it. Then add an `Audio Low Pass Filter` (or Reverb / Chorus) to one of the output
+GameObjects and confirm it colours that output. Unity applies filters in component order and
+the `BasisMediaPlayerAudioTap` is what generates the audio, so a filter moved **above** the tap
+is expected to do nothing; the check is that one added normally, below it, is heard. Drag a
+filter above the tap and both the tap's own inspector and the owning `BasisMediaPlayerAudio`
+should say so and offer to fix it, without either needing a reselect to notice. On a prefab
+instance the tap itself can't move, so the fix lowers the filters below it instead — with two
+filters stacked, check they keep their order relative to each other, since swapping them
+changes the chain. Only when neither move is allowed should the notice say to open the prefab.
+That notice is also what a hand-built output rig relies on, so add a bare AudioSource with a
+filter on it to `Outputs` and confirm it's flagged. A rig assembled in code can't be reordered
+at all once play starts, so build one that way (AudioSource plus a filter, added to `Outputs`
+from a script) and confirm the player logs a warning naming the filter rather than failing
+quietly. Two AudioSource controls are expected to
+misbehave and shouldn't be reported as regressions: `Pitch` does nothing, and ticking `Bypass
+Effects` or unticking `Spatialize Post Effects` drops spatialisation to flat 2D, because the
+spatialiser then runs ahead of the tap and its output is overwritten.
+
+**Audio analysis feed** — Unity's per-source readback (`AudioSource.GetOutputData` and the
+spectrum calls behind it) only reflects clip playback, so an output the tap drives reads back as
+silence and anything sampling that AudioSource — AudioLink, VU meters, spectrum-driven world
+scripts — sees nothing. `Analysis Feed` on that output's `BasisMediaAudioChannel` swaps it to a clip the
+player writes, which Unity does read back. The row to run is AudioLink: add its `AudioLinkInput`
+AudioSource to `Outputs` with a `BasisMediaAudioChannel` set to `Stereo (downmix)` and
+`Analysis Feed` ticked, point AudioLink's `audioSource` at it, and confirm the AudioLink texture
+tracks the stream. Untick it and reactivity should stop, which is the control for the whole
+mechanism. Only that output changes: the speakers stay on the tap, so check A/V sync on them is
+no different with the feed on. The feed runs `Feed Delay` behind the tap-driven outputs, so
+reactivity trails the sound by that much — check it looks in time at the default and lower it
+until it breaks up to find the floor on the platform under test. It's written once a frame, so
+the floor moves with the frame rate; a rig that holds at 0.02s on desktop may need more on a
+headset. The filter-order notices don't apply to
+an analysis output, since it isn't generating into the DSP block, so confirm a filter added there
+is heard and isn't flagged. The analyser still won't hear that filter: the readback is taken from
+clip playback, upstream of the filter chain, so a low pass on an analysis output colours what you
+hear and nothing of what AudioLink sees. Worth one pass on Quest, where the DSP runs at a different rate to
+the stream and the clip path leans on Unity's own resampling rather than the tap's.
+
 **Panel UI** ("Media Players" panel, `Runtime/UI/BasisMediaPlayerPanelProvider.cs`) — URL
 load, transport buttons, seek slider (VOD only), volume, bitrate dropdown (HLS multi-variant),
 audio-track dropdown (multi-audio content), captions toggle + opacity sliders, subtitles
@@ -305,10 +361,10 @@ not broken.
 
 **Security gates** — negative tests matter: `http://192.168.1.10/x.ts` must refuse with a
 clear reason on every platform (that RFC1918 refusal is the C# gate and holds regardless of any
-env var); a plain HTTP(S) `localhost` MP4/TS URL must refuse **in a build** and work in the
-Editor; `file:///` must refuse. On the native-transport lanes (HLS, RTSP, RTMP) even the Editor
-`localhost` case is refused unless `BASIS_MEDIA_ALLOW_LOCAL` relaxes the native re-check (see the
-security-gates section above) — a refusal there without the opt-in is correct, not a regression.
+env var); a plain HTTP(S) `localhost` MP4/TS URL must refuse **in a build**; `file:///` must
+refuse. `localhost` in the Editor is refused on every lane — HTTP(S) as well as HLS, RTSP and
+RTMP — unless `BASIS_MEDIA_ALLOW_LOCAL` relaxes the native re-check (see the security-gates
+section above); a refusal there without the opt-in is correct, not a regression.
 A regression that *opens* a gate is a security bug — flag it as such, not as a playback bug.
 
 **HLS sub-resource SSRF** — the URL gate only sees the top-level playlist, so the native
@@ -320,8 +376,111 @@ request). A playlist that reaches an internal host is a security regression, not
 bug. (Editor testing of the legitimate localhost lane needs `BASIS_MEDIA_ALLOW_LOCAL` — see the
 security-gates section above.)
 
+**Redirect SSRF** — the C# gate only ever sees the entry URL, so the native source re-validates
+the target of every `3xx` hop. Serve a public URL that answers `302 Location:` pointing at an
+internal target: playback must fail and the internal listener must see **no connection at all**.
+That is a refusal you can only confirm by watching the target, since a followed-then-failed hop
+looks identical from the client — judge on the listener, never on the error message.
+
+Cover both address families, because they go through different branches of the guard and the
+platform URL parsers hand an IPv6 host back in brackets where an IPv4 one has none:
+
+| Redirect target | Catches |
+| --- | --- |
+| `https://127.0.0.1:PORT/…` | IPv4 loopback |
+| `http://192.168.x.x/…` | RFC1918 |
+| `http://169.254.169.254/…` | link-local / cloud metadata |
+| `https://[::1]:PORT/…` | IPv6 loopback |
+| `https://[fd00::1]/…` | IPv6 ULA |
+| `https://[fe80::1]/…` | IPv6 link-local — **confirmatory only, see below** |
+| a public hostname resolving to a private address | resolved-address checking, not string matching |
+| a hostname answering with **both** a public and a private address | any private answer must block the name outright |
+| `file:///C:/Windows/win.ini` as the `Location` | the scheme allow-list, which runs **after** the hop is resolved |
+| `ftp://ftp.example.com/x.ts` as the `Location` | the same, on a scheme that is neither local nor http |
+| an `https` entry URL answering `302 Location: http://public-host/…` | the transport downgrade — the body must not silently fall back to plaintext |
+
+The two scheme rows look redundant against a guard that only ever fetches over HTTP, and they are
+not: both platforms resolve a hop with the OS URL machinery (`UrlCombineW`, `java.net.URL`), and
+both will carry a foreign scheme straight through from a `Location` that supplies one. The
+allow-list therefore has to run after the resolve, and nothing else in this matrix exercises that
+ordering — a regression in it would pass every other row here.
+
+The downgrade row needs its own witness, because a plaintext target is an ordinary public host that
+the address policy is right to allow — nothing about the refusal is visible from the client. Point
+the `Location` at a plain-HTTP listener you control and watch it: a connection means the hop was
+followed and the media would have travelled in the clear. Note that an `http` *entry* URL is still
+allowed; it is only the https→http transition that must be refused.
+
+The two IPv6 link-local and ULA rows are **confirmatory, not discriminating**, and should be
+recorded as such. Neither address is routable from a test machine — `fe80::1` has no zone index, so
+it cannot be reached even by a client with no guard at all — which means a refusal proves the
+request stopped, not that the address policy is what stopped it. Adding an RFC 6874 zone
+(`https://[fe80::1%25<zone>]/…`) would make it routable and therefore discriminating, but the zone
+is host-specific and differs between Windows and Android, so there is no portable fixture. Check
+these against the guard directly instead: it refuses the bare, raw-zone (`fe80::1%1`) and
+percent-encoded (`fe80::1%251`) forms alike, which is the part a regression would break.
+
+The mixed-answer row needs a zone you can edit: give one name a working public `A` and a private
+`AAAA` at the same time. **Watch both addresses and require that neither is contacted.** Watching
+only the private one makes the result depend on connection order — an implementation that stops at
+the first usable answer could connect to the *public* address and the private listener would stay
+silent, which reads as a pass. It isn't: the rule is that any private answer blocks the whole name,
+so a correct client contacts neither. The public side is easy to watch if you own the host — its
+own access log is the witness. It is worth the setup, because it is the row a plausible-looking
+guard fails. If you can't set it up, say so rather than ticking it.
+
+The mirror case — a **public** IPv6 literal must still be allowed, since it fails closed if bracket
+handling regresses — is worth covering end-to-end where you can. `https://[2606:…]/` needs a host on
+a public IPv6 address serving over a certificate with an IP SAN. Let's Encrypt has issued those for
+both IPv4 and IPv6 since January 2026, under its short-lived (~6 day) profile, so the certificate is
+no longer the obstacle: an IPv6-reachable host is. Standing one up exercises bracket parsing, the
+address policy, TLS and the hop loop together, which nothing else in this matrix does. Where no such
+host is available, check that case against the guard directly and record that the stream lane was
+skipped — a guard check does not cover the TLS and parsing half.
+
+Legitimate redirects must still play, which is the half that catches an over-tight fix: check an
+absolute **same-host, same-scheme** `302`, a two-hop chain, and a relative `Location` (both `/path`
+and `../path`). Same-scheme is load-bearing in that sentence — "same host" alone would include the
+https→http case the row above requires to be refused. An `http`→`https` **upgrade** is allowed and
+is worth checking separately; only the downgrade is refused. A self-redirect must terminate rather
+than spin.
+
+**RIST host SSRF** (opt-in `-DBASIS_WITH_RIST=ON` build only) — librist opens and resolves its own
+UDP sockets, so the transport sits outside the `basis_io` connect-time guard the other lanes share.
+`basis_rist_open` closes that by resolving and vetting the host itself and pinning librist to the
+validated address literal. The subtlety when testing it: a `rist://` host is the **entry** URL, so
+the C# gate (`BasisMediaPlayerSecurity`) already refuses a literal private target or a hostname that
+resolves to a private address before native runs — a plain `rist://192.168.x.x` never reaches
+`basis_rist_open` at all, unlike the HLS/redirect lanes where the private target hides in a
+sub-resource the C# gate never sees. The native guard is therefore a rebind backstop, exercised only
+by a target that passes the C# check but is private by the time native resolves: a DNS-rebinding
+fixture whose name answers a public address first and a private one on the next lookup. Point librist
+at it and watch the private listener — it must see **no UDP at all**. `BASIS_MEDIA_ALLOW_LOCAL` is
+not a way in here: it does not relax the C# gate, so it cannot carry a private literal through to
+native. Where no rebind fixture is available, exercise `basis_io_resolve_checked` directly against
+the loopback/RFC1918/link-local set and record that the stream lane was skipped. This whole lane
+only applies to the RIST-enabled build: in the default build `rist://` still passes the scheme
+allowlist (it is listed there), reaches native, and is declined by the stub `basis_rist_open` with
+a clear "RIST is not built into this plugin — rebuild with `-DBASIS_WITH_RIST=ON`" error on the sink;
+playback fails and the SSRF guard above does not exist in that build.
+
+**The client-side extension gate shapes which redirect fixtures reach native.**
+`BasisMediaUrlRouter.IsDirectlyPlayable` requires the URL path to end in a media extension once the
+query is stripped, so an extensionless redirect fixture is rejected in C# and never reaches the
+native source at all — give the fixture a real media extension on its final path when exercising the
+redirect rows. On Android there is no OS-extractor leg: MP4/WebM demux through the same portable path
+as Windows, fed by the JNI HTTP source, so the extension you pick selects the container under test,
+not a separate code path, and the SSRF hop loop is shared across all of them.
+
+**Android progressive playback and seek** — MP4/WebM demux through the portable path fed by the JNI
+HTTP source, so any change to either wants a plain regression pass behind it: play a large
+progressive `.mp4` over https, seek forwards and backwards several times, and confirm the position
+tracks and audio stays in sync. Use a byte-range server (`206` + a valid `Content-Range`) for the
+seek path; the no-`Accept-Ranges` and trailing-moov cases carry their own expectations in the
+**Trailing-moov progressive MP4** row above.
+
 **A/V sync judgement** — use real footage with **visible speech**; synthetic patterns hide sync
-drift, and Big Buck Bunny (the baseline endpoint) has no dialogue at all. A CC-BY Blender open
+drift, and Big Buck Bunny has no dialogue at all. A CC-BY Blender open
 movie with clear lip-sync is a good source — Sintel and Spring both work; download from
 [Blender Studio films](https://studio.blender.org/films/) and re-encode/serve as needed. Watch a
 full minute at the live edge, not five seconds. For anything subtle, capture diagnostics (below)
@@ -346,8 +505,28 @@ with on-screen text or a logo, every time video-path code changes.
   `eng_ttff_ms` (time to first frame), `engine_pos_us` step distribution (late presents show
   as double-steps coinciding with wall-clock gaps), `eng_lag_ms`/`eng_buf_ms` (clock vs
   buffer health), `audio_queue_depth`/`eng_audio_trims` (audio starvation/overrun),
-  `cpu_*_drops/skips` (CPU-path frame accounting). Filter rows to `engine_state == Playing`
-  before drawing conclusions.
+  `cpu_*_drops/skips` (CPU-path frame accounting),
+  `eng_rtp_video_gaps`/`eng_rtp_video_drops`/`eng_rtp_audio_gaps` (RTP loss on UDP
+  transports). Filter rows to `engine_state == Playing` before drawing conclusions.
+- **RTP loss counters**: on `rtsp://` where UDP wins the negotiation, packet loss costs whole
+  access units rather than delivery time — a sequence gap taints the AU under assembly and it
+  is discarded rather than handed to the decoder incomplete. Queue depths, the present clock
+  and `eng_lag_ms` can therefore all look healthy while frames are being dropped. A climbing
+  `eng_rtp_video_drops` against a steady `eng_lag_ms` is loss, not starvation, and buffering
+  does not address it. These stay at zero on TCP transports, which have no sequence gaps to
+  detect.
+
+  They also stay at zero on a native plugin built before the counters existed, because the
+  values come from the native side — so a stale binary reports absence of loss rather than
+  absence of instrumentation, which is the more dangerous of the two. If a UDP stream is
+  visibly dropping frames and all four columns read zero, check the plugin for that platform
+  is current before concluding the path is clean.
+- **`eng_reasm_video_drops`** counts the other reason an access unit is discarded: reassembly
+  failed locally, either an allocation failure or the depacketiser refusing a reassembly past
+  its per-AU ceiling. It is deliberately separate from the loss counters because the cause is
+  different in kind — it needs no packet loss and fires on any transport, so a run of it points
+  at a malformed or hostile source rather than at network conditions. Non-zero here on
+  `rtspt://`, which cannot lose packets, always means the source, never the path.
 - **Debug window**: `Basis → Debug → Media Player Debug` shows live engine state per player.
 - **Feedless harness**: `BasisSyntheticTestSource` (`Runtime/Sources/`) drives the player
   without any network feed — isolates render-path changes from transport noise.
@@ -391,7 +570,23 @@ Two outcomes to test against, in priority order:
   an ordinary `ffmpeg`-produced file: an HEVC elementary stream that reaches the decoder with
   no frame size made the Windows Store HEVC MFT dereference a null pointer on its own worker
   thread. The parser must refuse a sizeless or otherwise under-specified track **before** it
-  hands bytes to the decoder, not let it fail somewhere downstream.
+  hands bytes to the decoder, not let it fail somewhere downstream. DoS also covers *resource*
+  exhaustion, not just crashes: a size or length field the peer declares must be bounded before
+  it drives an allocation or a read loop. The RTMP chunk length, the RTMP per-session buffer
+  total, and the RTSP header block and Content-Length are all attacker-declared and now capped;
+  a hang counts too — an RTSP server that dribbles an endless header block used to wedge the
+  demux thread and, through it, `basis_media_close`. These are exercised by the `fuzz_rtmp` /
+  `fuzz_rtsp` targets, not by the playback matrix. **Exactly one of them is gated in CI: the
+  RTMP per-message length cap.** `testcases/rtmp/msg_len_alloc_bomb.bin` is replayed under
+  `-malloc_limit_mb=8`, and losing that cap turns the run red. **The per-session buffer total
+  is *not* gated by it, and the flag cannot gate it**: `-malloc_limit_mb` bounds a single
+  allocation, while the session total is only ever reached by accumulating many separate
+  `realloc` calls across the 64 chunk-stream slots, none of which need cross 8 MiB. Removing
+  `RTMP_MAX_TOTAL` therefore leaves CI green — re-check it by hand when touching the chunk
+  reassembler. The **endless-header hang is local-only** for a related reason — the fuzz stub
+  is finite and cannot reproduce a hang, which is why it was verified with a standalone server
+  harness. Re-run that by hand when touching the RTSP header reader; nothing in CI will catch
+  a regression there.
 - **Memory corruption** — the worst case, and the reason this is a security boundary and not
   just a stability one. Hand-rolled parsers with untrusted lengths are exactly where
   out-of-bounds reads and writes live. Treat *any* out-of-bounds access as a security bug,
@@ -418,7 +613,7 @@ crash, hang, or corrupt does.
   these and how you prove one is gone. An unsanitised "it didn't crash this time" is not proof.
   Fuzzing corrupt input is the single highest-value test this code has; a parser change that
   ships without a fuzz pass is under-tested. When you add a parser, add a `fuzz_<name>.c` target
-  beside the others. Targets exist for the container demuxers (TS/MP4/WebM/Ogg/MP3), the caption
+  beside the others. Targets exist for the container demuxers (TS/MP4/WebM/Ogg/MP3/WAV), the caption
   scanner, the URL parser (`fuzz_url`), the HLS playlist source (`fuzz_hls`), and the RTSP/RTMP
   parsers (`fuzz_rtsp`/`fuzz_rtmp` — their harness `#include`s the real `.c` and stubs `basis_io`,
   byte-serving the read paths; `parse_sdp`/`depkt_*`/`amf_*`/FLV tag parsers are driven directly).

@@ -349,7 +349,7 @@ public static class SettingsProviderControllerConfig
             sliderRotationSnapDegrees.Descriptor.SetTooltip(BasisLocalization.Get("settings.developer.gridSnap.rotation.tooltip"));
         });
 
-        SettingsProvider.AddResetPageButton(container, "settings.tab.controls", () =>
+        SettingsProvider.RegisterPageReset("settings.tab.controls", () =>
         {
             ResetControlsDefaults();
             BasisActionDriver.ResetBindingsToDefaultsAsyncIgnored();
@@ -414,8 +414,8 @@ public static class SettingsProviderControllerConfig
         var actionNames = actions.Select(a => PrettyEnumName(a.ToString())).ToList();
 
         var selectorGroup = PanelElementDescriptor.CreateNew(PanelElementDescriptor.ElementStyles.Group, container);
-        selectorGroup.SetTitle($"Select Action For {BasisDeviceManagement.StaticCurrentMode}");
-        selectorGroup.SetDescription("Choose an action to edit its bound roles.");
+        selectorGroup.SetTitle(string.Format(BasisLocalization.Get("settings.controller.selectAction.title"), BasisDeviceManagement.StaticCurrentMode));
+        selectorGroup.SetDescription(BasisLocalization.Get("settings.controls.actionBindings.description"));
 
         PanelDropdown actionDropdown = PanelDropdown.CreateNewEntry(selectorGroup.ContentParent);
         actionDropdown.Descriptor.SetTitle(BasisLocalization.Get("settings.controls.action"));

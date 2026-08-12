@@ -40,6 +40,8 @@ namespace Basis.BasisUI
             };
             BasisMenuPanel panel = BasisMenuPanel.CreateNew(
                 data, BasisMainMenu.Instance.MenuObjectInstance.PanelRoot, BasisMenuPanel.PanelStyles.Page);
+            panel.SetLayer(BasisMenuPanel.PanelLayer.Overlay);
+            BasisPanelMoveHandle.Attach(panel, nameof(BasisGazeFoveationPrompt));
 
             PanelTabPage tab = PanelTabPage.CreateVertical(panel.Descriptor.ContentParent);
             RectTransform root = tab.Descriptor.ContentParent;
@@ -70,9 +72,15 @@ namespace Basis.BasisUI
 
             panel.OnInstanceReleased += () =>
             {
-                if (answered) return;
-                answered = true;
-                onDismissed?.Invoke();
+                if (!answered)
+                {
+                    answered = true;
+                    onDismissed?.Invoke();
+                }
+
+                // Opening the menu above tore down the page and virtual keyboard the user had
+                // up; put them back now the prompt is gone.
+                BasisMenuPromptRestore.RestoreAfterPrompt();
             };
 
             panel.Descriptor.ForceRebuild();

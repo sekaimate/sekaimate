@@ -1,6 +1,7 @@
 using Basis.BasisUI.Styling;
 using Basis.BTween;
 using Basis.Scripts.Drivers;
+using Basis.Scripts.UI.UI_Panels;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -37,11 +38,20 @@ namespace Basis.BasisUI
         private TweenCanvasGroupAlpha _tooltipTween;
         private const float TooltipFadeDuration = 0.15f;
 
+        private RectTransform _tooltipProgressFill;
+        private const float TooltipProgressHeight = 8f;
+
+        private string _hoverTooltipText;
+        private string _progressDisplay = string.Empty;
+        private float _progressPercentage;
+        private bool _progressActive;
+
         public override Component ProviderButtonParent => HorizontalLayout ? HorizontalLayout.ContentParent : null;
 
         public BasisMainMenu()
         {
             HotbarMenu = BasisMenuPanel.CreateNew(BasisMenuPanel.PanelData.Toolbar(MenuTitle), MenuObjectInstance.PanelRoot);
+            HotbarMenu.SetLayer(BasisMenuPanel.PanelLayer.MainMenu);
 
             HorizontalLayout = PanelElementDescriptor.CreateNew(PanelElementDescriptor.ElementStyles.ScrollViewHorizontal, HotbarMenu.Descriptor.ContentParent);
             if(HorizontalLayout.ContentParent.TryGetComponent(out BasisHorizontalLayout Layout))
@@ -54,7 +64,15 @@ namespace Basis.BasisUI
             }
             BindProvidersToButtons();
             CreateTooltipArea();
+            BasisUILoadingBar.OnDisplayChanged += OnLoadingProgressChanged;
+            OnLoadingProgressChanged(BasisUILoadingBar.CurrentDisplay, BasisUILoadingBar.CurrentPercentage, BasisUILoadingBar.HasDisplay);
             AnimateMenuEntrance();
+        }
+
+        public override void Release()
+        {
+            BasisUILoadingBar.OnDisplayChanged -= OnLoadingProgressChanged;
+            base.Release();
         }
 
         private void AnimateMenuEntrance()
@@ -62,9 +80,13 @@ namespace Basis.BasisUI
             // Fade in the hotbar panel
            // UIAnimations.FadeIn(HotbarMenu, 0.2f, 0f, Easing.OutCubic);
 
-            // Stagger the hotbar buttons with fade + slide up
+            // Stagger the hotbar buttons with fade + slide up. SlideIn captures each button's
+            // CURRENT anchoredPosition as its destination, and the buttons were created this
+            // frame — the layout group has not placed them yet, so without settling the layout
+            // first every destination is the prefab default and the bar animates into a stack.
             if (ProviderButtons.Count > 0)
             {
+                PanelElementDescriptor.RebuildLayoutChain(HorizontalLayout.ContentParent, HotbarMenu.Descriptor.rectTransform);
                 RectTransform[] buttonTransforms = new RectTransform[ProviderButtons.Count];
                 for (int i = 0; i < ProviderButtons.Count; i++)
                 {
@@ -205,6 +227,28 @@ namespace Basis.BasisUI
                 backgroundImage.raycastTarget = false;
             }
 
+            // Loading progress fill, hidden unless the loading bar is reporting into this area.
+            // Created before Content so the label always draws over it.
+            GameObject progressObject = new GameObject("Progress Fill", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            progressObject.layer = areaObject.layer;
+
+            RectTransform progressRect = (RectTransform)progressObject.transform;
+            progressRect.SetParent(backgroundRect, false);
+            progressRect.localScale = Vector3.one;
+            progressRect.localRotation = Quaternion.identity;
+            progressRect.anchorMin = Vector2.zero;
+            progressRect.anchorMax = Vector2.zero;
+            progressRect.pivot = Vector2.zero;
+            progressRect.sizeDelta = new Vector2(0f, TooltipProgressHeight);
+            progressRect.anchoredPosition = Vector2.zero;
+
+            Image progressImage = progressObject.GetComponent<Image>();
+            progressImage.raycastTarget = false;
+            progressObject.AddComponent<UiStyleImage>().SetStyle("Menu Element");
+
+            _tooltipProgressFill = progressRect;
+            progressObject.SetActive(false);
+
             // Content holder inside the masked Background, padded like the menu panels.
             GameObject contentObject = new GameObject("Content", typeof(RectTransform));
             contentObject.layer = areaObject.layer;
@@ -246,54 +290,107 @@ namespace Basis.BasisUI
 
         /// <summary>
         /// Show the hover tooltip bar with the given text, fading it in. Empty text fades it out.
+        /// A hovered tooltip always outranks the loading progress that otherwise occupies the bar.
         /// </summary>
         public static void ShowTooltip(string text)
         {
             if (!Instance) return;
             BasisMainMenu menu = (BasisMainMenu)Instance;
-            if (menu._tooltipLabel == null || menu._tooltipCanvasGroup == null)
-            {
-                return;
-            }
-
-            if (string.IsNullOrEmpty(text))
-            {
-                HideTooltip();
-                return;
-            }
-
-            menu.KillTooltipTween();
-            menu._tooltipCanvasGroup.gameObject.SetActive(true);
-            if (menu._tooltipEdge != null) menu._tooltipEdge.color = menu._tooltipEdgeColor;
-            if (menu._tooltipBackgroundStyle != null) menu._tooltipBackgroundStyle.ApplyActiveStyle();
-            menu._tooltipLabel.enabled = true;
-            menu._tooltipLabel.text = text;
-            menu._tooltipTween = menu._tooltipCanvasGroup
-                .TweenAlpha(TooltipFadeDuration, menu._tooltipCanvasGroup.alpha, 1f)
-                .SetEase(Easing.OutCubic);
+            menu._hoverTooltipText = string.IsNullOrEmpty(text) ? null : text;
+            menu.RefreshTooltip();
         }
 
         /// <summary>
-        /// Fade the hover tooltip bar back out.
+        /// Clear the hovered tooltip. The bar falls back to loading progress if something is
+        /// still loading, otherwise it fades back out.
         /// </summary>
         public static void HideTooltip()
         {
             if (!Instance) return;
             BasisMainMenu menu = (BasisMainMenu)Instance;
-            if (menu._tooltipCanvasGroup == null)
+            menu._hoverTooltipText = null;
+            menu.RefreshTooltip();
+        }
+
+        private void OnLoadingProgressChanged(string display, float percentage, bool active)
+        {
+            BasisDebug.Log($"[LoadingBarRoute] menu received '{display}' {percentage} active:{active} area:{(_tooltipCanvasGroup != null ? _tooltipCanvasGroup.gameObject.activeInHierarchy.ToString() : "null")}");
+            _progressDisplay = display;
+            _progressPercentage = percentage;
+            _progressActive = active;
+            RefreshTooltip();
+        }
+
+        private void RefreshTooltip()
+        {
+            if (!string.IsNullOrEmpty(_hoverTooltipText))
+            {
+                ApplyTooltip(_hoverTooltipText, -1f);
+            }
+            else if (_progressActive)
+            {
+                ApplyTooltip(BasisUILoadingBar.FormatDisplay(_progressPercentage, _progressDisplay), _progressPercentage);
+            }
+            else
+            {
+                FadeTooltipOut();
+            }
+        }
+
+        private void ApplyTooltip(string text, float progressPercentage)
+        {
+            if (_tooltipLabel == null || _tooltipCanvasGroup == null)
             {
                 return;
             }
 
-            menu.KillTooltipTween();
-            if (menu._tooltipEdge != null) menu._tooltipEdge.color = new Color(0f, 0f, 0f, menu._tooltipEdgeColor.a);
-            if (menu._tooltipBackgroundStyle != null && menu._tooltipBackgroundStyle.Image != null)
+            BasisDebug.Log($"[LoadingBarRoute] ApplyTooltip '{text}' fill:{progressPercentage} alpha:{_tooltipCanvasGroup.alpha}");
+            KillTooltipTween();
+            _tooltipCanvasGroup.gameObject.SetActive(true);
+            if (_tooltipEdge != null) _tooltipEdge.color = _tooltipEdgeColor;
+            if (_tooltipBackgroundStyle != null) _tooltipBackgroundStyle.ApplyActiveStyle();
+            _tooltipLabel.enabled = true;
+            _tooltipLabel.text = text;
+            SetTooltipProgressFill(progressPercentage);
+            _tooltipTween = _tooltipCanvasGroup
+                .TweenAlpha(TooltipFadeDuration, _tooltipCanvasGroup.alpha, 1f)
+                .SetEase(Easing.OutCubic);
+        }
+
+        private void SetTooltipProgressFill(float progressPercentage)
+        {
+            if (_tooltipProgressFill == null)
             {
-                menu._tooltipBackgroundStyle.Image.color = Color.black;
+                return;
             }
-            if (menu._tooltipLabel != null) menu._tooltipLabel.enabled = false;
-            CanvasGroup tooltipGroup = menu._tooltipCanvasGroup;
-            menu._tooltipTween = tooltipGroup
+
+            if (progressPercentage < 0f)
+            {
+                _tooltipProgressFill.gameObject.SetActive(false);
+                return;
+            }
+
+            _tooltipProgressFill.gameObject.SetActive(true);
+            _tooltipProgressFill.anchorMax = new Vector2(Mathf.Clamp01(progressPercentage / 100f), 0f);
+        }
+
+        private void FadeTooltipOut()
+        {
+            if (_tooltipCanvasGroup == null || !_tooltipCanvasGroup.gameObject.activeSelf)
+            {
+                return;
+            }
+
+            KillTooltipTween();
+            SetTooltipProgressFill(-1f);
+            if (_tooltipEdge != null) _tooltipEdge.color = new Color(0f, 0f, 0f, _tooltipEdgeColor.a);
+            if (_tooltipBackgroundStyle != null && _tooltipBackgroundStyle.Image != null)
+            {
+                _tooltipBackgroundStyle.Image.color = Color.black;
+            }
+            if (_tooltipLabel != null) _tooltipLabel.enabled = false;
+            CanvasGroup tooltipGroup = _tooltipCanvasGroup;
+            _tooltipTween = tooltipGroup
                 .TweenAlpha(TooltipFadeDuration, tooltipGroup.alpha, 0f)
                 .SetEase(Easing.OutCubic)
                 .AddCallback(() =>
@@ -318,14 +415,20 @@ namespace Basis.BasisUI
 
         public static void Open()
         {
+            BasisUILoadingBar.SetHudSuppressed(true);
             BasisUIManagement.CloseAllMenus();
 
             if (Instance)
             {
+                // Re-opening rebuilds the menu, taking the active page and the virtual
+                // keyboard with it. Snapshot them so an unsolicited prompt that forced the
+                // menu open can put them back when it closes.
+                BasisMenuPromptRestore.Capture();
                 Instance.Release();
             }
 
             Instance = new BasisMainMenu();
+            BasisMenuPromptRestore.SetOwner(Instance.MenuObjectInstance);
             BasisCursorManagement.UnlockCursor(nameof(BasisMainMenu));
             SetMicrophoneIconHudVisible(false);
             BasisMenuStateMemory.WasOpen = true;
@@ -364,9 +467,12 @@ namespace Basis.BasisUI
                 return;
             }
 
+            // Closing outright is the user's own decision — there is nothing left to put back.
+            BasisMenuPromptRestore.Clear();
             Instance.Release();
             Instance = null;
             BasisCursorManagement.LockCursor(nameof(BasisMainMenu));
+            BasisUILoadingBar.SetHudSuppressed(false);
             SetMicrophoneIconHudVisible(true);
             BasisMenuStateMemory.WasOpen = false;
         }
@@ -409,10 +515,40 @@ namespace Basis.BasisUI
             Instance.ActiveProvider = provider;
             BasisMenuStateMemory.ActiveProviderTitle = data.Title;
 
+            // Every provider panel gets the move handle, which also restores where the user last
+            // dragged this one to.
+            BasisPanelMoveHandle.Attach(Instance.ActiveMenu, ResolvePanelOffsetKey(data.Title, provider));
+
             // Animate content panel entrance
             UIAnimations.PanelIn(Instance.ActiveMenu);
 
             return Instance.ActiveMenu;
+        }
+
+        /// <summary>
+        /// Stable per-provider key for remembered panel placement. Most providers do not hand
+        /// themselves to <see cref="CreateActiveMenu"/>, so the one whose title built this panel is
+        /// looked up instead — its type name survives a language change, which the localized title
+        /// on <see cref="BasisMenuPanel.PanelData"/> would not.
+        /// </summary>
+        private static string ResolvePanelOffsetKey(string title, BasisMenuActionProvider<BasisMainMenu> provider)
+        {
+            if (provider != null)
+            {
+                return provider.GetType().Name;
+            }
+
+            int count = Providers.Count;
+            for (int Index = 0; Index < count; Index++)
+            {
+                BasisMenuActionProvider<BasisMainMenu> candidate = Providers[Index];
+                if (candidate != null && candidate.Title == title)
+                {
+                    return candidate.GetType().Name;
+                }
+            }
+
+            return title;
         }
 
         public static void CloseActivePanel()

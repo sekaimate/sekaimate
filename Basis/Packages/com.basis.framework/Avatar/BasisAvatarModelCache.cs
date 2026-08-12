@@ -59,6 +59,7 @@ public static class BasisAvatarModelCache
         public int GridHeight;
         public int FingerStride;
         public int TotalElements;
+        public float Increment;
 
         // T-pose muscle arrays (4 floats per finger, 10 fingers)
         public float[] LeftThumb, LeftIndex, LeftMiddle, LeftRing, LeftLittle;
@@ -108,6 +109,13 @@ public static class BasisAvatarModelCache
     {
         public float3[] Positions;
         public quaternion[] Rotations;
+
+        /// <summary>
+        /// Root world scale these positions were recorded at — the factor between this frame and
+        /// TposeFromRoot. Cached rather than re-read from the live root because a cache hit restores
+        /// another instance's arrays, and by then the caller's root may already carry a network scale.
+        /// </summary>
+        public float3 RootScale;
     }
 
     /// <summary>
@@ -281,7 +289,7 @@ public static class BasisAvatarModelCache
                     pos[i] = float3.zero;
                 }
             }
-            entry.TposeWorld = new TposeWorldData { Rotations = rots, Positions = pos };
+            entry.TposeWorld = new TposeWorldData { Rotations = rots, Positions = pos, RootScale = mapping.RootScale };
         }
 
         if (entry.BonePresence == null)
@@ -330,5 +338,7 @@ public static class BasisAvatarModelCache
         mapping.AvatarForwards = cachedRoot.AvatarForward;
         mapping.AvatarUpwards = cachedRoot.AvatarUp;
         mapping.AvatarRightwards = cachedRoot.AvatarRight;
+        // Belongs to the cached TposeWorld arrays, not to this instance's live root.
+        mapping.RootScale = cachedWorld.RootScale;
     }
 }

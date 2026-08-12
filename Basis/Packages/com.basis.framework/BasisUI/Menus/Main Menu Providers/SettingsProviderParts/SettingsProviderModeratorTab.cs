@@ -17,6 +17,9 @@ namespace Basis.BasisUI
     /// </summary>
     public static class SettingsProviderModeratorTab
     {
+        /// <summary>Bitrate the per-player override slider starts on before an admin moves it.</summary>
+        private const int DefaultPlayerOpusBitrate = 32000;
+
         public static PanelTabPage ModeratorTab(PanelTabGroup tabGroup)
         {
             PanelTabPage tab = PanelTabPage.CreateVertical(tabGroup.Descriptor.ContentParent);
@@ -83,8 +86,9 @@ namespace Basis.BasisUI
             PanelButton teleportToSelected = PanelButton.CreateNew(actionsGroup.ContentParent);
             teleportToSelected.Descriptor.SetTitle(BasisLocalization.Get("settings.admin.teleportTo"));
             teleportToSelected.Descriptor.SetTooltip(BasisLocalization.Get("settings.admin.teleportTo.tooltip"));
-            GuardedClick(teleportToSelected, "Teleport to player?",
-                "Teleport you to the selected player's location?", "Teleport",
+            GuardedClick(teleportToSelected, BasisLocalization.Get("settings.admin.confirm.teleportTo.title"),
+                BasisLocalization.Get("settings.admin.confirm.teleportTo.body"),
+                BasisLocalization.Get("settings.admin.confirm.teleportTo.confirm"),
                 () =>
                 {
                     BasisNetworkPlayer target = controller.GetEffectivePlayer();
@@ -95,8 +99,9 @@ namespace Basis.BasisUI
             PanelButton teleportAll = PanelButton.CreateNew(actionsGroup.ContentParent);
             teleportAll.Descriptor.SetTitle(BasisLocalization.Get("settings.admin.teleportAll"));
             teleportAll.Descriptor.SetTooltip(BasisLocalization.Get("settings.admin.teleportAll.tooltip"));
-            GuardedClick(teleportAll, "Teleport everyone?",
-                "This will teleport ALL players to the selected target's location. Continue?", "Teleport",
+            GuardedClick(teleportAll, BasisLocalization.Get("settings.admin.confirm.teleportAll.title"),
+                BasisLocalization.Get("settings.admin.confirm.teleportAll.body"),
+                BasisLocalization.Get("settings.admin.confirm.teleportAll.confirm"),
                 () =>
                 {
                     BasisNetworkPlayer target = controller.GetEffectivePlayer();
@@ -107,8 +112,9 @@ namespace Basis.BasisUI
             PanelButton teleportHere = PanelButton.CreateNew(actionsGroup.ContentParent);
             teleportHere.Descriptor.SetTitle(BasisLocalization.Get("settings.admin.teleportHere"));
             teleportHere.Descriptor.SetTooltip(BasisLocalization.Get("settings.admin.teleportHere.tooltip"));
-            GuardedClick(teleportHere, "Teleport player to you?",
-                "Teleport the selected player to your location?", "Teleport",
+            GuardedClick(teleportHere, BasisLocalization.Get("settings.admin.confirm.teleportHere.title"),
+                BasisLocalization.Get("settings.admin.confirm.teleportHere.body"),
+                BasisLocalization.Get("settings.admin.confirm.teleportHere.confirm"),
                 () =>
                 {
                     BasisNetworkPlayer target = controller.GetEffectivePlayer();
@@ -120,8 +126,9 @@ namespace Basis.BasisUI
             PanelButton ban = PanelButton.CreateNew(actionsGroup.ContentParent);
             ban.Descriptor.SetTitle(BasisLocalization.Get("settings.admin.banUuid"));
             ban.Descriptor.SetTooltip(BasisLocalization.Get("settings.admin.banUuid.tooltip"));
-            GuardedClick(ban, "Ban player?",
-                "Ban the player with this UUID? This may be irreversible depending on server policy.", "Ban",
+            GuardedClick(ban, BasisLocalization.Get("settings.admin.confirm.ban.title"),
+                BasisLocalization.Get("settings.admin.confirm.ban.body"),
+                BasisLocalization.Get("settings.admin.confirm.ban.confirm"),
                 () =>
                 {
                     string uuid = controller.GetUUIDText();
@@ -132,8 +139,9 @@ namespace Basis.BasisUI
             PanelButton kick = PanelButton.CreateNew(actionsGroup.ContentParent);
             kick.Descriptor.SetTitle(BasisLocalization.Get("settings.admin.kickUuid"));
             kick.Descriptor.SetTooltip(BasisLocalization.Get("settings.admin.kickUuid.tooltip"));
-            GuardedClick(kick, "Kick player?",
-                "Kick the player with this UUID?", "Kick",
+            GuardedClick(kick, BasisLocalization.Get("settings.admin.confirm.kick.title"),
+                BasisLocalization.Get("settings.admin.confirm.kick.body"),
+                BasisLocalization.Get("settings.admin.confirm.kick.confirm"),
                 () =>
                 {
                     string uuid = controller.GetUUIDText();
@@ -144,8 +152,9 @@ namespace Basis.BasisUI
             PanelButton ipBan = PanelButton.CreateNew(actionsGroup.ContentParent);
             ipBan.Descriptor.SetTitle(BasisLocalization.Get("settings.admin.ipBanUuid"));
             ipBan.Descriptor.SetTooltip(BasisLocalization.Get("settings.admin.ipBanUuid.tooltip"));
-            GuardedClick(ipBan, "IP ban player?",
-                "IP-ban the player with this UUID? This can affect multiple accounts on the same connection.", "IP Ban",
+            GuardedClick(ipBan, BasisLocalization.Get("settings.admin.confirm.ipBan.title"),
+                BasisLocalization.Get("settings.admin.confirm.ipBan.body"),
+                BasisLocalization.Get("settings.admin.confirm.ipBan.confirm"),
                 () =>
                 {
                     string uuid = controller.GetUUIDText();
@@ -156,8 +165,9 @@ namespace Basis.BasisUI
             PanelButton unban = PanelButton.CreateNew(actionsGroup.ContentParent);
             unban.Descriptor.SetTitle(BasisLocalization.Get("settings.admin.unbanUuid"));
             unban.Descriptor.SetTooltip(BasisLocalization.Get("settings.admin.unbanUuid.tooltip"));
-            GuardedClick(unban, "Unban player?",
-                "Remove the ban for this UUID?", "Unban",
+            GuardedClick(unban, BasisLocalization.Get("settings.admin.confirm.unban.title"),
+                BasisLocalization.Get("settings.admin.confirm.unban.body"),
+                BasisLocalization.Get("settings.admin.confirm.unban.confirm"),
                 () =>
                 {
                     string uuid = controller.GetUUIDText();
@@ -165,12 +175,28 @@ namespace Basis.BasisUI
                     BasisNetworkModeration.UnBan(uuid);
                 });
 
+            // An IP ban is stored against the banned UUID's recorded address, so lifting it needs
+            // its own command — a plain Unban leaves the address blocked.
+            PanelButton unIpBan = PanelButton.CreateNew(actionsGroup.ContentParent);
+            unIpBan.Descriptor.SetTitle(BasisLocalization.Get("settings.admin.unIpBanUuid"));
+            unIpBan.Descriptor.SetTooltip(BasisLocalization.Get("settings.admin.unIpBanUuid.tooltip"));
+            GuardedClick(unIpBan, BasisLocalization.Get("settings.admin.confirm.unIpBan.title"),
+                BasisLocalization.Get("settings.admin.confirm.unIpBan.body"),
+                BasisLocalization.Get("settings.admin.confirm.unIpBan.confirm"),
+                () =>
+                {
+                    string uuid = controller.GetUUIDText();
+                    if (string.IsNullOrWhiteSpace(uuid)) { BasisDebug.LogError("UUID is empty."); return; }
+                    BasisNetworkModeration.UnIpBan(uuid);
+                });
+
             // Messaging
             PanelButton sendMessage = PanelButton.CreateNew(actionsGroup.ContentParent);
             sendMessage.Descriptor.SetTitle(BasisLocalization.Get("settings.admin.sendMessageUuid"));
             sendMessage.Descriptor.SetTooltip(BasisLocalization.Get("settings.admin.sendMessageUuid.tooltip"));
-            GuardedClick(sendMessage, "Send message?",
-                "Send this message to the target player?", "Send",
+            GuardedClick(sendMessage, BasisLocalization.Get("settings.admin.confirm.sendMessage.title"),
+                BasisLocalization.Get("settings.admin.confirm.sendMessage.body"),
+                BasisLocalization.Get("settings.admin.confirm.sendMessage.confirm"),
                 () =>
                 {
                     string uuid = controller.GetUUIDText();
@@ -184,8 +210,9 @@ namespace Basis.BasisUI
             PanelButton sendAll = PanelButton.CreateNew(actionsGroup.ContentParent);
             sendAll.Descriptor.SetTitle(BasisLocalization.Get("settings.admin.sendAll"));
             sendAll.Descriptor.SetTooltip(BasisLocalization.Get("settings.admin.sendAll.tooltip"));
-            GuardedClick(sendAll, "Broadcast message?",
-                "Send this message to ALL players?", "Broadcast",
+            GuardedClick(sendAll, BasisLocalization.Get("settings.admin.confirm.sendAll.title"),
+                BasisLocalization.Get("settings.admin.confirm.sendAll.body"),
+                BasisLocalization.Get("settings.admin.confirm.sendAll.confirm"),
                 () =>
                 {
                     string msg = controller.GetReasonText();
@@ -197,8 +224,9 @@ namespace Basis.BasisUI
             PanelButton enableShout = PanelButton.CreateNew(actionsGroup.ContentParent);
             enableShout.Descriptor.SetTitle(BasisLocalization.Get("menu.individualPlayer.shout.enable"));
             enableShout.Descriptor.SetTooltip(BasisLocalization.Get("menu.individualPlayer.shout.enable.tooltip"));
-            GuardedClick(enableShout, "Enable shout mode?",
-                "Enable non-spatialized broadcast voice for this player?", "Enable",
+            GuardedClick(enableShout, BasisLocalization.Get("settings.admin.confirm.shoutEnable.title"),
+                BasisLocalization.Get("settings.admin.confirm.shoutEnable.body"),
+                BasisLocalization.Get("settings.admin.confirm.shoutEnable.confirm"),
                 () =>
                 {
                     BasisNetworkPlayer target = controller.GetEffectivePlayer();
@@ -209,8 +237,9 @@ namespace Basis.BasisUI
             PanelButton disableShout = PanelButton.CreateNew(actionsGroup.ContentParent);
             disableShout.Descriptor.SetTitle(BasisLocalization.Get("menu.individualPlayer.shout.disable"));
             disableShout.Descriptor.SetTooltip(BasisLocalization.Get("menu.individualPlayer.shout.disable.tooltip"));
-            GuardedClick(disableShout, "Disable shout mode?",
-                "Disable non-spatialized broadcast voice for this player?", "Disable",
+            GuardedClick(disableShout, BasisLocalization.Get("settings.admin.confirm.shoutDisable.title"),
+                BasisLocalization.Get("settings.admin.confirm.shoutDisable.body"),
+                BasisLocalization.Get("settings.admin.confirm.shoutDisable.confirm"),
                 () =>
                 {
                     BasisNetworkPlayer target = controller.GetEffectivePlayer();
@@ -222,8 +251,9 @@ namespace Basis.BasisUI
             PanelButton enableFullQuality = PanelButton.CreateNew(actionsGroup.ContentParent);
             enableFullQuality.Descriptor.SetTitle(BasisLocalization.Get("menu.individualPlayer.fullquality.enable"));
             enableFullQuality.Descriptor.SetTooltip(BasisLocalization.Get("menu.individualPlayer.fullquality.enable.tooltip"));
-            GuardedClick(enableFullQuality, "Enable full-quality broadcast?",
-                "Send this player's full-quality avatar data to everyone, bypassing the distance reduction system? Uses more bandwidth.", "Enable",
+            GuardedClick(enableFullQuality, BasisLocalization.Get("settings.admin.confirm.fullQualityEnable.title"),
+                BasisLocalization.Get("settings.admin.confirm.fullQualityEnable.body"),
+                BasisLocalization.Get("settings.admin.confirm.fullQualityEnable.confirm"),
                 () =>
                 {
                     BasisNetworkPlayer target = controller.GetEffectivePlayer();
@@ -234,13 +264,53 @@ namespace Basis.BasisUI
             PanelButton disableFullQuality = PanelButton.CreateNew(actionsGroup.ContentParent);
             disableFullQuality.Descriptor.SetTitle(BasisLocalization.Get("menu.individualPlayer.fullquality.disable"));
             disableFullQuality.Descriptor.SetTooltip(BasisLocalization.Get("menu.individualPlayer.fullquality.disable.tooltip"));
-            GuardedClick(disableFullQuality, "Disable full-quality broadcast?",
-                "Return this player to the normal distance reduction system?", "Disable",
+            GuardedClick(disableFullQuality, BasisLocalization.Get("settings.admin.confirm.fullQualityDisable.title"),
+                BasisLocalization.Get("settings.admin.confirm.fullQualityDisable.body"),
+                BasisLocalization.Get("settings.admin.confirm.fullQualityDisable.confirm"),
                 () =>
                 {
                     BasisNetworkPlayer target = controller.GetEffectivePlayer();
                     if (target == null) { BasisDebug.LogError("No player available."); return; }
                     BasisNetworkModeration.SetFullQualityBroadcast(target.playerId, false);
+                });
+
+            // --- Per-player voice bitrate ---
+            // Targets the runtime player id rather than a UUID, so it only applies to someone
+            // currently connected. A per-user override wins over the server-wide bitrate.
+            PanelElementDescriptor voiceGroup =
+                PanelElementDescriptor.CreateNew(PanelElementDescriptor.ElementStyles.Group, container);
+            voiceGroup.SetTitle(BasisLocalization.Get("settings.admin.playerVoice"));
+
+            PanelSlider bitrateSlider = PanelSlider.CreateNew(PanelSlider.SliderStyles.Entry, voiceGroup.ContentParent);
+            bitrateSlider.SetSliderSettings(PanelSlider.SliderSettings.Advanced(
+                BasisLocalization.Get("settings.admin.playerOpusBitrate"), 6000f, 128000f, true, 0, ValueDisplayMode.Compact));
+            bitrateSlider.Descriptor.SetTooltip(BasisLocalization.Get("settings.admin.playerOpusBitrate.tooltip"));
+            bitrateSlider.SetValueWithoutNotify(DefaultPlayerOpusBitrate);
+
+            PanelButton applyBitrate = PanelButton.CreateNew(voiceGroup.ContentParent);
+            applyBitrate.Descriptor.SetTitle(BasisLocalization.Get("settings.admin.playerOpusBitrate.apply"));
+            applyBitrate.Descriptor.SetTooltip(BasisLocalization.Get("settings.admin.playerOpusBitrate.apply.tooltip"));
+            GuardedClick(applyBitrate, BasisLocalization.Get("settings.admin.confirm.bitrateApply.title"),
+                BasisLocalization.Get("settings.admin.confirm.bitrateApply.body"),
+                BasisLocalization.Get("settings.admin.confirm.bitrateApply.confirm"),
+                () =>
+                {
+                    BasisNetworkPlayer target = controller.GetEffectivePlayer();
+                    if (target == null) { BasisDebug.LogError("No player available."); return; }
+                    BasisNetworkModeration.SetUserOpusBitrate(target.playerId, Mathf.RoundToInt(bitrateSlider.Value));
+                });
+
+            PanelButton clearBitrate = PanelButton.CreateNew(voiceGroup.ContentParent);
+            clearBitrate.Descriptor.SetTitle(BasisLocalization.Get("settings.admin.playerOpusBitrate.clear"));
+            clearBitrate.Descriptor.SetTooltip(BasisLocalization.Get("settings.admin.playerOpusBitrate.clear.tooltip"));
+            GuardedClick(clearBitrate, BasisLocalization.Get("settings.admin.confirm.bitrateClear.title"),
+                BasisLocalization.Get("settings.admin.confirm.bitrateClear.body"),
+                BasisLocalization.Get("settings.admin.confirm.bitrateClear.confirm"),
+                () =>
+                {
+                    BasisNetworkPlayer target = controller.GetEffectivePlayer();
+                    if (target == null) { BasisDebug.LogError("No player available."); return; }
+                    BasisNetworkModeration.SetUserOpusBitrate(target.playerId, 0);
                 });
 
             controller.RebuildPlayerList();
@@ -263,9 +333,10 @@ namespace Basis.BasisUI
         }
 
         private static void GuardedClick(PanelButton button, string title, string body, string confirmText,
-            Action actionOnConfirm, string cancelText = "Cancel")
+            Action actionOnConfirm, string cancelText = null)
         {
-            button.OnClicked += () => WithConfirm(title, body, confirmText, cancelText, actionOnConfirm);
+            button.OnClicked += () => WithConfirm(title, body, confirmText,
+                cancelText ?? BasisLocalization.Get("ui.cancel"), actionOnConfirm);
         }
 
         private sealed class ModeratorTabController : MonoBehaviour

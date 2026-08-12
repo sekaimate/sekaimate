@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Basis.BasisUI.Styling;
 using Basis.Scripts.Device_Management;
@@ -7,7 +8,7 @@ using UnityEngine.UI;
 
 namespace Basis.BasisUI.HandHeldCamera
 {
-    public class BasisHandHeldCameraPanelProvider : BasisMenuActionProvider<BasisMainMenu>
+    public partial class BasisHandHeldCameraPanelProvider : BasisMenuActionProvider<BasisMainMenu>
     {
         public const string StaticTitle = "Camera Settings";
 
@@ -21,6 +22,19 @@ namespace Basis.BasisUI.HandHeldCamera
         // Ordered to match BasisCameraDetachedMarker (Off / Puck / Wireframe).
         private static readonly string[] DetachedMarkerLabels = { "Off", "Puck", "Wireframe" };
 
+        // Ordered to match URP's MotionBlurQuality and MotionBlurMode, which the UI stores as their
+        // index — a label reordered here silently picks a different enum entry.
+        private static readonly string[] MotionBlurQualityLabels = { "Low", "Medium", "High" };
+        private static readonly string[] MotionBlurQualityKeys =
+        {
+            "camera.motionBlurQuality.low", "camera.motionBlurQuality.medium", "camera.motionBlurQuality.high"
+        };
+        private static readonly string[] MotionBlurModeLabels = { "Camera Only", "Camera And Objects" };
+        private static readonly string[] MotionBlurModeKeys =
+        {
+            "camera.motionBlurMode.cameraOnly", "camera.motionBlurMode.cameraAndObjects"
+        };
+
         /// <summary>Preview height used until the row has a laid-out width to derive one from.</summary>
         private const float PreviewFallbackHeight = 320f;
 
@@ -32,20 +46,29 @@ namespace Basis.BasisUI.HandHeldCamera
         public override bool Hidden => BasisHandHeldCameraRegistry.Count == 0;
 
         private BasisMenuPanel _panel;
-        private RectTransform _scrollContent;
+        private PanelTabGroup _tabGroup;
+        private RectTransform _navColumn;
+        private readonly List<RectTransform> _pageContents = new List<RectTransform>();
+        private readonly List<BasisPanelSearch> _searches = new List<BasisPanelSearch>();
+        private readonly List<string> _searchTabKeys = new List<string>();
+        private readonly List<BasisPanelSearchHit> _searchHits = new List<BasisPanelSearchHit>();
+
+        /// <summary>Tab the panel was left on, so reopening it lands back where the user was.</summary>
+        private static int _lastTabIndex;
+
         private PanelDropdown _selector;
         private PanelElementDescriptor _emptyState;
         private PanelElementDescriptor _hiddenState;
         private PanelButton _bringBackButton;
         private bool? _lastHiddenState;
         private PanelElementDescriptor _previewGroup;
+        private LayoutElement _previewLayout;
         private PanelElementDescriptor _lensGroup;
         private PanelElementDescriptor _dofGroup;
         private PanelElementDescriptor _colorGroup;
         private PanelElementDescriptor _effectsGroup;
         private PanelElementDescriptor _outputGroup;
         private PanelElementDescriptor _actionGroup;
-        private PanelSectionToggle _previewSection;
         private PanelSectionToggle _lensSection;
         private PanelSectionToggle _dofSection;
         private PanelSectionToggle _colorSection;
@@ -65,10 +88,11 @@ namespace Basis.BasisUI.HandHeldCamera
         private PanelToggle _limitRenderRateToggle;
         private PanelSlider _renderRateSlider;
         private PanelButton _resetPageButton;
+        private PanelButton _resetTopButton;
         private PanelButton _timerButton;
         private int _lastCountdownShown = -1;
         private const string TimerIdleLabel = "Timer";
-        private RectTransform _topActions;
+        private readonly List<PanelButton> _topButtons = new List<PanelButton>();
         private RawImage _previewImage;
 
         private PanelSlider _fovSlider;
@@ -90,6 +114,10 @@ namespace Basis.BasisUI.HandHeldCamera
         private PanelSlider _whiteBalanceTempSlider;
         private PanelSlider _whiteBalanceTintSlider;
         private PanelSlider _lensDistortionSlider;
+        private PanelSlider _motionBlurSlider;
+        private PanelSlider _motionBlurClampSlider;
+        private PanelDropdown _motionBlurQualityDropdown;
+        private PanelDropdown _motionBlurModeDropdown;
         private PanelDropdown _msaaDropdown;
 #if Basis_VOLUMETRIC_SUPPORTED
         private PanelSlider _fogSlider;
@@ -128,6 +156,10 @@ namespace Basis.BasisUI.HandHeldCamera
         private PanelDropdown _videoResolutionDropdown;
         private PanelSlider _videoFrameRateSlider;
         private PanelSlider _webQualitySlider;
+        /// <summary>Matches the clamp BasisHandHeldCameraVideoOutput.SetWebStreamPort applies.</summary>
+        private const int WebPortMin = 1024;
+        private const int WebPortMax = 65500;
+
         private PanelTextField _webPortField;
         private PanelButton _openStreamButton;
         private PanelTextField _videoSenderNameField;
@@ -152,6 +184,7 @@ namespace Basis.BasisUI.HandHeldCamera
         private bool? _lastCloseHides;
         private bool? _lastAutoFollow;
         private bool? _lastExposureOnCamera;
+        private bool? _lastFocusFollows;
 
         [RuntimeInitializeOnLoadMethod]
         public static void AddToMenu()
@@ -199,82 +232,270 @@ namespace Basis.BasisUI.HandHeldCamera
 
             panel.OnInstanceReleased += OnPanelClosed;
 
-            RectTransform container = panel.Descriptor.ContentParent;
-            PanelElementDescriptor scroll = PanelElementDescriptor.CreateNew(
-                PanelElementDescriptor.ElementStyles.ScrollViewVertical, container);
-            _scrollContent = scroll.ContentParent;
+            // Search lives on the header. The popup must not outlive this panel — it navigates into
+            // tabs that go away with it.
+            BasisPanelMoveHandle.SetPanelSearch(panel, Title, CollectSearchResults);
+            panel.OnInstanceReleased += BasisPanelSearchPopup.Close;
 
-            // The shared scroll-view prefab ships a bare, zero-anchored viewport
-            // with no mask, so content taller than the panel draws straight past
-            // its bounds. Bound the viewport to the scroll rect and mask it.
-            if (scroll.TryGetComponent(out ScrollRect scrollRect) && scrollRect.viewport != null)
+            _tabGroup = PanelTabGroup.CreateNew(panel.Descriptor.ContentParent, LayoutDirection.Vertical);
+            _navColumn = _tabGroup.ExtrasContainer;
+            _pageContents.Clear();
+            _searches.Clear();
+            _searchTabKeys.Clear();
+
+            BuildNavigationColumn(_navColumn);
+
+            // First, because a mode is the decision every other tab is downstream of: it sets them
+            // up for a job and colours them by the part each one plays in it.
+            AddTab("camera.modePreset", BuildModeTab);
+
+            AddTab("camera.capture", content =>
             {
-                RectTransform viewport = scrollRect.viewport;
-                viewport.anchorMin = Vector2.zero;
-                viewport.anchorMax = Vector2.one;
-                viewport.offsetMin = Vector2.zero;
-                viewport.offsetMax = new Vector2(-25f, 0f);
-                if (!viewport.TryGetComponent(out RectMask2D _))
-                {
-                    viewport.gameObject.AddComponent<RectMask2D>();
-                }
-            }
+                BuildActionsGroup(content);
+                PanelSectionToggleHelpers.FinalizeCollapsibleGroup(_actionSection, _actionGroup, true, OnSectionExpanded);
 
-            BuildTopActions(_scrollContent);
+                BuildBackgroundGroup(content);
+                PanelSectionToggleHelpers.FinalizeCollapsibleGroup(_backgroundSection, _backgroundGroup, false, OnSectionExpanded);
+            });
 
-            _selector = PanelDropdown.CreateNewEntry(_scrollContent);
-            _selector.Descriptor.SetTitle("Camera");
-            _selector.OnValueChanged = _ => OnSelectionChanged();
+            AddTab("camera.tab.image", content =>
+            {
+                BuildLensGroup(content);
+                PanelSectionToggleHelpers.FinalizeCollapsibleGroup(_lensSection, _lensGroup, true, OnSectionExpanded);
 
-            _emptyState = PanelElementDescriptor.CreateNew(
-                PanelElementDescriptor.ElementStyles.Group, _scrollContent);
-            _emptyState.SetTitle("No Cameras Open");
-            _emptyState.SetDescription("Spawn a handheld camera to adjust it here.");
+                BuildDofGroup(content);
+                PanelSectionToggleHelpers.FinalizeCollapsibleGroup(_dofSection, _dofGroup, false, OnSectionExpanded);
 
-            BuildHiddenState(_scrollContent);
+                BuildColorGroup(content);
+                PanelSectionToggleHelpers.FinalizeCollapsibleGroup(_colorSection, _colorGroup, false, OnSectionExpanded);
 
-            BuildPreviewGroup(_scrollContent);
-            PanelSectionToggleHelpers.FinalizeCollapsibleGroup(_previewSection, _previewGroup, true, OnSectionExpanded);
+                BuildEffectsGroup(content);
+                PanelSectionToggleHelpers.FinalizeCollapsibleGroup(_effectsSection, _effectsGroup, false, OnSectionExpanded);
+            });
 
-            BuildLensGroup(_scrollContent);
-            PanelSectionToggleHelpers.FinalizeCollapsibleGroup(_lensSection, _lensGroup, false, OnSectionExpanded);
+            AddTab("camera.output", content =>
+            {
+                BuildOutputGroup(content);
+                PanelSectionToggleHelpers.FinalizeCollapsibleGroup(_outputSection, _outputGroup, true, OnSectionExpanded);
+            });
 
-            BuildDofGroup(_scrollContent);
-            PanelSectionToggleHelpers.FinalizeCollapsibleGroup(_dofSection, _dofGroup, false, OnSectionExpanded);
+            AddTab("camera.follow", content =>
+            {
+                BuildFollowGroup(content);
+                PanelSectionToggleHelpers.FinalizeCollapsibleGroup(_followSection, _followGroup, true, OnSectionExpanded);
+            });
 
-            BuildColorGroup(_scrollContent);
-            PanelSectionToggleHelpers.FinalizeCollapsibleGroup(_colorSection, _colorGroup, false, OnSectionExpanded);
+            AddTab("camera.cinematic", BuildCinematicSections);
 
-            BuildEffectsGroup(_scrollContent);
-            PanelSectionToggleHelpers.FinalizeCollapsibleGroup(_effectsSection, _effectsGroup, false, OnSectionExpanded);
+            AddTab("camera.tab.advanced", content =>
+            {
+                BuildLayersGroup(content);
+                PanelSectionToggleHelpers.FinalizeCollapsibleGroup(_layersSection, _layersGroup, true, OnSectionExpanded);
 
-            BuildOutputGroup(_scrollContent);
-            PanelSectionToggleHelpers.FinalizeCollapsibleGroup(_outputSection, _outputGroup, false, OnSectionExpanded);
+                BuildPerformanceGroup(content);
+                PanelSectionToggleHelpers.FinalizeCollapsibleGroup(_performanceSection, _performanceGroup, false, OnSectionExpanded);
 
-            BuildFollowGroup(_scrollContent);
-            PanelSectionToggleHelpers.FinalizeCollapsibleGroup(_followSection, _followGroup, false, OnSectionExpanded);
+                BuildGizmoGroup(content);
+                PanelSectionToggleHelpers.FinalizeCollapsibleGroup(_gizmoSection, _gizmoGroup, false, OnSectionExpanded);
 
-            BuildActionsGroup(_scrollContent);
-            PanelSectionToggleHelpers.FinalizeCollapsibleGroup(_actionSection, _actionGroup, true, OnSectionExpanded);
+                BuildResetButton(content);
+            });
 
-            BuildLayersGroup(_scrollContent);
-            PanelSectionToggleHelpers.FinalizeCollapsibleGroup(_layersSection, _layersGroup, false, OnSectionExpanded);
-
-            BuildPerformanceGroup(_scrollContent);
-            PanelSectionToggleHelpers.FinalizeCollapsibleGroup(_performanceSection, _performanceGroup, false, OnSectionExpanded);
-
-            BuildGizmoGroup(_scrollContent);
-            PanelSectionToggleHelpers.FinalizeCollapsibleGroup(_gizmoSection, _gizmoGroup, false, OnSectionExpanded);
-
-            BuildResetButton(_scrollContent);
-
-            MakeSlidersLive(_scrollContent);
+            MakeSlidersLive((RectTransform)_tabGroup.transform);
             AssignSliderResetDefaults();
+
+            // After every tab: the section handles are assigned as each page is populated, so the
+            // tint list can only be complete once the last one has been built.
+            RegisterSectionTints();
 
             RebuildSelector();
 
+            if (_lastTabIndex > 0 && _lastTabIndex < _tabGroup.SelectionButtons.Count)
+            {
+                _tabGroup.SelectionButtons[_lastTabIndex]?.OnClicked?.Invoke();
+            }
+
             SetPanelTickSubscription(true);
         }
+
+        /// <summary>
+        /// The column down the left of the panel: the tab buttons, then the rows that frame every
+        /// page rather than belong to one. The preview lives here so the feed — and the composition
+        /// guides drawn over it — stay in view whichever tab is being edited.
+        /// </summary>
+        private void BuildNavigationColumn(RectTransform parent)
+        {
+            BuildPreviewGroup(parent);
+
+            BuildTopActions(parent);
+
+            // The label-carrying entry prefab reserves 500 units for its control beside the title,
+            // which does not fit the navigation column at all. The no-title variant drops that
+            // reservation — the same one the Library panel uses in this container.
+            _selector = PanelDropdown.CreateNew(PanelDropdown.DropdownStyles.EntryNoLabel, parent);
+            _selector.Descriptor.SetSize(new Vector2(60, 80));
+            FitToNavColumn(_selector.Descriptor, releaseControlSlot: false);
+            _selector.OnValueChanged = _ => OnSelectionChanged();
+
+            _emptyState = PanelElementDescriptor.CreateNew(
+                PanelElementDescriptor.ElementStyles.Group, parent);
+            _emptyState.SetTitle(BasisLocalization.Get("camera.noCamerasOpen"));
+            _emptyState.SetDescription(BasisLocalization.Get("camera.noCamerasOpen.description"));
+            FitToNavColumn(_emptyState, releaseControlSlot: true);
+
+            BuildHiddenState(parent);
+            FitToNavColumn(_hiddenState, releaseControlSlot: true);
+        }
+
+        /// <summary>
+        /// Card prefabs keep an icon slot and a control slot beside their labels, both sized for the
+        /// full-width page. Together they are wider than the navigation column, so the layout falls
+        /// back to minimums and hands the labels a width of zero — which renders their text one
+        /// character per line. Drop the icon, and on the cards that carry no control, the slot too.
+        /// </summary>
+        private static void FitToNavColumn(PanelElementDescriptor element, bool releaseControlSlot)
+        {
+            if (element == null) return;
+
+            if (element.IconBackground != null) element.IconBackground.SetActive(false);
+            if (!releaseControlSlot || element.Header == null) return;
+
+            Transform slot = element.Header.Find("Title/Element");
+            if (slot != null) slot.gameObject.SetActive(false);
+        }
+
+        /// <summary>
+        /// Builds one tab and files it under the left-hand navigation. The page is populated before
+        /// it is handed to the group, so every row is instantiated while the page is still active and
+        /// its deferred Awake cannot come back later and overwrite the titles set here.
+        /// </summary>
+        private void AddTab(string tabKey, Action<RectTransform> build)
+        {
+            PanelTabPage page = PanelTabPage.CreateVertical(_tabGroup.Descriptor.ContentParent);
+            PanelElementDescriptor descriptor = page.Descriptor;
+            descriptor.SetIcon(AddressableAssets.Sprites.CameraSettings);
+            descriptor.SetTitle(BasisLocalization.Get(tabKey));
+
+            RectTransform content = descriptor.ContentParent;
+            ClampScrollViewport(content);
+            string scope = "camera/" + tabKey;
+
+            BasisMenuStateMemory.BeginScope(scope);
+            try
+            {
+                build(content);
+            }
+            finally
+            {
+                BasisMenuStateMemory.EndScope();
+            }
+
+            int index = _tabGroup.Pages.Count;
+            _pageContents.Add(content);
+
+            // Headless: this page is searched from the panel header's Search button, so it keeps its
+            // whole height for controls instead of spending the first row on a field.
+            _searches.Add(BasisPanelSearch.AttachHeadless(content, page));
+            _searchTabKeys.Add(tabKey);
+
+            PanelScrollMemory.Attach(content, scope);
+            _tabGroup.AddTab(BasisLocalization.Get(tabKey), () => OnTabShown(index), page);
+        }
+
+        /// <summary>
+        /// The shared scroll-view prefab ships a bare, zero-anchored viewport with no mask, so
+        /// content taller than the page draws straight past its bounds (Page-style panels have no
+        /// panel-level mask to catch it). Bound the viewport to the scroll rect and mask it — the
+        /// standard scroll-view construction — so a tab clips and scrolls like the settings pages.
+        /// </summary>
+        private static void ClampScrollViewport(RectTransform content)
+        {
+            if (content == null) return;
+
+            ScrollRect scroll = content.GetComponentInParent<ScrollRect>();
+            if (scroll == null || scroll.viewport == null) return;
+
+            RectTransform viewport = scroll.viewport;
+            viewport.anchorMin = Vector2.zero;
+            viewport.anchorMax = Vector2.one;
+            viewport.offsetMin = Vector2.zero;
+            viewport.offsetMax = new Vector2(-25f, 0f);
+            if (!viewport.TryGetComponent(out RectMask2D _))
+            {
+                viewport.gameObject.AddComponent<RectMask2D>();
+            }
+        }
+
+        /// <summary>
+        /// Search is scoped to this panel by design — the camera's controls are its own, and a query
+        /// here is not meant to reach the main Settings tabs. Each tab carries its own field; typing
+        /// in one carries the query to the others, which only record it and filter when shown.
+        /// </summary>
+        /// <summary>
+        /// Everything on this panel matching the query, for the header search popup. Scoped to the
+        /// camera's own tabs on purpose — a search opened here is about framing a shot, and should
+        /// not start turning up microphone settings.
+        /// </summary>
+        private void CollectSearchResults(string query, List<BasisPanelSearchResult> results)
+        {
+            for (int Index = 0; Index < _searches.Count; Index++)
+            {
+                BasisPanelSearch search = _searches[Index];
+                if (search == null) continue;
+
+                search.Prepare();
+                search.CollectHits(query, _searchHits);
+
+                int tabIndex = Index;
+                string tabName = BasisLocalization.Get(_searchTabKeys[Index]);
+                for (int Hit = 0; Hit < _searchHits.Count; Hit++)
+                {
+                    BasisPanelSearchHit hit = _searchHits[Hit];
+                    string title = hit.Title;
+                    string section = hit.SectionTitle;
+                    PanelSectionToggle targetSection = hit.Section;
+
+                    results.Add(new BasisPanelSearchResult(
+                        title,
+                        string.IsNullOrEmpty(section) || section == title ? tabName : $"{tabName} › {section}",
+                        () => OpenSearchResult(tabIndex, targetSection, title)));
+                }
+            }
+
+            _searchHits.Clear();
+        }
+
+        /// <summary>
+        /// Goes to the tab a result lives on and puts the row under the user's eye. Expanding comes
+        /// after the tab switch: a collapsed section rebuilds its rows on open, so the descriptor the
+        /// hit was collected from is already gone, which is why the scroll matches by title.
+        /// </summary>
+        private void OpenSearchResult(int tabIndex, PanelSectionToggle section, string title)
+        {
+            if (_tabGroup != null) _tabGroup.SetValue(tabIndex);
+            if (section != null) section.SetExpanded(true);
+
+            if (tabIndex >= 0 && tabIndex < _searches.Count) _searches[tabIndex]?.ScrollTo(title);
+        }
+
+        private void OnTabShown(int index)
+        {
+            _lastTabIndex = index;
+        }
+
+        private BasisPanelSearch ActiveSearch()
+        {
+            if (_tabGroup == null || _searches.Count == 0) return null;
+            return _searches[Mathf.Clamp(_tabGroup.Value, 0, _searches.Count - 1)];
+        }
+
+        private RectTransform ActivePageContent()
+        {
+            if (_tabGroup == null || _pageContents.Count == 0) return null;
+            return _pageContents[Mathf.Clamp(_tabGroup.Value, 0, _pageContents.Count - 1)];
+        }
+
+        private void RefreshSearch() => ActiveSearch()?.Refresh();
 
         /// <summary>
         /// Makes this page's sliders apply while being dragged instead of on release.
@@ -336,6 +557,8 @@ namespace Basis.BasisUI.HandHeldCamera
             _chromaticSlider?.SetResetDefault(0f);
             _filmGrainSlider?.SetResetDefault(0f);
             _lensDistortionSlider?.SetResetDefault(0f);
+            _motionBlurSlider?.SetResetDefault(defaults.motionBlurIntensity * 100f);
+            _motionBlurClampSlider?.SetResetDefault(defaults.motionBlurClamp * 100f);
 #if Basis_VOLUMETRIC_SUPPORTED
             _fogSlider?.SetResetDefault(defaults.VolumetricFogVolumedensity);
 #endif
@@ -362,28 +585,30 @@ namespace Basis.BasisUI.HandHeldCamera
         {
             _resetPageButton = PanelButton.CreateNew(parent);
             _resetPageButton.Descriptor.SetTitle(BasisLocalization.Get("ui.resetPage.title", StaticTitle));
-            _resetPageButton.OnClicked += () =>
-            {
-                // Hold the camera across the dialogue: closing the panel clears _activeCamera.
-                BasisHandHeldCamera camera = _activeCamera;
-                if (camera == null) return;
+            _resetPageButton.OnClicked += PromptResetSettings;
+        }
 
-                BasisMainMenu.Instance.OpenDialogue(
-                    BasisLocalization.Get("ui.resetPage.title", StaticTitle),
-                    BasisLocalization.Get("ui.resetPage.confirm", StaticTitle),
-                    BasisLocalization.Get("ui.reset"),
-                    BasisLocalization.Get("ui.cancel"),
-                    confirmed =>
-                    {
-                        if (!confirmed || camera == null) return;
+        private void PromptResetSettings()
+        {
+            // Hold the camera across the dialogue: closing the panel clears _activeCamera.
+            BasisHandHeldCamera camera = _activeCamera;
+            if (camera == null) return;
 
-                        camera.HandHeld.ResetSettings();
-                        BasisSettingsDefaults.LimitHandHeldCameraRate.ResetToDefault();
-                        BasisSettingsDefaults.HandHeldCameraRenderHz.ResetToDefault();
-                        BasisMainMenu.Close();
-                        BasisMainMenu.OpenWithProvider(StaticTitle);
-                    });
-            };
+            BasisMainMenu.Instance.OpenDialogue(
+                BasisLocalization.Get("ui.resetPage.title", StaticTitle),
+                BasisLocalization.Get("ui.resetPage.confirm", StaticTitle),
+                BasisLocalization.Get("ui.reset"),
+                BasisLocalization.Get("ui.cancel"),
+                confirmed =>
+                {
+                    if (!confirmed || camera == null) return;
+
+                    camera.HandHeld.ResetSettings();
+                    BasisSettingsDefaults.LimitHandHeldCameraRate.ResetToDefault();
+                    BasisSettingsDefaults.HandHeldCameraRenderHz.ResetToDefault();
+                    BasisMainMenu.Close();
+                    BasisMainMenu.OpenWithProvider(StaticTitle);
+                });
         }
 
         /// <summary>
@@ -407,14 +632,21 @@ namespace Basis.BasisUI.HandHeldCamera
         {
             ApplyOnPropUIVisibility(false);
             SetPanelTickSubscription(false);
+            ClearCinematicReferences();
+            ClearModeReferences();
             _panel = null;
-            _scrollContent = null;
+            _tabGroup = null;
+            _navColumn = null;
+            _pageContents.Clear();
+            _searches.Clear();
+            _searchTabKeys.Clear();
             _selector = null;
             _emptyState = null;
             _hiddenState = null;
             _bringBackButton = null;
             _lastHiddenState = null;
             _previewGroup = null;
+            _previewLayout = null;
             _lensGroup = null;
             _dofGroup = null;
             _colorGroup = null;
@@ -441,6 +673,10 @@ namespace Basis.BasisUI.HandHeldCamera
             _whiteBalanceTempSlider = null;
             _whiteBalanceTintSlider = null;
             _lensDistortionSlider = null;
+            _motionBlurSlider = null;
+            _motionBlurClampSlider = null;
+            _motionBlurQualityDropdown = null;
+            _motionBlurModeDropdown = null;
             _focusModeDropdown = null;
             _followTargetDropdown = null;
             _followTargetIds.Clear();
@@ -450,10 +686,10 @@ namespace Basis.BasisUI.HandHeldCamera
 #endif
             _followGroup = null;
             _resetPageButton = null;
-            _topActions = null;
+            _resetTopButton = null;
+            _topButtons.Clear();
             _timerButton = null;
             _lastCountdownShown = -1;
-            _previewSection = null;
             _lensSection = null;
             _dofSection = null;
             _colorSection = null;
@@ -507,7 +743,9 @@ namespace Basis.BasisUI.HandHeldCamera
             _webPortField = null;
             _openStreamButton = null;
             _videoSenderNameField = null;
-            _activeCamera = null;
+            // Releases the preview request as well: the panel is gone, so the camera goes back to
+            // rendering only for the surfaces that are still showing it.
+            SetActiveCamera(null);
             _lastVideoOutputActive = null;
             _lastWebStreamActive = null;
             _lastWebStreamDescription = null;
@@ -518,6 +756,7 @@ namespace Basis.BasisUI.HandHeldCamera
             _lastSelfie = null;
             _lastCloseHides = null;
             _lastExposureOnCamera = null;
+            _lastFocusFollows = null;
             _entries.Clear();
         }
 
@@ -525,8 +764,9 @@ namespace Basis.BasisUI.HandHeldCamera
 
         private void BuildPreviewGroup(RectTransform parent)
         {
-            _previewSection = PanelSectionToggle.CreateNewEntry(parent);
-            _previewGroup = PanelSectionToggleHelpers.CreateCollapsibleContentGroup( _previewSection, parent, "Preview", false);
+            _previewGroup = PanelElementDescriptor.CreateNew(
+                PanelElementDescriptor.ElementStyles.Group, parent);
+            if (_previewGroup.Header != null) _previewGroup.Header.gameObject.SetActive(false);
 
             // A live RenderTexture can only be drawn by a RawImage, and the element's base
             // image is a UnityEngine.UI.Image, which draws sprites only. Graphic is
@@ -536,7 +776,7 @@ namespace Basis.BasisUI.HandHeldCamera
             // rather than Destroy: a deferred destroy would still hold the slot when
             // AddComponent runs later in this frame.
             RectTransform card = (RectTransform)_previewGroup.transform;
-            if (card.TryGetComponent(out UiStyleImage styleImage)) Object.DestroyImmediate(styleImage);
+            if (card.TryGetComponent(out UiStyleImage styleImage)) UnityEngine.Object.DestroyImmediate(styleImage);
 
             // Take the card's material with us: it's the overlay-variant UI material the rest
             // of the menu draws with, so the preview keeps sorting on top the way the card
@@ -546,7 +786,7 @@ namespace Basis.BasisUI.HandHeldCamera
             if (card.TryGetComponent(out Graphic baseGraphic))
             {
                 cardMaterial = baseGraphic.material;
-                Object.DestroyImmediate(baseGraphic);
+                UnityEngine.Object.DestroyImmediate(baseGraphic);
             }
 
             _previewImage = card.gameObject.AddComponent<RawImage>();
@@ -557,6 +797,10 @@ namespace Basis.BasisUI.HandHeldCamera
             // this group, so its fitter would collapse the preview flat. Own the height and
             // let ApplyPreviewAspect drive it from the feed.
             if (card.TryGetComponent(out ContentSizeFitter fitter)) fitter.enabled = false;
+            // The navigation column drives its children's heights, so the height has to be
+            // published as a layout preference as well as written to the rect.
+            if (!card.TryGetComponent(out _previewLayout)) _previewLayout = card.gameObject.AddComponent<LayoutElement>();
+            _previewLayout.preferredHeight = PreviewFallbackHeight;
             card.sizeDelta = new Vector2(card.sizeDelta.x, PreviewFallbackHeight);
         }
 
@@ -564,16 +808,17 @@ namespace Basis.BasisUI.HandHeldCamera
         {
             _lensSection = PanelSectionToggle.CreateNewEntry(parent);
             _lensGroup = PanelSectionToggleHelpers.CreateCollapsibleContentGroup(
-                _lensSection, parent, "Lens", false);
+                _lensSection, parent, BasisLocalization.Get("camera.lens"), false);
             RectTransform content = _lensGroup.ContentParent;
 
             _fovSlider = PanelSlider.CreateNew(content);
-            _fovSlider.SetSliderSettings(PanelSlider.SliderSettings.Degrees("Field Of View", 20f, 120f, false, 1));
+            _fovSlider.SetSliderSettings(PanelSlider.SliderSettings.Degrees(BasisLocalization.Get("camera.fieldOfView"),
+                BasisHandHeldCameraUI.MinFov, BasisHandHeldCameraUI.MaxFov, false, 1));
             _fovSlider.OnValueChanged = v => _activeCamera?.HandHeld.ChangeFOV(v);
 
             _msaaDropdown = PanelDropdown.CreateNewEntry(content);
-            _msaaDropdown.Descriptor.SetTitle("MSAA");
-            _msaaDropdown.Descriptor.SetDescription("Multisample anti-aliasing on the captured image. Higher is smoother but costs more.");
+            _msaaDropdown.Descriptor.SetTitle(BasisLocalization.Get("camera.msaa"));
+            _msaaDropdown.Descriptor.SetDescription(BasisLocalization.Get("camera.msaa.description"));
             _msaaDropdown.AssignEntries(BuildMsaaLabels());
             _msaaDropdown.OnValueChanged = _ =>
             {
@@ -590,13 +835,13 @@ namespace Basis.BasisUI.HandHeldCamera
         {
             _dofSection = PanelSectionToggle.CreateNewEntry(parent);
             _dofGroup = PanelSectionToggleHelpers.CreateCollapsibleContentGroup(
-                _dofSection, parent, "Depth Of Field", false);
+                _dofSection, parent, BasisLocalization.Get("camera.depthOfField"), false);
             RectTransform content = _dofGroup.ContentParent;
 
             _dofModeDropdown = PanelDropdown.CreateNewEntry(content);
-            _dofModeDropdown.Descriptor.SetTitle("Mode");
-            _dofModeDropdown.Descriptor.SetDescription("Off, Gaussian (cheap far blur) or Bokeh (physical, shaped highlights).");
-            _dofModeDropdown.AssignEntries(new List<string> { "Off", "Gaussian", "Bokeh" });
+            _dofModeDropdown.Descriptor.SetTitle(BasisLocalization.Get("camera.mode"));
+            _dofModeDropdown.Descriptor.SetDescription(BasisLocalization.Get("camera.mode.description"));
+            _dofModeDropdown.AssignLocalizedEntries(new List<string> { "Off", "Gaussian", "Bokeh" }, new List<string> { "ui.option.off", "camera.mode.gaussian", "camera.mode.bokeh" });
             _dofModeDropdown.OnValueChanged = _ =>
             {
                 if (_activeCamera == null || _dofModeDropdown == null) return;
@@ -605,8 +850,8 @@ namespace Basis.BasisUI.HandHeldCamera
             };
 
             _focusModeDropdown = PanelDropdown.CreateNewEntry(content);
-            _focusModeDropdown.Descriptor.SetTitle("Focus");
-            _focusModeDropdown.Descriptor.SetDescription("Follow Subject keeps depth of field on whoever the camera follows (turns it on), and needs Auto Follow on or a Follow Target picked; Manual sets the focus distance by hand.");
+            _focusModeDropdown.Descriptor.SetTitle(BasisLocalization.Get("camera.focus"));
+            _focusModeDropdown.Descriptor.SetDescription(BasisLocalization.Get("camera.focus.description"));
             _focusModeDropdown.AssignEntries(new List<string>(FocusModeLabels));
             _focusModeDropdown.OnValueChanged = _ =>
             {
@@ -616,25 +861,28 @@ namespace Basis.BasisUI.HandHeldCamera
 
             _focusSlider = PanelSlider.CreateNew(content);
             _focusSlider.SetSliderSettings(PanelSlider.SliderSettings.Advanced(
-                "Focus Distance", 0.1f, 100f, false, 1, ValueDisplayMode.Meters));
+                BasisLocalization.Get("camera.focusDistance"), BasisHandHeldCameraUI.MinFocusDistance,
+                BasisHandHeldCameraUI.MaxFocusDistance, false, 1, ValueDisplayMode.Meters));
             _focusSlider.OnValueChanged = v => _activeCamera?.HandHeld.DepthChangeFocusDistance(v);
 
             _apertureSlider = PanelSlider.CreateNew(content);
             _apertureSlider.SetSliderSettings(PanelSlider.SliderSettings.Advanced(
-                "Aperture", BasisHandHeldCameraUI.MinAperture, BasisHandHeldCameraUI.MaxAperture, false, 2, ValueDisplayMode.Raw));
-            _apertureSlider.Descriptor.SetDescription("Lower is a shallower focus with more blur (Bokeh).");
+                BasisLocalization.Get("camera.aperture"), BasisHandHeldCameraUI.MinAperture, BasisHandHeldCameraUI.MaxAperture, false, 2, ValueDisplayMode.Raw));
+            _apertureSlider.Descriptor.SetDescription(BasisLocalization.Get("camera.aperture.description"));
             _apertureSlider.OnValueChanged = v => _activeCamera?.HandHeld.ChangeAperture(v);
 
             _dofFocalLengthSlider = PanelSlider.CreateNew(content);
             _dofFocalLengthSlider.SetSliderSettings(PanelSlider.SliderSettings.Advanced(
-                "Focal Length", 1f, 300f, false, 0, ValueDisplayMode.Raw));
-            _dofFocalLengthSlider.Descriptor.SetDescription("Longer compresses the scene and deepens the blur (Bokeh).");
+                BasisLocalization.Get("camera.focalLength"), BasisHandHeldCameraUI.MinFocalLength,
+                BasisHandHeldCameraUI.MaxFocalLength, false, 0, ValueDisplayMode.Raw));
+            _dofFocalLengthSlider.Descriptor.SetDescription(BasisLocalization.Get("camera.focalLength.description"));
             _dofFocalLengthSlider.OnValueChanged = v => _activeCamera?.HandHeld.ChangeDoFFocalLength(v);
 
             _dofBladeCountSlider = PanelSlider.CreateNew(content);
             _dofBladeCountSlider.SetSliderSettings(PanelSlider.SliderSettings.Advanced(
-                "Bokeh Blades", 3f, 9f, true, 0, ValueDisplayMode.Raw));
-            _dofBladeCountSlider.Descriptor.SetDescription("Number of aperture blades — the shape of out-of-focus highlights (Bokeh).");
+                BasisLocalization.Get("camera.bokehBlades"), BasisHandHeldCameraUI.MinBladeCount,
+                BasisHandHeldCameraUI.MaxBladeCount, true, 0, ValueDisplayMode.Raw));
+            _dofBladeCountSlider.Descriptor.SetDescription(BasisLocalization.Get("camera.bokehBlades.description"));
             _dofBladeCountSlider.OnValueChanged = v => _activeCamera?.HandHeld.ChangeDoFBladeCount(v);
         }
 
@@ -642,17 +890,17 @@ namespace Basis.BasisUI.HandHeldCamera
         {
             _colorSection = PanelSectionToggle.CreateNewEntry(parent);
             _colorGroup = PanelSectionToggleHelpers.CreateCollapsibleContentGroup(
-                _colorSection, parent, "Exposure & Colour", false);
+                _colorSection, parent, BasisLocalization.Get("camera.exposureColour"), false);
             RectTransform content = _colorGroup.ContentParent;
 
             _exposureSlider = PanelSlider.CreateNew(content);
             _exposureSlider.SetSliderSettings(PanelSlider.SliderSettings.Advanced(
-                "Exposure", 0f, BasisHandHeldCameraUI.ExposureStopCount - 1, true, 0, ValueDisplayMode.Raw));
+                BasisLocalization.Get("camera.exposure"), 0f, BasisHandHeldCameraUI.ExposureStopCount - 1, true, 0, ValueDisplayMode.Raw));
             _exposureSlider.OnValueChanged = v => _activeCamera?.HandHeld.ChangeExposureCompensation(v);
 
             _exposureOnCameraToggle = PanelToggle.CreateNewEntry(content);
-            _exposureOnCameraToggle.Descriptor.SetTitle("Exposure On Camera");
-            _exposureOnCameraToggle.Descriptor.SetDescription("Also show the exposure slider on the camera's own interface.");
+            _exposureOnCameraToggle.Descriptor.SetTitle(BasisLocalization.Get("camera.exposureOnCamera"));
+            _exposureOnCameraToggle.Descriptor.SetDescription(BasisLocalization.Get("camera.exposureOnCamera.description"));
             _exposureOnCameraToggle.OnValueChanged = v =>
             {
                 _activeCamera?.HandHeld.SetExposureOnCameraVisible(v);
@@ -663,26 +911,26 @@ namespace Basis.BasisUI.HandHeldCamera
 
             _contrastSlider = PanelSlider.CreateNew(content);
             _contrastSlider.SetSliderSettings(PanelSlider.SliderSettings.Advanced(
-                "Contrast", -100f, 100f, false, 1, ValueDisplayMode.Raw));
+                BasisLocalization.Get("camera.contrast"), -100f, 100f, false, 1, ValueDisplayMode.Raw));
             _contrastSlider.OnValueChanged = v => _activeCamera?.HandHeld.ChangeContrast(v);
 
             _saturationSlider = PanelSlider.CreateNew(content);
             _saturationSlider.SetSliderSettings(PanelSlider.SliderSettings.Advanced(
-                "Saturation", -100f, 100f, false, 1, ValueDisplayMode.Raw));
+                BasisLocalization.Get("camera.saturation"), -100f, 100f, false, 1, ValueDisplayMode.Raw));
             _saturationSlider.OnValueChanged = v => _activeCamera?.HandHeld.ChangeSaturation(v);
 
             _hueSlider = PanelSlider.CreateNew(content);
-            _hueSlider.SetSliderSettings(PanelSlider.SliderSettings.Degrees("Hue Shift", -180f, 180f, false, 0));
+            _hueSlider.SetSliderSettings(PanelSlider.SliderSettings.Degrees(BasisLocalization.Get("camera.hueShift"), -180f, 180f, false, 0));
             _hueSlider.OnValueChanged = v => _activeCamera?.HandHeld.ChangeHueShift(v);
 
             _whiteBalanceTempSlider = PanelSlider.CreateNew(content);
             _whiteBalanceTempSlider.SetSliderSettings(PanelSlider.SliderSettings.Advanced(
-                "White Balance Temp", -100f, 100f, false, 0, ValueDisplayMode.Raw));
+                BasisLocalization.Get("camera.whiteBalanceTemp"), -100f, 100f, false, 0, ValueDisplayMode.Raw));
             _whiteBalanceTempSlider.OnValueChanged = v => _activeCamera?.HandHeld.ChangeWhiteBalanceTemperature(v);
 
             _whiteBalanceTintSlider = PanelSlider.CreateNew(content);
             _whiteBalanceTintSlider.SetSliderSettings(PanelSlider.SliderSettings.Advanced(
-                "White Balance Tint", -100f, 100f, false, 0, ValueDisplayMode.Raw));
+                BasisLocalization.Get("camera.whiteBalanceTint"), -100f, 100f, false, 0, ValueDisplayMode.Raw));
             _whiteBalanceTintSlider.OnValueChanged = v => _activeCamera?.HandHeld.ChangeWhiteBalanceTint(v);
         }
 
@@ -690,40 +938,81 @@ namespace Basis.BasisUI.HandHeldCamera
         {
             _effectsSection = PanelSectionToggle.CreateNewEntry(parent);
             _effectsGroup = PanelSectionToggleHelpers.CreateCollapsibleContentGroup(
-                _effectsSection, parent, "Effects", false);
+                _effectsSection, parent, BasisLocalization.Get("camera.effects"), false);
             RectTransform content = _effectsGroup.ContentParent;
 
             _bloomIntensitySlider = PanelSlider.CreateNew(content);
             _bloomIntensitySlider.SetSliderSettings(PanelSlider.SliderSettings.Advanced(
-                "Bloom Intensity", 0f, 5f, false, 2, ValueDisplayMode.Raw));
+                BasisLocalization.Get("camera.bloomIntensity"), 0f, 5f, false, 2, ValueDisplayMode.Raw));
             _bloomIntensitySlider.OnValueChanged = v => _activeCamera?.HandHeld.ChangeBloomIntensity(v);
 
             _bloomThresholdSlider = PanelSlider.CreateNew(content);
             _bloomThresholdSlider.SetSliderSettings(PanelSlider.SliderSettings.Advanced(
-                "Bloom Threshold", 0.1f, 2f, false, 2, ValueDisplayMode.Raw));
+                BasisLocalization.Get("camera.bloomThreshold"), 0.1f, 2f, false, 2, ValueDisplayMode.Raw));
             _bloomThresholdSlider.OnValueChanged = v => _activeCamera?.HandHeld.ChangeBloomThreshold(v);
 
             _vignetteSlider = PanelSlider.CreateNew(content);
-            _vignetteSlider.SetSliderSettings(PanelSlider.SliderSettings.Percentage("Vignette"));
+            _vignetteSlider.SetSliderSettings(PanelSlider.SliderSettings.Percentage(BasisLocalization.Get("camera.vignette")));
             _vignetteSlider.OnValueChanged = v => _activeCamera?.HandHeld.ChangeVignette(v / 100f);
 
             _chromaticSlider = PanelSlider.CreateNew(content);
-            _chromaticSlider.SetSliderSettings(PanelSlider.SliderSettings.Percentage("Chromatic Aberration"));
+            _chromaticSlider.SetSliderSettings(PanelSlider.SliderSettings.Percentage(BasisLocalization.Get("camera.chromaticAberration")));
             _chromaticSlider.OnValueChanged = v => _activeCamera?.HandHeld.ChangeChromaticAberration(v / 100f);
 
             _filmGrainSlider = PanelSlider.CreateNew(content);
-            _filmGrainSlider.SetSliderSettings(PanelSlider.SliderSettings.Percentage("Film Grain"));
+            _filmGrainSlider.SetSliderSettings(PanelSlider.SliderSettings.Percentage(BasisLocalization.Get("camera.filmGrain")));
             _filmGrainSlider.OnValueChanged = v => _activeCamera?.HandHeld.ChangeFilmGrain(v / 100f);
 
             _lensDistortionSlider = PanelSlider.CreateNew(content);
             _lensDistortionSlider.SetSliderSettings(PanelSlider.SliderSettings.Advanced(
-                "Lens Distortion", -100f, 100f, false, 0, ValueDisplayMode.Raw));
+                BasisLocalization.Get("camera.lensDistortion"), -100f, 100f, false, 0, ValueDisplayMode.Raw));
             _lensDistortionSlider.OnValueChanged = v => _activeCamera?.HandHeld.ChangeLensDistortion(v / 100f);
+
+            _motionBlurSlider = PanelSlider.CreateNew(content);
+            _motionBlurSlider.SetSliderSettings(PanelSlider.SliderSettings.Percentage(BasisLocalization.Get("camera.motionBlur")));
+            _motionBlurSlider.Descriptor.SetDescription(BasisLocalization.Get("camera.motionBlur.description"));
+            _motionBlurSlider.OnValueChanged = v =>
+            {
+                _activeCamera?.HandHeld.ChangeMotionBlur(v / 100f);
+                RefreshMotionBlurVisibility();
+            };
+
+            // The shape controls only mean anything once there is blur to shape, so they follow the
+            // strength the way the depth of field controls follow its mode.
+            _motionBlurClampSlider = PanelSlider.CreateNew(content);
+            _motionBlurClampSlider.SetSliderSettings(PanelSlider.SliderSettings.Advanced(
+                BasisLocalization.Get("camera.motionBlurClamp"),
+                BasisHandHeldCameraUI.MinMotionBlurClamp * 100f, BasisHandHeldCameraUI.MaxMotionBlurClamp * 100f,
+                false, 1, ValueDisplayMode.Percentage));
+            _motionBlurClampSlider.Descriptor.SetDescription(BasisLocalization.Get("camera.motionBlurClamp.description"));
+            _motionBlurClampSlider.OnValueChanged = v => _activeCamera?.HandHeld.ChangeMotionBlurClamp(v / 100f);
+
+            _motionBlurQualityDropdown = PanelDropdown.CreateNewEntry(content);
+            _motionBlurQualityDropdown.Descriptor.SetTitle(BasisLocalization.Get("camera.motionBlurQuality"));
+            _motionBlurQualityDropdown.Descriptor.SetDescription(BasisLocalization.Get("camera.motionBlurQuality.description"));
+            _motionBlurQualityDropdown.AssignLocalizedEntries(
+                new List<string>(MotionBlurQualityLabels), new List<string>(MotionBlurQualityKeys));
+            _motionBlurQualityDropdown.OnValueChanged = _ =>
+            {
+                if (_activeCamera == null || _motionBlurQualityDropdown == null) return;
+                _activeCamera.HandHeld.SetMotionBlurQuality(_motionBlurQualityDropdown.Index);
+            };
+
+            _motionBlurModeDropdown = PanelDropdown.CreateNewEntry(content);
+            _motionBlurModeDropdown.Descriptor.SetTitle(BasisLocalization.Get("camera.motionBlurMode"));
+            _motionBlurModeDropdown.Descriptor.SetDescription(BasisLocalization.Get("camera.motionBlurMode.description"));
+            _motionBlurModeDropdown.AssignLocalizedEntries(
+                new List<string>(MotionBlurModeLabels), new List<string>(MotionBlurModeKeys));
+            _motionBlurModeDropdown.OnValueChanged = _ =>
+            {
+                if (_activeCamera == null || _motionBlurModeDropdown == null) return;
+                _activeCamera.HandHeld.SetMotionBlurMode(_motionBlurModeDropdown.Index);
+            };
 
 #if Basis_VOLUMETRIC_SUPPORTED
             _fogSlider = PanelSlider.CreateNew(content);
             _fogSlider.SetSliderSettings(PanelSlider.SliderSettings.Advanced(
-                "Volumetric Fog", 0f, 1f, false, 2, ValueDisplayMode.Raw));
+                BasisLocalization.Get("camera.volumetricFog"), 0f, 1f, false, 2, ValueDisplayMode.Raw));
             _fogSlider.OnValueChanged = v => _activeCamera?.HandHeld.ChangeVolumetricDensity(v);
 #endif
         }
@@ -742,12 +1031,12 @@ namespace Basis.BasisUI.HandHeldCamera
         {
             _outputSection = PanelSectionToggle.CreateNewEntry(parent);
             _outputGroup = PanelSectionToggleHelpers.CreateCollapsibleContentGroup(
-                _outputSection, parent, "Output", false);
+                _outputSection, parent, BasisLocalization.Get("camera.output"), false);
             RectTransform content = _outputGroup.ContentParent;
 
             _recordToggle = PanelToggle.CreateNewEntry(content);
-            _recordToggle.Descriptor.SetTitle("Direct To Screen");
-            _recordToggle.Descriptor.SetDescription("Render this camera to the main screen in place of your own view. Nothing is written to disk.");
+            _recordToggle.Descriptor.SetTitle(BasisLocalization.Get("camera.directToScreen"));
+            _recordToggle.Descriptor.SetDescription(BasisLocalization.Get("camera.directToScreen.description"));
             _recordToggle.OnValueChanged = v =>
             {
                 if (_activeCamera == null) return;
@@ -755,8 +1044,8 @@ namespace Basis.BasisUI.HandHeldCamera
             };
 
             _hideCameraToggle = PanelToggle.CreateNewEntry(content);
-            _hideCameraToggle.Descriptor.SetTitle("Hide Camera");
-            _hideCameraToggle.Descriptor.SetDescription("Hide the camera itself while it keeps running — capture, streaming and follow all continue.");
+            _hideCameraToggle.Descriptor.SetTitle(BasisLocalization.Get("camera.hideCamera"));
+            _hideCameraToggle.Descriptor.SetDescription(BasisLocalization.Get("camera.hideCamera.description"));
             _hideCameraToggle.OnValueChanged = v =>
             {
                 _activeCamera?.SetCameraHidden(v);
@@ -764,8 +1053,8 @@ namespace Basis.BasisUI.HandHeldCamera
             };
 
             _closeHidesToggle = PanelToggle.CreateNewEntry(content);
-            _closeHidesToggle.Descriptor.SetTitle("Close Hides Instead");
-            _closeHidesToggle.Descriptor.SetDescription("Closing the camera hides it rather than destroying it, so bringing it back resumes the same session.");
+            _closeHidesToggle.Descriptor.SetTitle(BasisLocalization.Get("camera.closeHidesInstead"));
+            _closeHidesToggle.Descriptor.SetDescription(BasisLocalization.Get("camera.closeHidesInstead.description"));
             _closeHidesToggle.OnValueChanged = v =>
             {
                 if (_activeCamera != null) _activeCamera.HandHeld.CloseHidesCamera = v;
@@ -773,13 +1062,13 @@ namespace Basis.BasisUI.HandHeldCamera
             };
 
             _previewScreenToggle = PanelToggle.CreateNewEntry(content);
-            _previewScreenToggle.Descriptor.SetTitle("Preview Screen");
-            _previewScreenToggle.Descriptor.SetDescription("Spawn a grabbable, resizable screen showing this camera's feed.");
+            _previewScreenToggle.Descriptor.SetTitle(BasisLocalization.Get("camera.previewScreen"));
+            _previewScreenToggle.Descriptor.SetDescription(BasisLocalization.Get("camera.previewScreen.description"));
             _previewScreenToggle.OnValueChanged = v => _activeCamera?.SetPreviewScreenVisible(v);
 
             _audioListenerToggle = PanelToggle.CreateNewEntry(content);
-            _audioListenerToggle.Descriptor.SetTitle("Hear From Camera");
-            _audioListenerToggle.Descriptor.SetDescription("Move the audio listener to this camera, so a recording or stream is heard from the camera's viewpoint instead of yours. Only one camera at a time.");
+            _audioListenerToggle.Descriptor.SetTitle(BasisLocalization.Get("camera.hearFromCamera"));
+            _audioListenerToggle.Descriptor.SetDescription(BasisLocalization.Get("camera.hearFromCamera.description"));
             _audioListenerToggle.OnValueChanged = v =>
             {
                 _activeCamera?.SetAudioListener(v);
@@ -798,7 +1087,7 @@ namespace Basis.BasisUI.HandHeldCamera
             }
 
             _transportDropdown = PanelDropdown.CreateNewEntry(content);
-            _transportDropdown.Descriptor.SetTitle("Transport");
+            _transportDropdown.Descriptor.SetTitle(BasisLocalization.Get("camera.transport"));
             _transportDropdown.AssignEntries(transportLabels);
             _transportDropdown.OnValueChanged = _ =>
             {
@@ -814,7 +1103,7 @@ namespace Basis.BasisUI.HandHeldCamera
             };
 
             _videoOutputToggle = PanelToggle.CreateNewEntry(content);
-            _videoOutputToggle.Descriptor.SetTitle("Live Output");
+            _videoOutputToggle.Descriptor.SetTitle(BasisLocalization.Get("camera.liveOutput"));
             _videoOutputToggle.OnValueChanged = v =>
             {
                 if (_activeCamera == null) return;
@@ -831,7 +1120,7 @@ namespace Basis.BasisUI.HandHeldCamera
             // platform gate — otherwise a machine with no shared-texture backend would get the
             // web stream with no controls at all.
             _videoResolutionDropdown = PanelDropdown.CreateNewEntry(content);
-            _videoResolutionDropdown.Descriptor.SetTitle("Stream Resolution");
+            _videoResolutionDropdown.Descriptor.SetTitle(BasisLocalization.Get("camera.streamResolution"));
             List<string> resolutionLabels = new List<string>();
             for (int Index = 0; Index < VideoResolutionWidths.Length; Index++)
             {
@@ -848,18 +1137,26 @@ namespace Basis.BasisUI.HandHeldCamera
 
             _videoFrameRateSlider = PanelSlider.CreateNew(content);
             _videoFrameRateSlider.SetSliderSettings(PanelSlider.SliderSettings.Advanced(
-                "Stream Frame Rate", 15f, 120f, true, 0, ValueDisplayMode.Hz));
+                BasisLocalization.Get("camera.streamFrameRate"), 15f, 120f, true, 0, ValueDisplayMode.Hz));
             _videoFrameRateSlider.OnValueChanged = v => _activeCamera?.SetVideoOutputFrameRate(v);
 
             // Web-only settings. Shown or hidden by RefreshTransportSelection so the group
             // only ever offers what the chosen transport actually uses.
             _webQualitySlider = PanelSlider.CreateNew(content);
             _webQualitySlider.SetSliderSettings(PanelSlider.SliderSettings.Advanced(
-                "Stream Quality", 10f, 95f, true, 0, ValueDisplayMode.Raw));
+                BasisLocalization.Get("camera.streamQuality"), 10f, 95f, true, 0, ValueDisplayMode.Raw));
             _webQualitySlider.OnValueChanged = v => _activeCamera?.SetWebStreamQuality((int)v);
 
             _webPortField = PanelTextField.CreateNewEntry(content);
-            _webPortField.Descriptor.SetTitle("Stream Port");
+            _webPortField.Descriptor.SetTitle(BasisLocalization.Get("camera.streamPort"));
+            _webPortField.SetValidator(text =>
+            {
+                if (int.TryParse(text, out int port) && port >= WebPortMin && port <= WebPortMax)
+                {
+                    return null;
+                }
+                return BasisLocalization.Get("ui.validation.port", WebPortMin, WebPortMax);
+            });
             _webPortField.OnValueChanged = v =>
             {
                 if (_activeCamera == null || !int.TryParse(v, out int port)) return;
@@ -868,13 +1165,15 @@ namespace Basis.BasisUI.HandHeldCamera
             };
 
             _openStreamButton = PanelButton.CreateNew(content);
-            _openStreamButton.Descriptor.SetTitle("Open In Browser");
+            _openStreamButton.Descriptor.SetTitle(BasisLocalization.Get("camera.openInBrowser"));
             _openStreamButton.OnClicked += () => _activeCamera?.OpenWebStreamInBrowser();
 
             if (!BasisHandHeldCamera.IsVideoOutputSupported) return;
 
             _videoSenderNameField = PanelTextField.CreateNewEntry(content);
-            _videoSenderNameField.Descriptor.SetTitle("Sender Name");
+            _videoSenderNameField.Descriptor.SetTitle(BasisLocalization.Get("camera.senderName"));
+            _videoSenderNameField.SetRequired(BasisLocalization.Get("ui.validation.requiredNamed",
+                BasisLocalization.Get("camera.senderName")));
             _videoSenderNameField.OnValueChanged = v =>
             {
                 if (_activeCamera == null || string.IsNullOrWhiteSpace(v)) return;
@@ -886,11 +1185,11 @@ namespace Basis.BasisUI.HandHeldCamera
         {
             _followSection = PanelSectionToggle.CreateNewEntry(parent);
             _followGroup = PanelSectionToggleHelpers.CreateCollapsibleContentGroup(
-                _followSection, parent, "Follow", false);
+                _followSection, parent, BasisLocalization.Get("camera.follow"), false);
             RectTransform content = _followGroup.ContentParent;
 
             _autoFollowToggle = PanelToggle.CreateNewEntry(content);
-            _autoFollowToggle.Descriptor.SetTitle("Auto Follow");
+            _autoFollowToggle.Descriptor.SetTitle(BasisLocalization.Get("camera.autoFollow"));
             _autoFollowToggle.OnValueChanged = v =>
             {
                 if (_activeCamera == null) return;
@@ -901,13 +1200,13 @@ namespace Basis.BasisUI.HandHeldCamera
 
             RectTransform teleportRow = PanelElementDescriptor.BuildActionRow(content, "CameraTeleportRow");
             PanelButton teleportButton = PanelButton.CreateNew(teleportRow);
-            teleportButton.Descriptor.SetTitle("Teleport To Me");
-            teleportButton.Descriptor.SetDescription("Bring the camera in front of you, where it would spawn, to retrieve it.");
+            teleportButton.Descriptor.SetTitle(BasisLocalization.Get("camera.teleportToMe"));
+            teleportButton.Descriptor.SetDescription(BasisLocalization.Get("camera.teleportToMe.description"));
             teleportButton.OnClicked += () => _activeCamera?.TeleportInFrontOfPlayer();
 
             _followMarkerDropdown = PanelDropdown.CreateNewEntry(content);
-            _followMarkerDropdown.Descriptor.SetTitle("Detached Marker");
-            _followMarkerDropdown.Descriptor.SetDescription("What marks the camera when it leaves your hand — a grabbable puck, a lightweight wireframe, or nothing.");
+            _followMarkerDropdown.Descriptor.SetTitle(BasisLocalization.Get("camera.detachedMarker"));
+            _followMarkerDropdown.Descriptor.SetDescription(BasisLocalization.Get("camera.detachedMarker.description"));
             _followMarkerDropdown.AssignEntries(new List<string>(DetachedMarkerLabels));
             _followMarkerDropdown.OnValueChanged = _ =>
             {
@@ -917,8 +1216,8 @@ namespace Basis.BasisUI.HandHeldCamera
             };
 
             _followTargetDropdown = PanelDropdown.CreateNewEntry(content);
-            _followTargetDropdown.Descriptor.SetTitle("Follow Target");
-            _followTargetDropdown.Descriptor.SetDescription("Who the camera follows — you, or any player in the instance.");
+            _followTargetDropdown.Descriptor.SetTitle(BasisLocalization.Get("camera.followTarget"));
+            _followTargetDropdown.Descriptor.SetDescription(BasisLocalization.Get("camera.followTarget.description"));
             _followTargetDropdown.OnValueChanged = _ =>
             {
                 if (_activeCamera == null || _followTargetDropdown == null) return;
@@ -930,8 +1229,8 @@ namespace Basis.BasisUI.HandHeldCamera
             };
 
             _followPlayspaceToggle = PanelToggle.CreateNewEntry(content);
-            _followPlayspaceToggle.Descriptor.SetTitle("Follow Playspace");
-            _followPlayspaceToggle.Descriptor.SetDescription("Track your body's centre of mass, so walking around your room keeps you in frame. Off follows the playspace origin instead.");
+            _followPlayspaceToggle.Descriptor.SetTitle(BasisLocalization.Get("camera.followPlayspace"));
+            _followPlayspaceToggle.Descriptor.SetDescription(BasisLocalization.Get("camera.followPlayspace.description"));
             _followPlayspaceToggle.OnValueChanged = v =>
             {
                 if (_activeCamera != null) _activeCamera.autoFollowPlayspace = v;
@@ -939,8 +1238,8 @@ namespace Basis.BasisUI.HandHeldCamera
 
             // "Look At Me" removed — auto follow always aims at the player now, so the toggle is gone.
             // _followLookAtToggle = PanelToggle.CreateNewEntry(content);
-            // _followLookAtToggle.Descriptor.SetTitle("Look At Me");
-            // _followLookAtToggle.Descriptor.SetDescription("Aim at you instead of matching the direction you face.");
+            // _followLookAtToggle.Descriptor.SetTitle(BasisLocalization.Get("camera.lookAtMe"));
+            // _followLookAtToggle.Descriptor.SetDescription(BasisLocalization.Get("camera.lookAtMe.description"));
             // _followLookAtToggle.OnValueChanged = v =>
             // {
             //     if (_activeCamera != null) _activeCamera.autoFollowLookAtPlayer = v;
@@ -952,46 +1251,46 @@ namespace Basis.BasisUI.HandHeldCamera
             // --- X axis: sideways placement and the rotation about X ---
             _followSideSlider = PanelSlider.CreateNew(content);
             _followSideSlider.SetSliderSettings(PanelSlider.SliderSettings.Advanced(
-                "Side Offset (X)", -3f, 3f, false, 2, ValueDisplayMode.Meters));
+                BasisLocalization.Get("camera.sideOffsetX"), -3f, 3f, false, 2, ValueDisplayMode.Meters));
             _followSideSlider.OnValueChanged = v => SetFollowPositionAxis(0, v);
 
             _followLateralSlider = PanelSlider.CreateNew(content);
             _followLateralSlider.SetSliderSettings(PanelSlider.SliderSettings.Advanced(
-                "Lateral Tracking (X)", 0f, 1f, false, 2, ValueDisplayMode.Raw));
-            _followLateralSlider.Descriptor.SetDescription("How much side-to-side movement pulls the camera in to keep you framed. 0 holds the side offset.");
+                BasisLocalization.Get("camera.lateralTrackingX"), 0f, 1f, false, 2, ValueDisplayMode.Raw));
+            _followLateralSlider.Descriptor.SetDescription(BasisLocalization.Get("camera.lateralTrackingX.description"));
             _followLateralSlider.OnValueChanged = v =>
             {
                 if (_activeCamera != null) _activeCamera.autoFollowLateralTracking = v;
             };
 
             _followPitchSlider = PanelSlider.CreateNew(content);
-            _followPitchSlider.SetSliderSettings(PanelSlider.SliderSettings.Degrees("Pitch Offset (X)", -90f, 90f, false, 1));
+            _followPitchSlider.SetSliderSettings(PanelSlider.SliderSettings.Degrees(BasisLocalization.Get("camera.pitchOffsetX"), -90f, 90f, false, 1));
             _followPitchSlider.OnValueChanged = v => SetFollowRotationAxis(0, v);
 
             // --- Y axis: vertical placement, aim height and the rotation about Y ---
             _followHeightSlider = PanelSlider.CreateNew(content);
             _followHeightSlider.SetSliderSettings(PanelSlider.SliderSettings.Advanced(
-                "Height Offset (Y)", -2f, 2f, false, 2, ValueDisplayMode.Meters));
-            _followHeightSlider.Descriptor.SetDescription("Relative to your calibrated eye level. 0 films you at eyeline.");
+                BasisLocalization.Get("camera.heightOffsetY"), -2f, 2f, false, 2, ValueDisplayMode.Meters));
+            _followHeightSlider.Descriptor.SetDescription(BasisLocalization.Get("camera.heightOffsetY.description"));
             _followHeightSlider.OnValueChanged = v => SetFollowPositionAxis(1, v);
 
             _followLookAtHeightSlider = PanelSlider.CreateNew(content);
             _followLookAtHeightSlider.SetSliderSettings(PanelSlider.SliderSettings.Advanced(
-                "Look At Height (Y)", -3f, 3f, false, 2, ValueDisplayMode.Meters));
+                BasisLocalization.Get("camera.lookAtHeightY"), -3f, 3f, false, 2, ValueDisplayMode.Meters));
             _followLookAtHeightSlider.OnValueChanged = v =>
             {
                 if (_activeCamera != null) _activeCamera.autoFollowLookAtHeightOffset = v;
             };
 
             _followYawSlider = PanelSlider.CreateNew(content);
-            _followYawSlider.SetSliderSettings(PanelSlider.SliderSettings.Degrees("Yaw Offset (Y)", -180f, 180f, false, 1));
+            _followYawSlider.SetSliderSettings(PanelSlider.SliderSettings.Degrees(BasisLocalization.Get("camera.yawOffsetY"), -180f, 180f, false, 1));
             _followYawSlider.OnValueChanged = v => SetFollowRotationAxis(1, v);
 
             // --- Z axis: depth ---
             _followDistanceSlider = PanelSlider.CreateNew(content);
             _followDistanceSlider.SetSliderSettings(PanelSlider.SliderSettings.Advanced(
-                "Distance (Z)", 0.3f, 6f, false, 2, ValueDisplayMode.Meters));
-            _followDistanceSlider.Descriptor.SetDescription("How far the camera sits from you. Larger pulls back for a wider shot; use Field Of View for lens zoom.");
+                BasisLocalization.Get("camera.distanceZ"), 0.3f, 6f, false, 2, ValueDisplayMode.Meters));
+            _followDistanceSlider.Descriptor.SetDescription(BasisLocalization.Get("camera.distanceZ.description"));
             _followDistanceSlider.OnValueChanged = v => SetFollowPositionAxis(2, v);
         }
 
@@ -1015,20 +1314,22 @@ namespace Basis.BasisUI.HandHeldCamera
         {
             _actionSection = PanelSectionToggle.CreateNewEntry(parent);
             _actionGroup = PanelSectionToggleHelpers.CreateCollapsibleContentGroup(
-                _actionSection, parent, "Capture", false);
+                _actionSection, parent, BasisLocalization.Get("camera.capture"), false);
             RectTransform content = _actionGroup.ContentParent;
 
             _resolutionDropdown = PanelDropdown.CreateNewEntry(content);
-            _resolutionDropdown.Descriptor.SetTitle("Photo Resolution");
+            _resolutionDropdown.Descriptor.SetTitle(BasisLocalization.Get("camera.photoResolution"));
             _resolutionDropdown.OnValueChanged = _ =>
             {
                 if (_activeCamera == null || _resolutionDropdown == null) return;
+                // Through the UI, not straight to the camera: the UI owns the preset index that a
+                // save records and that the prop's sprites and cycle button read.
                 int index = _resolutionDropdown.Index;
-                if (index >= 0) _activeCamera.ChangeResolution(index);
+                if (index >= 0) _activeCamera.HandHeld.SetResolutionIndex(index);
             };
 
             _formatDropdown = PanelDropdown.CreateNewEntry(content);
-            _formatDropdown.Descriptor.SetTitle("Photo Format");
+            _formatDropdown.Descriptor.SetTitle(BasisLocalization.Get("camera.photoFormat"));
             _formatDropdown.AssignEntries(new List<string> { "PNG", "EXR" });
             _formatDropdown.OnValueChanged = _ =>
             {
@@ -1038,12 +1339,12 @@ namespace Basis.BasisUI.HandHeldCamera
             };
 
             _capture360Toggle = PanelToggle.CreateNewEntry(content);
-            _capture360Toggle.Descriptor.SetTitle("360 Capture");
+            _capture360Toggle.Descriptor.SetTitle(BasisLocalization.Get("camera.n360Capture"));
             _capture360Toggle.OnValueChanged = v => _activeCamera?.HandHeld.SetCapture360State(v);
 
             _selfieToggle = PanelToggle.CreateNewEntry(content);
-            _selfieToggle.Descriptor.SetTitle("Selfie");
-            _selfieToggle.Descriptor.SetDescription("Turn the camera to face you and mirror the preview.");
+            _selfieToggle.Descriptor.SetTitle(BasisLocalization.Get("camera.selfie"));
+            _selfieToggle.Descriptor.SetDescription(BasisLocalization.Get("camera.selfie.description"));
             _selfieToggle.OnValueChanged = v =>
             {
                 if (_activeCamera == null) return;
@@ -1051,16 +1352,16 @@ namespace Basis.BasisUI.HandHeldCamera
             };
 
             _autoLevelToggle = PanelToggle.CreateNewEntry(content);
-            _autoLevelToggle.Descriptor.SetTitle("Auto Level");
-            _autoLevelToggle.Descriptor.SetDescription("Keep the horizon level while flying the camera.");
+            _autoLevelToggle.Descriptor.SetTitle(BasisLocalization.Get("camera.autoLevel"));
+            _autoLevelToggle.Descriptor.SetDescription(BasisLocalization.Get("camera.autoLevel.description"));
             _autoLevelToggle.OnValueChanged = v =>
             {
                 if (_activeCamera != null) _activeCamera.useAutoLeveling = v;
             };
 
             _vrStabToggle = PanelToggle.CreateNewEntry(content);
-            _vrStabToggle.Descriptor.SetTitle("VR Stabilization");
-            _vrStabToggle.Descriptor.SetDescription("Smooth out hand shake when holding the camera in VR.");
+            _vrStabToggle.Descriptor.SetTitle(BasisLocalization.Get("camera.vrStabilization"));
+            _vrStabToggle.Descriptor.SetDescription(BasisLocalization.Get("camera.vrStabilization.description"));
             _vrStabToggle.OnValueChanged = v =>
             {
                 if (_activeCamera != null) _activeCamera.useVRHandheldSmoothing = v;
@@ -1072,7 +1373,7 @@ namespace Basis.BasisUI.HandHeldCamera
             {
                 RectTransform folderRow = PanelElementDescriptor.BuildActionRow(content, "CameraPhotosRow");
                 PanelButton openFolderButton = PanelButton.CreateNew(folderRow);
-                openFolderButton.Descriptor.SetTitle("Open Photos Folder");
+                openFolderButton.Descriptor.SetTitle(BasisLocalization.Get("camera.openPhotosFolder"));
                 openFolderButton.OnClicked += () => BasisHandHeldCamera.OpenPhotosFolder();
             }
         }
@@ -1080,14 +1381,15 @@ namespace Basis.BasisUI.HandHeldCamera
         /// <summary>
         /// One toggle per named, user-togglable layer, controlling whether the capture camera
         /// draws it. Built once from the project's layers; the camera refuses the ones it
-        /// manages itself (OverlayUI, the prop HUD), so those never appear here. The UI layer
-        /// (players' nameplates) is exposed here as its own toggle.
+        /// manages itself (OverlayUI, its own world markers), so those never appear here. The
+        /// UI layer (players' nameplates) and HandHeldCameraUI (the prop's HUD) are exposed
+        /// here as their own toggles.
         /// </summary>
         private void BuildLayersGroup(RectTransform parent)
         {
             _layersSection = PanelSectionToggle.CreateNewEntry(parent);
             _layersGroup = PanelSectionToggleHelpers.CreateCollapsibleContentGroup(
-                _layersSection, parent, "Render Layers", false);
+                _layersSection, parent, BasisLocalization.Get("camera.renderLayers"), false);
             RectTransform content = _layersGroup.ContentParent;
 
             _layerToggles.Clear();
@@ -1113,12 +1415,12 @@ namespace Basis.BasisUI.HandHeldCamera
         {
             _performanceSection = PanelSectionToggle.CreateNewEntry(parent);
             _performanceGroup = PanelSectionToggleHelpers.CreateCollapsibleContentGroup(
-                _performanceSection, parent, "Performance", false);
+                _performanceSection, parent, BasisLocalization.Get("camera.performance"), false);
             RectTransform content = _performanceGroup.ContentParent;
 
             _limitRenderRateToggle = PanelToggle.CreateNewEntry(content);
             _limitRenderRateToggle.Descriptor.SetTitle(BasisLocalization.Get("settings.developer.handheldCameraRate.limit"));
-            _limitRenderRateToggle.Descriptor.SetDescription("Applies to every handheld camera, not just this one.");
+            _limitRenderRateToggle.Descriptor.SetDescription(BasisLocalization.Get("settings.developer.handheldCameraRate.limit.description"));
             _limitRenderRateToggle.Descriptor.SetTooltip(BasisLocalization.Get("settings.developer.handheldCameraRate.limit.tooltip"));
             _limitRenderRateToggle.AssignBinding(BasisSettingsDefaults.LimitHandHeldCameraRate);
 
@@ -1141,9 +1443,9 @@ namespace Basis.BasisUI.HandHeldCamera
         {
             _gizmoSection = PanelSectionToggle.CreateNewEntry(parent);
             _gizmoGroup = PanelSectionToggleHelpers.CreateCollapsibleContentGroup(
-                _gizmoSection, parent, "Debug Gizmos", false);
+                _gizmoSection, parent, BasisLocalization.Get("camera.debugGizmos"), false);
             RectTransform content = _gizmoGroup.ContentParent;
-            _gizmoGroup.SetDescription("Drawn into the world, so photos taken while these are on will show them too.");
+            _gizmoGroup.SetDescription(BasisLocalization.Get("camera.debugGizmos.description"));
 
             _gizmoToggles.Clear();
 
@@ -1201,12 +1503,12 @@ namespace Basis.BasisUI.HandHeldCamera
         {
             _hiddenState = PanelElementDescriptor.CreateNew(
                 PanelElementDescriptor.ElementStyles.Group, parent);
-            _hiddenState.SetTitle("Camera Hidden");
-            _hiddenState.SetDescription("This camera is hidden but still running. Bring it back to your hand to use it again.");
+            _hiddenState.SetTitle(BasisLocalization.Get("camera.cameraHidden"));
+            _hiddenState.SetDescription(BasisLocalization.Get("camera.cameraHidden.description"));
 
             RectTransform row = PanelElementDescriptor.BuildActionRow(_hiddenState.ContentParent, "BringBackRow");
             _bringBackButton = PanelButton.CreateNew(row);
-            _bringBackButton.Descriptor.SetTitle("Bring Back Camera");
+            _bringBackButton.Descriptor.SetTitle(BasisLocalization.Get("camera.bringBackCamera"));
             _bringBackButton.OnClicked += () =>
             {
                 if (_activeCamera == null) return;
@@ -1245,15 +1547,20 @@ namespace Basis.BasisUI.HandHeldCamera
             SetGroupsActive(!dismissed);
         }
 
+        /// <summary>
+        /// The shot buttons. They stack down the navigation column rather than sharing a row: split
+        /// three ways the column leaves each button about as wide as two characters.
+        /// </summary>
         private void BuildTopActions(RectTransform parent)
         {
-            _topActions = PanelElementDescriptor.BuildActionRow(parent, "CameraTopActions");
+            _topButtons.Clear();
 
-            PanelButton photoButton = PanelButton.CreateNew(_topActions);
-            photoButton.Descriptor.SetTitle("Take Photo");
+            PanelButton photoButton = PanelButton.CreateNew(parent);
+            photoButton.Descriptor.SetTitle(BasisLocalization.Get("camera.takePhoto"));
             photoButton.OnClicked += () => _activeCamera?.CapturePhoto();
+            _topButtons.Add(photoButton);
 
-            _timerButton = PanelButton.CreateNew(_topActions);
+            _timerButton = PanelButton.CreateNew(parent);
             _timerButton.Descriptor.SetTitle(TimerIdleLabel);
             _timerButton.OnClicked += () =>
             {
@@ -1262,7 +1569,34 @@ namespace Basis.BasisUI.HandHeldCamera
                 _activeCamera.Timer();
                 RefreshTimerLabel();
             };
+            _topButtons.Add(_timerButton);
 
+            _resetTopButton = PanelButton.CreateNew(parent);
+            _resetTopButton.Descriptor.SetTitle(BasisLocalization.Get("ui.reset"));
+            _resetTopButton.OnClicked += PromptResetSettings;
+            _topButtons.Add(_resetTopButton);
+        }
+
+        /// <summary>
+        /// Binds the panel to a camera, and tells that camera its feed is being watched from here.
+        /// <para>
+        /// The preview draws the camera's render texture, but the camera only renders while its
+        /// own prop is in view — so a camera that has been flown away, sent to follow from behind,
+        /// or simply left facing the wrong way stops rendering and the preview sits on its last
+        /// frame. Every other camera is cleared as well as the outgoing one, so a request can
+        /// never be left behind on a camera the panel has moved off.
+        /// </para>
+        /// </summary>
+        private void SetActiveCamera(BasisHandHeldCamera camera)
+        {
+            _activeCamera = camera;
+
+            IReadOnlyList<BasisHandHeldCamera> cameras = BasisHandHeldCameraRegistry.Cameras;
+            for (int Index = 0; Index < cameras.Count; Index++)
+            {
+                BasisHandHeldCamera entry = cameras[Index];
+                if (entry != null) entry.SetPanelPreviewActive(entry == camera);
+            }
         }
 
         private void RebuildSelector()
@@ -1290,7 +1624,7 @@ namespace Basis.BasisUI.HandHeldCamera
                 _selector.gameObject.SetActive(false);
                 _emptyState?.SetActive(true);
                 SetGroupsActive(false);
-                _activeCamera = null;
+                SetActiveCamera(null);
                 return;
             }
 
@@ -1300,7 +1634,7 @@ namespace Basis.BasisUI.HandHeldCamera
 
             int selected = _activeCamera != null ? _entries.IndexOf(_activeCamera) : 0;
             if (selected < 0) selected = 0;
-            _activeCamera = _entries[selected];
+            SetActiveCamera(_entries[selected]);
             _selector.SetValueWithoutNotify(labels[selected]);
 
             ApplyActiveCameraToControls();
@@ -1312,26 +1646,43 @@ namespace Basis.BasisUI.HandHeldCamera
             if (_selector == null) return;
             int index = _selector.Index;
             if (index < 0 || index >= _entries.Count) return;
-            _activeCamera = _entries[index];
+            SetActiveCamera(_entries[index]);
             ApplyActiveCameraToControls();
         }
 
         private void SetGroupsActive(bool active)
         {
-            if (_topActions != null) _topActions.gameObject.SetActive(active);
-            SetSectionActive(_previewSection, _previewGroup, active);
+            for (int Index = 0; Index < _topButtons.Count; Index++)
+            {
+                PanelButton button = _topButtons[Index];
+                if (button != null) button.gameObject.SetActive(active);
+            }
+            if (_previewGroup != null) _previewGroup.SetActive(active);
+            if (_modeDropdown != null) _modeDropdown.gameObject.SetActive(active);
+            // The pages have nothing to drive without a camera, so the navigation goes with them.
+            if (_tabGroup != null && _tabGroup.TabButtonParent != null)
+            {
+                _tabGroup.TabButtonParent.gameObject.SetActive(active);
+            }
             SetSectionActive(_lensSection, _lensGroup, active);
             SetSectionActive(_dofSection, _dofGroup, active);
             SetSectionActive(_colorSection, _colorGroup, active);
             SetSectionActive(_effectsSection, _effectsGroup, active);
             SetSectionActive(_outputSection, _outputGroup, active);
             SetSectionActive(_followSection, _followGroup, active);
+            SetSectionActive(_cinematicSection, _cinematicGroup, active);
+            SetSectionActive(_compositionSection, _compositionGroup, active);
+            SetSectionActive(_orbitSection, _orbitGroup, active);
+            SetSectionActive(_noiseSection, _noiseGroup, active);
+            SetSectionActive(_dollySection, _dollyGroup, active);
+            SetSectionActive(_backgroundSection, _backgroundGroup, active);
             SetSectionActive(_actionSection, _actionGroup, active);
             SetSectionActive(_layersSection, _layersGroup, active);
             SetSectionActive(_performanceSection, _performanceGroup, active);
             SetSectionActive(_gizmoSection, _gizmoGroup, active);
             if (_resetPageButton != null) _resetPageButton.gameObject.SetActive(active);
 
+            if (active) RefreshSearch();
             ForceLayoutRebuild(null);
         }
 
@@ -1344,6 +1695,19 @@ namespace Basis.BasisUI.HandHeldCamera
         private void ApplyActiveCameraToControls()
         {
             if (_activeCamera == null) return;
+
+            _lastShotRosterHash = -1;
+            _lastWaypointCount = -1;
+            _lastCinematic = null;
+
+            // Cameras hold their modes independently, so switching between two of them has to
+            // repaint rather than trust the cache from the one that was showing.
+            _activeCamera.RefreshCameraMode();
+            RefreshModeVisuals(force: true);
+
+            SeedCinematicCameraControls();
+            RefreshShotList();
+            RefreshWaypointList();
 
             BasisHandHeldCameraMetaData metaData = _activeCamera.MetaData;
 
@@ -1382,6 +1746,7 @@ namespace Basis.BasisUI.HandHeldCamera
                 RefreshDoFModeVisibility();
             }
 
+            _lastFocusFollows = _activeCamera.autoFocusFollowSubject;
             _focusModeDropdown?.SetValueWithoutNotify(FocusModeLabels[_activeCamera.autoFocusFollowSubject ? 0 : 1]);
 
             if (metaData.vignette != null)
@@ -1397,6 +1762,16 @@ namespace Basis.BasisUI.HandHeldCamera
             }
             if (metaData.lensDistortion != null)
                 _lensDistortionSlider?.SetValueWithoutNotify(metaData.lensDistortion.intensity.value * 100f);
+            if (metaData.motionBlur != null)
+            {
+                _motionBlurSlider?.SetValueWithoutNotify(metaData.motionBlur.intensity.value * 100f);
+                _motionBlurClampSlider?.SetValueWithoutNotify(metaData.motionBlur.clamp.value * 100f);
+                int quality = Mathf.Clamp(_activeCamera.HandHeld.MotionBlurQuality, 0, MotionBlurQualityLabels.Length - 1);
+                _motionBlurQualityDropdown?.SetValueWithoutNotify(MotionBlurQualityLabels[quality]);
+                int blurMode = Mathf.Clamp(_activeCamera.HandHeld.MotionBlurMode, 0, MotionBlurModeLabels.Length - 1);
+                _motionBlurModeDropdown?.SetValueWithoutNotify(MotionBlurModeLabels[blurMode]);
+            }
+            RefreshMotionBlurVisibility();
 
             if (_msaaDropdown != null)
             {
@@ -1444,6 +1819,13 @@ namespace Basis.BasisUI.HandHeldCamera
                 int markerIndex = Mathf.Clamp((int)_activeCamera.detachedMarker, 0, DetachedMarkerLabels.Length - 1);
                 _followMarkerDropdown.SetValueWithoutNotify(DetachedMarkerLabels[markerIndex]);
             }
+            // Each camera holds its own follow target, and the roster has not changed just because
+            // the selected camera has — so drop the cached list to force the rebuild. Without it
+            // the dropdown kept showing the previous camera's target, and picking the name already
+            // on screen raises no change event, so the new camera silently stayed on "Me".
+            _followTargetIds.Clear();
+            RefreshFollowTargets();
+
             _followPlayspaceToggle?.SetValueWithoutNotify(_activeCamera.autoFollowPlayspace);
             _followLookAtHeightSlider?.SetValueWithoutNotify(_activeCamera.autoFollowLookAtHeightOffset);
             _followSideSlider?.SetValueWithoutNotify(_activeCamera.autoFollowPositionOffset.x);
@@ -1461,6 +1843,10 @@ namespace Basis.BasisUI.HandHeldCamera
             // Re-evaluate from scratch for the newly selected camera.
             _lastHiddenState = null;
             RefreshHiddenState();
+
+            // Swapping cameras re-shows the rows the previous one had hidden, so re-apply any query
+            // on top rather than leaving unrelated settings sitting in a filtered page.
+            RefreshSearch();
         }
 
         private static int FindResolutionIndex(BasisHandHeldCameraMetaData metaData, int width, int height)
@@ -1522,8 +1908,23 @@ namespace Basis.BasisUI.HandHeldCamera
 
         private void ForceLayoutRebuild(PanelElementDescriptor group)
         {
-            group?.ForceRebuild();
-            _panel?.Descriptor?.ForceRebuild();
+            RectTransform page = ActivePageContent();
+
+            if (group != null)
+            {
+                // Out from the rows that changed: the group's own root is measured by its parent
+                // before its content has resized, so rebuilding that alone leaves the page holding
+                // the stale height. The page root carries no layout controller, so the chain stops
+                // at the scroll content, which is the rect the rows actually sit in.
+                PanelElementDescriptor.RebuildLayoutChain(group.ContentParent, page);
+            }
+            else
+            {
+                if (page != null) LayoutRebuilder.ForceRebuildLayoutImmediate(page);
+                _panel?.Descriptor?.ForceRebuild();
+            }
+
+            if (_navColumn != null) LayoutRebuilder.ForceRebuildLayoutImmediate(_navColumn);
         }
 
         /// <summary>
@@ -1592,7 +1993,15 @@ namespace Basis.BasisUI.HandHeldCamera
 
             float aspect = (feed != null && feed.height > 0) ? (float)feed.width / feed.height : 16f / 9f;
             float height = width / aspect;
-            if (Mathf.Abs(rect.sizeDelta.y - height) < 0.5f) return;
+            if (_previewLayout != null)
+            {
+                if (Mathf.Abs(_previewLayout.preferredHeight - height) < 0.5f) return;
+                _previewLayout.preferredHeight = height;
+            }
+            else if (Mathf.Abs(rect.sizeDelta.y - height) < 0.5f)
+            {
+                return;
+            }
             rect.sizeDelta = new Vector2(rect.sizeDelta.x, height);
         }
 
@@ -1629,6 +2038,8 @@ namespace Basis.BasisUI.HandHeldCamera
             SyncToggle(_autoFollowToggle, _activeCamera.IsAutoFollowing, ref _lastAutoFollow);
             SyncSharedControls();
             RefreshFollowTargets();
+            TickModeState();
+            TickCinematicSections();
             RefreshTimerLabel();
             RefreshHiddenState();
         }
@@ -1658,6 +2069,16 @@ namespace Basis.BasisUI.HandHeldCamera
             SyncToggle(_autoLevelToggle, _activeCamera.useAutoLeveling, ref _lastAutoLevel);
             SyncToggle(_vrStabToggle, _activeCamera.useVRHandheldSmoothing, ref _lastVrStab);
 
+            // The prop carries its own Auto/Manual focus buttons, so this is a shared control like
+            // the ones above — and it also decides whether the focus slider is on screen at all.
+            bool focusFollows = _activeCamera.autoFocusFollowSubject;
+            if (_lastFocusFollows != focusFollows)
+            {
+                _lastFocusFollows = focusFollows;
+                _focusModeDropdown?.SetValueWithoutNotify(FocusModeLabels[focusFollows ? 0 : 1]);
+                RefreshDoFModeVisibility();
+            }
+
             _activeCamera.HandHeld.SyncPropControlsFromState();
         }
 
@@ -1668,6 +2089,13 @@ namespace Basis.BasisUI.HandHeldCamera
         private void RefreshFollowTargets()
         {
             if (_followTargetDropdown == null || _activeCamera == null) return;
+
+            // Rebuilding swaps the option list out from under an open one. Unity has already
+            // spawned the item toggles by then and they keep the indices they were built with, so
+            // the click lands on whatever now sits at that row — nothing, or the wrong player.
+            // The roster is re-read the moment it closes, so nothing is lost by waiting.
+            if (_followTargetDropdown.DropdownComponent != null &&
+                _followTargetDropdown.DropdownComponent.IsExpanded) return;
 
             var remotes = Basis.Scripts.Networking.BasisNetworkPlayers.RemotePlayers;
             if (!FollowTargetRosterChanged(remotes)) return;
@@ -1684,9 +2112,20 @@ namespace Basis.BasisUI.HandHeldCamera
             {
                 if (pair.Value == null) continue;
                 _followTargetIds.Add(pair.Key);
-                keys.Add(pair.Key.ToString());
-                string name = !string.IsNullOrEmpty(pair.Value.SafeDisplayName) ? pair.Value.SafeDisplayName : $"Player {pair.Key}";
-                labels.Add(name);
+            }
+
+            // A ConcurrentDictionary enumerates in bucket order, which reshuffles as players come
+            // and go — so the same roster could list in a different order on every rebuild and
+            // move a name out from under the cursor. Net id is stable and is join order.
+            _followTargetIds.Sort(1, _followTargetIds.Count - 1, null);
+
+            for (int index = 1; index < _followTargetIds.Count; index++)
+            {
+                ushort id = _followTargetIds[index];
+                keys.Add(id.ToString());
+                labels.Add(remotes.TryGetValue(id, out var remote) && !string.IsNullOrEmpty(remote.SafeDisplayName)
+                    ? remote.SafeDisplayName
+                    : $"Player {id}");
             }
 
             _followTargetDropdown.AssignEntries(keys, labels);
@@ -1700,11 +2139,21 @@ namespace Basis.BasisUI.HandHeldCamera
         private bool FollowTargetRosterChanged(
             System.Collections.Concurrent.ConcurrentDictionary<ushort, Basis.Scripts.BasisSdk.Players.BasisRemotePlayer> remotes)
         {
-            if (remotes.Count + 1 != _followTargetIds.Count) return true;
+            // Counted the way the rebuild lists them. The rebuild skips null values — a player
+            // part-way through teardown — so counting the raw dictionary reported a change on
+            // every tick for as long as one sat in the map, rebuilding the dropdown and forcing a
+            // layout pass every frame, which is also what made an open list impossible to click.
+            int live = 1; // "Me"
+            foreach (var pair in remotes)
+            {
+                if (pair.Value != null) live++;
+            }
+
+            if (live != _followTargetIds.Count) return true;
 
             for (int index = 1; index < _followTargetIds.Count; index++)
             {
-                if (!remotes.ContainsKey(_followTargetIds[index])) return true;
+                if (!remotes.TryGetValue(_followTargetIds[index], out var remote) || remote == null) return true;
             }
 
             return false;
@@ -1727,17 +2176,15 @@ namespace Basis.BasisUI.HandHeldCamera
         // Aperture / focal length / blades only affect Bokeh; hide them in Off/Gaussian so the
         // section only offers controls that do something. Gaussian has no focus distance of its
         // own, so ApplyFocusDistance maps it onto the far-blur ramp and the slider works in both.
-        // Single owner of the focus mode. Follow = the depth of field tracks the subject's distance
-        // every frame (UpdateAutoFocus); Manual = the focus-distance slider. Follow needs DoF on to
-        // show anything, so it forces it on.
+        // The focus mode itself is owned by BasisHandHeldCameraUI, so the panel and the prop's own
+        // Auto/Manual buttons cannot leave the two halves of it disagreeing. Follow = the depth of
+        // field tracks the subject's distance every frame (UpdateAutoFocus); Manual = the
+        // focus-distance slider. Follow needs DoF on to show anything, so it forces it on.
         private void SetFocusFollowsSubject(bool follows)
         {
             if (_activeCamera == null) return;
 
-            _activeCamera.autoFocusFollowSubject = follows;
-            _activeCamera.HandHeld.SetDepthMode(follows
-                ? BasisHandHeldCameraUI.DepthMode.Auto
-                : BasisHandHeldCameraUI.DepthMode.Manual);
+            _activeCamera.HandHeld.SetFocusFollowsSubject(follows);
             if (follows) _activeCamera.BasisDOFInteractionHandler?.SetDoFState(true);
 
             _focusModeDropdown?.SetValueWithoutNotify(FocusModeLabels[follows ? 0 : 1]);
@@ -1757,7 +2204,27 @@ namespace Basis.BasisUI.HandHeldCamera
             _apertureSlider?.gameObject.SetActive(bokeh);
             _dofFocalLengthSlider?.gameObject.SetActive(bokeh);
             _dofBladeCountSlider?.gameObject.SetActive(bokeh);
+            RefreshSearch();
             ForceLayoutRebuild(_dofGroup);
+        }
+
+        /// <summary>
+        /// The clamp, quality and mode only describe blur that is already happening — at zero
+        /// strength URP does not run the pass at all, so leaving them on screen offers three
+        /// controls that visibly do nothing.
+        /// </summary>
+        private void RefreshMotionBlurVisibility()
+        {
+            if (_activeCamera == null) return;
+
+            bool blurring = _activeCamera.MetaData.motionBlur != null
+                && _activeCamera.MetaData.motionBlur.intensity.value > 0f;
+
+            _motionBlurClampSlider?.gameObject.SetActive(blurring);
+            _motionBlurQualityDropdown?.gameObject.SetActive(blurring);
+            _motionBlurModeDropdown?.gameObject.SetActive(blurring);
+            RefreshSearch();
+            ForceLayoutRebuild(_effectsGroup);
         }
 
         // PanelSlider.ApplyValue restarts a 0.15s fill-colour tween on every call, and the tween
@@ -1777,5 +2244,18 @@ namespace Basis.BasisUI.HandHeldCamera
             cached = value;
             toggle.SetValueWithoutNotify(value);
         }
+
+#if UNITY_INCLUDE_TESTS
+        // The dropdowns resolve a selection by its position in these tables, so a table that has
+        // drifted from the enum it stands in for silently selects the wrong entry rather than
+        // failing. Exposed so that correspondence can be asserted.
+        public static string[] DetachedMarkerLabelsForTest => DetachedMarkerLabels;
+        public static string[] FocusModeLabelsForTest => FocusModeLabels;
+        public static int[] MsaaSampleCountsForTest => MsaaSampleCounts;
+        public static int[] VideoResolutionWidthsForTest => VideoResolutionWidths;
+        public static int[] VideoResolutionHeightsForTest => VideoResolutionHeights;
+        public const int WebPortMinForTest = WebPortMin;
+        public const int WebPortMaxForTest = WebPortMax;
+#endif
     }
 }

@@ -42,6 +42,8 @@ namespace Basis.IK
         public bool IsCreated => _allocated;
         public int Count => _ordered.Length;
         public Transform Anchor => _anchor;
+        public int NonFiniteRestCaptureCount { get; private set; }
+        public string FirstNonFiniteRestBone { get; private set; }
 
         public void Build(Transform root, IReadOnlyList<Transform> bones)
         {
@@ -97,12 +99,20 @@ namespace Basis.IK
             var translationFree = new NativeArray<byte>(count, Allocator.Persistent);
             _authoredLocalPosition = new NativeArray<float3>(count, Allocator.Persistent);
             _fitScale = new NativeArray<float>(count, Allocator.Persistent);
+            NonFiniteRestCaptureCount = 0;
+            FirstNonFiniteRestBone = null;
             for (int i = 0; i < count; i++)
             {
-                Vector3 authored = _ordered[i].localPosition;
+                float3 authored = _ordered[i].localPosition;
+                if (!IsFinite(authored))
+                {
+                    NonFiniteRestCaptureCount++;
+                    FirstNonFiniteRestBone ??= _ordered[i].name;
+                    authored = float3.zero;
+                }
                 _authoredLocalPosition[i] = authored;
                 _fitScale[i] = 1f;
-                bindLength[i] = authored.magnitude;
+                bindLength[i] = math.length(authored);
                 translationFree[i] = (byte)(parent[i] < 0 ? 1 : 0);
             }
             _fitActive = false;
@@ -117,11 +127,16 @@ namespace Basis.IK
                 Parent = parent,
                 BindLength = bindLength,
                 TranslationFree = translationFree,
+                WorldPositionCache = new NativeArray<float3>(count, Allocator.Persistent),
+                WorldRotationCache = new NativeArray<quaternion>(count, Allocator.Persistent),
+                WorldScaleCache = new NativeArray<float3>(count, Allocator.Persistent),
+                WorldCacheStamp = new NativeArray<int>(count + 1, Allocator.Persistent),
                 AnchorPosition = float3.zero,
                 AnchorRotation = quaternion.identity,
                 AnchorScale = new float3(1f, 1f, 1f),
                 Count = count,
             };
+            Stream.WorldCacheStamp[count] = 1;
 
             _access = new TransformAccessArray(_ordered);
 
@@ -140,6 +155,23 @@ namespace Basis.IK
             _writeIndices = new NativeArray<int>(writableIndex.ToArray(), Allocator.Persistent);
 
             _allocated = true;
+            SeedStreamFromTransforms();
+        }
+
+        void SeedStreamFromTransforms()
+        {
+            SyncAnchor();
+            for (int i = 0; i < _ordered.Length; i++)
+            {
+                _ordered[i].GetLocalPositionAndRotation(out Vector3 position, out Quaternion rotation);
+                float3 localPosition = position;
+                quaternion localRotation = rotation;
+                float3 localScale = _ordered[i].localScale;
+                Stream.LocalPosition[i] = IsFinite(localPosition) ? localPosition : _authoredLocalPosition[i];
+                Stream.LocalRotation[i] = IsSaneRotation(localRotation) ? localRotation : quaternion.identity;
+                Stream.LocalScale[i] = IsFinite(localScale) ? localScale : new float3(1f, 1f, 1f);
+            }
+            Stream.InvalidateWorldCache();
         }
 
         static int DepthOf(Transform transform, HashSet<Transform> closure)
@@ -197,6 +229,20 @@ namespace Basis.IK
             _fitActive = false;
         }
 
+        static bool IsFinite(float3 value) => math.all(math.isfinite(value));
+
+        static bool IsSaneRotation(quaternion value)
+        {
+            float lengthSq = math.lengthsq(value.value);
+            return math.isfinite(lengthSq) && lengthSq > 1e-8f;
+        }
+
+        float3 FittedLocalPosition(int index)
+        {
+            float3 fitted = _authoredLocalPosition[index] * _fitScale[index];
+            return IsFinite(fitted) ? fitted : float3.zero;
+        }
+
         public void ApplyFit()
         {
             if (!_allocated || !_fitActive)
@@ -205,13 +251,13 @@ namespace Basis.IK
             }
             for (int i = 0; i < _fitScale.Length; i++)
             {
-                float scale = _fitScale[i];
-                if (Mathf.Approximately(scale, 1f))
+                if (Mathf.Approximately(_fitScale[i], 1f))
                 {
                     continue;
                 }
-                Stream.LocalPosition[i] = _authoredLocalPosition[i] * scale;
+                Stream.LocalPosition[i] = FittedLocalPosition(i);
             }
+            Stream.InvalidateWorldCache();
         }
 
         public void WriteFittedLocalPositions()
@@ -222,7 +268,7 @@ namespace Basis.IK
             }
             for (int i = 0; i < _authoredLocalPosition.Length; i++)
             {
-                Stream.LocalPosition[i] = _authoredLocalPosition[i] * _fitScale[i];
+                Stream.LocalPosition[i] = FittedLocalPosition(i);
             }
             for (int i = 0; i < _writeIndices.Length; i++)
             {
@@ -230,9 +276,10 @@ namespace Basis.IK
                 Transform target = _ordered[bone];
                 if (target != null)
                 {
-                    target.localPosition = _authoredLocalPosition[bone] * _fitScale[bone];
+                    target.localPosition = FittedLocalPosition(bone);
                 }
             }
+            Stream.InvalidateWorldCache();
         }
 
         public float FitScaleOf(int index) => _fitScale.IsCreated && index >= 0 && index < _fitScale.Length ? _fitScale[index] : 1f;
@@ -249,7 +296,7 @@ namespace Basis.IK
             }
             for (int i = 0; i < _authoredLocalPosition.Length; i++)
             {
-                target[i] = _authoredLocalPosition[i] * _fitScale[i];
+                target[i] = FittedLocalPosition(i);
             }
         }
 
@@ -269,6 +316,7 @@ namespace Basis.IK
             Stream.LocalPosition[0] = position;
             Stream.LocalRotation[0] = rotation;
             Stream.LocalScale[0] = root.localScale;
+            Stream.InvalidateWorldCache();
         }
 
         public BasisBoneHandle Bind(Transform bone)
@@ -287,12 +335,14 @@ namespace Basis.IK
                 Stream.AnchorPosition = float3.zero;
                 Stream.AnchorRotation = quaternion.identity;
                 Stream.AnchorScale = new float3(1f, 1f, 1f);
+                Stream.InvalidateWorldCache();
                 return;
             }
             _anchor.GetPositionAndRotation(out Vector3 position, out Quaternion rotation);
             Stream.AnchorPosition = position;
             Stream.AnchorRotation = rotation;
             Stream.AnchorScale = _anchor.lossyScale;
+            Stream.InvalidateWorldCache();
         }
 
         /// <summary>
@@ -307,12 +357,33 @@ namespace Basis.IK
                 return;
             }
             SyncAnchor();
+            // A destroyed bone silently compacts the access array (same hazard ScatterNow
+            // documents) — the inline job would then write shifted rows into the stream.
+            // Gather on the main thread by stable index until the next Build.
+            if (!_access.isCreated || _access.length != _ordered.Length)
+            {
+                for (int i = 0; i < _ordered.Length; i++)
+                {
+                    Transform bone = _ordered[i];
+                    if (bone == null)
+                    {
+                        continue;
+                    }
+                    bone.GetLocalPositionAndRotation(out Vector3 position, out Quaternion rotation);
+                    Stream.LocalPosition[i] = position;
+                    Stream.LocalRotation[i] = rotation;
+                    Stream.LocalScale[i] = bone.localScale;
+                }
+                Stream.InvalidateWorldCache();
+                return;
+            }
             new BasisPoseGatherJob
             {
                 LocalPosition = Stream.LocalPosition,
                 LocalRotation = Stream.LocalRotation,
                 LocalScale = Stream.LocalScale,
             }.RunReadOnly(_access);
+            Stream.InvalidateWorldCache();
         }
 
         /// <summary>
@@ -404,6 +475,22 @@ namespace Basis.IK
             if (Stream.TranslationFree.IsCreated)
             {
                 Stream.TranslationFree.Dispose();
+            }
+            if (Stream.WorldPositionCache.IsCreated)
+            {
+                Stream.WorldPositionCache.Dispose();
+            }
+            if (Stream.WorldRotationCache.IsCreated)
+            {
+                Stream.WorldRotationCache.Dispose();
+            }
+            if (Stream.WorldScaleCache.IsCreated)
+            {
+                Stream.WorldScaleCache.Dispose();
+            }
+            if (Stream.WorldCacheStamp.IsCreated)
+            {
+                Stream.WorldCacheStamp.Dispose();
             }
             Stream = default;
             _ordered = Array.Empty<Transform>();

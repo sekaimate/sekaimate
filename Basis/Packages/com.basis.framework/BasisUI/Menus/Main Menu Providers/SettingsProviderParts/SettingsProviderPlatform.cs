@@ -42,6 +42,17 @@ public static class SettingsProviderPlatform
             softSwapField.Descriptor.SetTitle(BasisLocalization.Get("settings.platform.vrRuntime"));
             softSwapField.SetValue($"{dm.AutoSwapPreviousVRMode} (kept alive)");
         }
+
+        // Offered next to the manual switch buttons because turning it off is what leaves those
+        // buttons as the only way to change mode. Hidden where no SDK reports presence at all,
+        // since the toggle would govern a signal that never arrives.
+        if (BasisHMDPresence.HasPresenceProvider)
+        {
+            PanelToggle togglePresenceSensor = PanelToggle.CreateNewEntry(infoGroup.ContentParent);
+            togglePresenceSensor.Descriptor.SetTitle(BasisLocalization.Get("settings.platform.usePresenceSensor"));
+            togglePresenceSensor.Descriptor.SetTooltip(BasisLocalization.Get("settings.platform.usePresenceSensor.tooltip"));
+            togglePresenceSensor.AssignBinding(BasisSettingsDefaults.UsePresenceSensor);
+        }
 #endif
 
         // Discover available modes from registered BaseTypes
@@ -70,6 +81,14 @@ public static class SettingsProviderPlatform
                 modeButton.Descriptor.SetTitle(BasisLocalization.Get("settings.platform.switchTo", displayName) + suffix);
                 modeButton.Descriptor.SetTooltip(BasisLocalization.Get("settings.platform.switchTo.tooltip"));
                 modeButton.Descriptor.SetDescription(GetModeDescription(capturedMode));
+
+                // A VR runtime that is already up cannot be handed over to the other one inside
+                // the session, so that entry is greyed out rather than left to fail on click.
+                if (!isActive && !BasisDeviceManagement.CanEnterMode(capturedMode, out string blockedReason))
+                {
+                    modeButton.SetInteractable(false, blockedReason);
+                }
+
                 modeButton.OnClicked += () =>
                 {
                     if (isActive) return;
@@ -108,12 +127,7 @@ public static class SettingsProviderPlatform
 #endif
     }
 
-    private static string GetModeDisplayName(string mode)
-    {
-        if (mode == BasisConstants.OpenVRLoader) return "OpenVR (SteamVR)";
-        if (mode == BasisConstants.OpenXRLoader) return "OpenXR";
-        return mode;
-    }
+    private static string GetModeDisplayName(string mode) => BasisXRRuntimeNotice.ModeDisplayName(mode);
 
     private static string GetModeDescription(string mode)
     {

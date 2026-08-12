@@ -109,7 +109,7 @@ namespace Basis.Scripts.BasisSdk.Interactions
         public BasisDirectTouch()
         {
             Instance = this;
-            _uiMask = LayerMask.GetMask("UI", "OverlayUI");
+            _uiMask = LayerMask.GetMask("UI", "OverlayUI") | BasisLayerMapper.HandHeldCameraUIMask;
             _hand[0] = new FingerTouchState();
             _hand[1] = new FingerTouchState();
         }
@@ -368,6 +368,8 @@ namespace Basis.Scripts.BasisSdk.Interactions
         private void ProcessTouch(FingerTouchState st, BasisInput input)
         {
             Vector3 tip = GetFingertip(input);
+
+            BasisPhysicsSyncGate.FlushIfDirty();
 
             int hits = Physics.OverlapSphereNonAlloc(
                 tip, FingerRadius + HoverDistance, _hitBuffer, _uiMask);

@@ -19,7 +19,11 @@ public class Configuration
     /// doc comments). Newly-added settings are healed automatically regardless: on load a
     /// config missing any current field is re-saved with the new settings added.
     /// </summary>
-    public const int CurrentConfigVersion = 4;
+    // 5: EnableUplinkAvatarStream added; bumped so existing config.xml files are rewritten with its
+    //    doc comment rather than only silently gaining the field.
+    // 7: EnableUplinkAvatarStream removed again; bumped so existing files drop the stale field and
+    //    its doc comment instead of carrying a setting nothing reads.
+    public const int CurrentConfigVersion = 7;
     /// <summary>Schema version stamped into config.xml; 0 = a pre-versioning file that is upgraded on load.</summary>
     public int ConfigVersion = 0;
 
@@ -53,8 +57,6 @@ public class Configuration
     public int HowManyDuplicateAuthCanExist = 2;
     public int AuthValidationTimeOutMiliseconds = 9000;
     public bool EnableConsole = true;
-    public bool DisableWriteUnlessAdminPersistentFlag = true;
-    public bool DisableReadUnlessAdminPersistentFlag = false;
     /// <summary>
     /// When true, the avatar reduction system bundles per-receiver avatar messages
     /// and emits them deflated on CompressedAvatarBundleChannel. Falls back to
@@ -104,6 +106,32 @@ public class Configuration
     public bool EnableUplinkAvatarDelta = true;
     public bool EnableBSRProfiling = false;
     /// <summary>
+    /// Worker cap for the BSR tick's parallel phases (send loop, message processing, distance
+    /// sweep). 0 = auto (a quarter of the cores, floored at 4 and capped at 8).
+    ///
+    /// More workers is not free: the tick runs ~275x/s, so each phase pays dispatch and wake cost
+    /// per tick per worker, and every extra thread adds GC poll-point traffic. Measured at 500
+    /// players on a 32-thread box: 32 workers = 11.0 cores, 16 = 8.6, 8 = 6.6, 4 = 6.4, at equal
+    /// or better throughput. Raise it if you run far more players per instance than that and the
+    /// profile shows the send loop itself saturating.
+    /// </summary>
+    public int BSRMaxDegreeOfParallelism = 0;
+    /// <summary>
+    /// Furthest the reduction system may slice its roster under load. 0 = scale with population.
+    ///
+    /// Slicing is the last-resort lever: at slice N each tick serves only 1/N of the receivers, so
+    /// everyone's update rate drops uniformly. The cap decides how far the server is allowed to
+    /// degrade before it stops degrading and simply overruns its tick instead.
+    ///
+    /// It was a fixed 32, chosen when 2000 was a large instance. At 8000 players a cap of 32 still
+    /// leaves 250 receivers per tick, so a struggling server reaches the ceiling with nowhere left
+    /// to go and starts missing the period — which is the failure slicing exists to prevent.
+    /// Automatic holds the per-tick fan-out roughly flat as population grows.
+    ///
+    /// Set a positive value only to pin it; higher caps trade update rate for keeping the tick.
+    /// </summary>
+    public int BSRMaxSliceCount = 0;
+    /// <summary>
     /// Opus voice frame duration pushed to every client (20 or 40 ms). 20 is the low-latency
     /// default; 40 halves the voice packet rate (25/s instead of 50/s) and with it the
     /// per-packet UDP/header overhead — roughly a third of voice wire cost — at the price of
@@ -149,9 +177,6 @@ public class Configuration
     public float MaxHearingRangeMeters = 25f;
     public float MinAvatarEyeHeightMeters = 0.1f;
     public float MaxAvatarEyeHeightMeters = 100f;
-    public int MaxDatabaseEntries = 10000;
-    public int MaxDatabaseNameLength = 256;
-    public int MaxDatabasePayloadEntries = 1000;
     public int MaxContentSpheresPerPlayer = 32;
     public bool PlayspaceMoverLocked = false;
     public bool DirectConnectLocked = false;
@@ -175,6 +200,50 @@ public class Configuration
     /// broadcast to clients in GlobalGetLockState. Default off (feature on).
     /// </summary>
     public bool EndEffectorIKDisabled = false;
+    /// <summary>
+    /// When true, the server refuses to relay text chat messages and typing state from peers
+    /// lacking basis.chat.lockbypass. Enforced server-side — text chat has its own channel, so a
+    /// modified client cannot talk past the lock. Seeds BasisGlobalLockManager at boot, can be
+    /// toggled live from the admin panel, and is broadcast to clients in GlobalGetLockState so
+    /// their composers grey out. Default off.
+    /// </summary>
+    public bool TextChatLocked = false;
+    /// <summary>
+    /// When true, the server refuses to relay voice (normal and shout) from peers lacking
+    /// basis.voice.lockbypass. Enforced server-side — voice has its own channels, so a modified
+    /// client cannot talk past the lock. Seeds BasisGlobalLockManager at boot, can be toggled live
+    /// from the admin panel, and is broadcast to clients in GlobalGetLockState so they also stop
+    /// transmitting rather than burning upstream bandwidth into a dropped stream. Default off.
+    /// </summary>
+    public bool VoiceChatLocked = false;
+    /// <summary>
+    /// When true, non-bypass clients neither load new media player URLs nor accept inbound ones.
+    /// Enforced client-side — media player state rides the generic scene relay, so the server can't
+    /// single it out the way it blocks content shares. Already-playing media keeps playing until
+    /// replaced. Seeds BasisGlobalLockManager at boot and is broadcast in GlobalGetLockState.
+    /// Default off.
+    /// </summary>
+    public bool MediaPlayerLocked = false;
+    /// <summary>
+    /// When true, non-bypass clients cannot capture photos with the handheld camera. Enforced
+    /// client-side — capture is entirely local, so nothing reaches the server to block. Distinct
+    /// from CameraMetadataDisallowMask, which only strips embedded metadata from photos that are
+    /// still taken. Seeds BasisGlobalLockManager at boot and is broadcast in GlobalGetLockState.
+    /// Default off.
+    /// </summary>
+    public bool CameraCaptureLocked = false;
+    /// <summary>
+    /// When true, non-bypass clients cannot pick up or grab props. Enforced client-side — grabbing
+    /// is local interaction logic, and the resulting motion rides ordinary transform sync the server
+    /// can't distinguish from any other movement. Distinct from PropsLocked, which blocks prop
+    /// *loading* rather than handling already-spawned ones. Default off.
+    /// </summary>
+    public bool PropGrabbingLocked = false;
+    /// <summary>
+    /// When true, clients render other players' display names with rich-text markup stripped and
+    /// TMP rich text disabled on the nameplate. Enforced client-side. Default off.
+    /// </summary>
+    public bool SafeDisplayNamesForced = false;
 
     // ── REST API ──────────────────────────────────────────────────────────────
     /// <summary>Set to true to enable the REST management API.</summary>
@@ -276,6 +345,16 @@ public class Configuration
         ApplyEnvironmentalOverridesTo(this);
     }
 
+    /// <summary>Field names whose values must never reach the log.</summary>
+    private static bool IsSecretFieldName(string fieldName)
+    {
+        if (string.IsNullOrEmpty(fieldName)) return false;
+        return fieldName.IndexOf("password", StringComparison.OrdinalIgnoreCase) >= 0
+            || fieldName.IndexOf("apikey", StringComparison.OrdinalIgnoreCase) >= 0
+            || fieldName.IndexOf("secret", StringComparison.OrdinalIgnoreCase) >= 0
+            || fieldName.IndexOf("token", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
     private static void ApplyEnvironmentalOverridesTo(object target)
     {
         if (target == null) return;
@@ -293,7 +372,7 @@ public class Configuration
             string value = Environment.GetEnvironmentVariable(field.Name);
             if (value == null) continue;
 
-            BNL.Log($"Applying Environmental Override with Field:{field.Name} Value:{value}");
+            BNL.Log($"Applying Environmental Override with Field:{field.Name} Value:{(IsSecretFieldName(field.Name) ? "<redacted>" : value)}");
 
             if (field.FieldType == typeof(int))
             {

@@ -37,6 +37,7 @@ namespace Basis.Scripts.Drivers
             job.maxFactor = 1.05f;
             job.spineMaxIterations = 20;
             job.spineTolerance = 0.001f;
+            job.chainChestIdx = -1;
 
             job.targetPositionHips = Vector3.zero;
             job.targetRotationHips = Quaternion.identity;
@@ -102,6 +103,7 @@ namespace Basis.Scripts.Drivers
             job.spineSquishBoost = Basis.BasisUI.BasisSettingsDefaults.FBIKSpineSquishBoost.RawValue;
             job.spineGazeFollow = Basis.BasisUI.BasisSettingsDefaults.FBIKSpineGazeFollow.RawValue;
             job.neckGazeFollow = Basis.BasisUI.BasisSettingsDefaults.FBIKNeckGazeFollow.RawValue;
+            job.neckExtensionDamp = Basis.BasisUI.BasisSettingsDefaults.FBIKNeckExtensionDamp.RawValue;
             job.moveBodyBackWhenCrouching = Basis.BasisUI.BasisSettingsDefaults.FBIKMoveBodyBackWhenCrouching.RawValue;
             job.crouchDepth = 0f;
             job.standingHeadHeight = 0f; // 0 = sit-back inert until the rig driver packs the real height
@@ -133,6 +135,8 @@ namespace Basis.Scripts.Drivers
             job.lordosisExtremeRollBackwardMaxDeg = Basis.BasisUI.BasisSettingsDefaults.FBIKLordosisExtremeRollBackwardMaxDeg.RawValue;
             job.lordosisExtremeHipsHorizontalMax = Basis.BasisUI.BasisSettingsDefaults.FBIKLordosisExtremeHipsHorizontalMax.RawValue;
             job.lordosisExtremeChestHorizontalMax = Basis.BasisUI.BasisSettingsDefaults.FBIKLordosisExtremeChestHorizontalMax.RawValue;
+            job.lordosisExtremeHipsHorizontalLookUp = Basis.BasisUI.BasisSettingsDefaults.FBIKLordosisExtremeHipsHorizontalLookUp.RawValue;
+            job.lordosisExtremeChestHorizontalLookUp = Basis.BasisUI.BasisSettingsDefaults.FBIKLordosisExtremeChestHorizontalLookUp.RawValue;
             job.lordosisExtremeHipsDownMax = Basis.BasisUI.BasisSettingsDefaults.FBIKLordosisExtremeHipsDownMax.RawValue;
             job.lordosisExtremeChestDownMax = Basis.BasisUI.BasisSettingsDefaults.FBIKLordosisExtremeChestDownMax.RawValue;
             job.lordosisExtremeHipsDownLookUp = Basis.BasisUI.BasisSettingsDefaults.FBIKLordosisExtremeHipsDownLookUp.RawValue;
@@ -307,9 +311,38 @@ namespace Basis.Scripts.Drivers
         }
         public static void GenerateHeadToSpine(ref BasisEerieMovement job, BasisPoseSkeleton skeleton, BasisTransformMapping Mapping)
         {
-            var HeadToSpine = Mapping.Upperchest != null
-                ? new Transform[] { Mapping.head, Mapping.neck, Mapping.Upperchest, Mapping.chest, Mapping.spine, Mapping.Hips }
-                : new Transform[] { Mapping.head, Mapping.neck, Mapping.chest, Mapping.spine, Mapping.Hips };
+            // Neck / upperChest / chest are optional humanoid bones. The chain carries only the bones the
+            // avatar has -- an unbound handle anywhere in it would switch the whole spine solve (and the
+            // head pin welded to the HMD) off for that avatar. Head, spine and hips are required: without
+            // them there is no chain (the solver treats fewer than 3 links as unsolvable).
+            Transform[] candidates = { Mapping.head, Mapping.neck, Mapping.Upperchest, Mapping.chest, Mapping.spine, Mapping.Hips };
+            bool solvable = Mapping.head != null && Mapping.spine != null && Mapping.Hips != null;
+            int presentCount = 0;
+            if (solvable)
+            {
+                for (int i = 0; i < candidates.Length; i++)
+                {
+                    if (candidates[i] != null)
+                    {
+                        presentCount++;
+                    }
+                }
+            }
+            Transform[] HeadToSpine = new Transform[presentCount];
+            int write = 0;
+            job.chainChestIdx = -1;
+            for (int i = 0; write < presentCount && i < candidates.Length; i++)
+            {
+                if (candidates[i] == null)
+                {
+                    continue;
+                }
+                if (Mapping.chest != null && candidates[i] == Mapping.chest)
+                {
+                    job.chainChestIdx = write;
+                }
+                HeadToSpine[write++] = candidates[i];
+            }
             int SpineToHeadLength = HeadToSpine.Length;
             job.chainHeadToSpine = new NativeArray<BasisBoneHandle>(SpineToHeadLength, Allocator.Persistent);
             BuildSpineAnatomy(ref job, HeadToSpine, Mapping);
@@ -347,6 +380,6 @@ namespace Basis.Scripts.Drivers
             // Record the size these were measured at, so a later rescale can carry them along.
             job.tposeBakeScale = BasisHeightDriver.AvatarToDefaultRatioScaledWithAvatarScale;
         }
-        internal static BasisBoneHandle BindHandle(BasisPoseSkeleton skeleton, Transform t) => (t != null) ? skeleton.Bind(t) : default;
+        internal static BasisBoneHandle BindHandle(BasisPoseSkeleton skeleton, Transform t) => (t != null) ? skeleton.Bind(t) : default;
     }
 }

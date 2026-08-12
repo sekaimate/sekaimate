@@ -86,7 +86,9 @@ namespace Basis.Scripts.UI.NamePlate
         public static float NamePlateSize = 1f;
         public static float NamePlateTransparency = 0.45f;
         public static float ChatSize = 1f;
-        private const float ChatNameClearance = 4.5f;
+        // The chat bubble stacks on top of the name panel, so its clearance IS the panel's half
+        // height — same constant, not a second copy of the number.
+        private const float ChatNameClearance = BasisNamePlateAnchorMath.PanelHalfHeightUnits;
         private const float ChatBubbleGap = 1.5f;
         private static bool lastMenuOpenState;
         private static bool _initialized;
@@ -124,6 +126,15 @@ namespace Basis.Scripts.UI.NamePlate
         public static float PlateWorldScale() => 0.02f * NamePlateSize * LocalViewerNamePlateScale();
 
         /// <summary>
+        /// Half the plate's rendered height in world metres. The baked panel is centred on the
+        /// plate's origin, so this is how far below its anchor point the plate's bottom edge sits —
+        /// the placement jobs add it back so the measured clearance is the gap the viewer actually
+        /// sees between the avatar's crown and the bottom of the plate, not the gap to a point
+        /// hidden inside it.
+        /// </summary>
+        public static float PanelHalfHeightWorld() => BasisNamePlateAnchorMath.PanelHalfHeightUnits * PlateWorldScale();
+
+        /// <summary>
         /// Idempotent. Triggered by <see cref="Basis.Scripts.Device_Management.BasisDeviceManagement"/>
         /// after device init completes; safe to call again after <see cref="Dispose"/>.
         /// Loads runtime-only assets (materials + TMP baking object) from Addressables on first call.
@@ -138,6 +149,9 @@ namespace Basis.Scripts.UI.NamePlate
             SelectedNamePlateMaterial = BasisDeviceManagement.IsMobileHardware()
                 ? OpaqueNamePlateMaterial
                 : TransParentNamePlateMaterial;
+
+            BasisNetworkModeration.OnGlobalSafeDisplayNamesForcedChanged -= OnSafeDisplayNamesForcedChanged;
+            BasisNetworkModeration.OnGlobalSafeDisplayNamesForcedChanged += OnSafeDisplayNamesForcedChanged;
 
             NamePlateEnabled = BasisSettingsDefaults.NPEnabled.RawValue;
             NamePlateMenuOnly = BasisSettingsDefaults.NPMenuOnly.RawValue;
@@ -442,13 +456,14 @@ namespace Basis.Scripts.UI.NamePlate
 
         /// <summary>
         /// Returns whether a given plate should currently be active, considering
-        /// the enabled toggle, menu-only mode, and per-plate face visibility.
+        /// the enabled toggle, menu-only mode, distance, and per-plate face visibility.
         /// </summary>
         public static bool ShouldPlateBeActive(BasisRemoteNamePlate plate)
         {
             if (!NamePlateEnabled) return false;
             if (!plate.IsVisible) return false;
             if (plate.BasisRemotePlayer != null && plate.BasisRemotePlayer.IsEffectivelyBlocked) return false;
+            if (plate.BasisRemotePlayer != null && !plate.BasisRemotePlayer.InNamePlateRange) return false;
             if (NamePlateMenuOnly && BasisMainMenu.Instance == null) return false;
             return true;
         }
@@ -550,11 +565,32 @@ namespace Basis.Scripts.UI.NamePlate
             }
         }
 
+        private static void OnSafeDisplayNamesForcedChanged(bool forced) => RebakeAllNamePlates();
+
+        /// <summary>Re-bakes every active plate so a policy change applies without a rejoin.</summary>
+        public static void RebakeAllNamePlates()
+        {
+            var arr = plates;
+            int n = count;
+            for (int i = 0; i < n; i++)
+            {
+                BasisRemoteNamePlate plate = arr[i];
+                if (plate == null) continue;
+                QueueTextBake(plate.BasisRemotePlayer, plate);
+            }
+        }
+
         public static void GenerateTextFactory(BasisRemotePlayer remotePlayer, BasisRemoteNamePlate namePlate)
         {
+            // Both halves are required: stripping alone leaves TMP parsing what the strip missed,
+            // disabling alone renders the raw tags as visible text.
+            bool safeNames = BasisNetworkModeration.GlobalSafeDisplayNamesForced;
+            if (Text != null) Text.richText = !safeNames;
+            string displayName = safeNames ? remotePlayer.SafeDisplayName : remotePlayer.DisplayName;
+
             if (UseGlobalNamePlateMesh)
             {
-                BakeNameMeshGlobal(remotePlayer.DisplayName, namePlate);
+                BakeNameMeshGlobal(displayName, namePlate);
             }
             else
             {
@@ -614,7 +650,7 @@ namespace Basis.Scripts.UI.NamePlate
             if (Text == null || plate == null) return false;
             if (!PrepareBakedText(displayName, out float halfWidth, out Matrix4x4 textTransform)) return false;
 
-            Mesh panel = GenerateRoundedQuad(halfWidth, 4.5f, "NamePlate Panel (global)");
+            Mesh panel = GenerateRoundedQuad(halfWidth, BasisNamePlateAnchorMath.PanelHalfHeightUnits, "NamePlate Panel (global)");
 
             var textInfo = Text.textInfo;
             int subMeshLimit = 0;
@@ -658,7 +694,7 @@ namespace Basis.Scripts.UI.NamePlate
             if (Text == null || filter == null || renderer == null) return false;
             if (!PrepareBakedText(displayName, out float halfWidth, out Matrix4x4 textTransform)) return false;
 
-            Mesh plateMesh = GenerateRoundedQuad(halfWidth, 4.5f, "Rounded NamePlate Quad");
+            Mesh plateMesh = GenerateRoundedQuad(halfWidth, BasisNamePlateAnchorMath.PanelHalfHeightUnits, "Rounded NamePlate Quad");
 
             var textInfo = Text.textInfo;
             int subMeshLimit = 0;
@@ -851,6 +887,8 @@ namespace Basis.Scripts.UI.NamePlate
         {
             CompletePulseInFlight();
             pulseComputed = false;
+
+            BasisNetworkModeration.OnGlobalSafeDisplayNamesForcedChanged -= OnSafeDisplayNamesForcedChanged;
 
             for (int i = 0; i < count; i++)
             {

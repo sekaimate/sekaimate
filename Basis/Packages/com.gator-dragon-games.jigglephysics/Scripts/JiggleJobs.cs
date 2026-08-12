@@ -163,17 +163,25 @@ public class JiggleJobs {
         _memoryBus.Dispose();
     }
 
+    private bool accessArraysDesynced;
+
+    // Scheduling a transform job is not free and is not constant: Unity rebuilds a
+    // TransformAccessArray's batch layout on the first Schedule after the array is touched, at
+    // O(whole array) — 0.60ms over 32k bones against 0.096ms clean. These four samples say which of
+    // the pose chain's schedules is paying it.
     public JobHandle SchedulePoses(double timeAsDouble) {
-        if (_memoryBus.transformCount == 0) {
+        if (_memoryBus.transformCount == 0 || accessArraysDesynced) {
             return default;
         }
         jobBulkTransformReset.UpdateArrays(_memoryBus);
         // TODO: This technically only needs to happen for root bones, as their positions are used for posing. Instead just doing a full reset because I'm lazy.
+        Profiler.BeginSample("JiggleJobs.SchedulePose.Reset");
         if (hasHandleBulkReset && hasHandleTransformWrite) {
             handleBulkReset = jobBulkTransformReset.Schedule(_memoryBus.GetTransformAccessArray(), JobHandle.CombineDependencies(handleTransformWrite, handleBulkReset));
         } else {
             handleBulkReset = jobBulkTransformReset.Schedule(_memoryBus.GetTransformAccessArray());
         }
+        Profiler.EndSample();
         hasHandleBulkReset = true;
 
         return SchedulePoses(handleBulkReset, timeAsDouble);
@@ -188,14 +196,20 @@ public class JiggleJobs {
         jobInterpolation.UpdateArrays(_memoryBus);
         jobTransformWrite.UpdateArrays(_memoryBus);
 
+        Profiler.BeginSample("JiggleJobs.SchedulePose.RootRead");
         handleRootRead = jobBulkReadRoots.ScheduleReadOnly(_memoryBus.GetTransformRootAccessArray(), 128, dep);
+        Profiler.EndSample();
         hasHandleRootRead = true;
 
         jobInterpolation.currentTime = timeAsDouble;
+        Profiler.BeginSample("JiggleJobs.SchedulePose.Interpolate");
         handleInterpolate = jobInterpolation.ScheduleParallel(_memoryBus.transformCount, 128, handleRootRead);
+        Profiler.EndSample();
         hasHandleInterpolate = true;
 
+        Profiler.BeginSample("JiggleJobs.SchedulePose.Write");
         handleTransformWrite = jobTransformWrite.Schedule(_memoryBus.GetTransformAccessArray(), handleInterpolate);
+        Profiler.EndSample();
 
         hasHandleTransformWrite = true;
         return handleTransformWrite;
@@ -204,6 +218,15 @@ public class JiggleJobs {
     public void CompletePoses() {
         if (hasHandleTransformWrite) {
             handleTransformWrite.Complete();
+        }
+        // The first-pose branch in SchedulePoses schedules the reset with no dependency
+        // edge back into the write chain, so join the earlier pose stages explicitly
+        // rather than relying on transitivity. No-ops when already covered.
+        if (hasHandleRootRead) {
+            handleRootRead.Complete();
+        }
+        if (hasHandleBulkReset) {
+            handleBulkReset.Complete();
         }
     }
 
@@ -238,6 +261,11 @@ public class JiggleJobs {
     }
 
     public void Simulate(double simulateTime, double realTime, int substeps, JobHandle externalDependency = default) {
+        // CommitTrees/CommitColliders (and the buffer rotation below) mutate the transform
+        // access arrays and buffers the pose chain is scheduled over. The host's pose fence
+        // can be skipped on an exception frame, and hosts may call ScheduleSimulate between
+        // SchedulePoses and CompletePose — join the pose chain first. No-op on healthy frames.
+        CompletePoses();
         if (_memoryBus.transformCount == 0) {
             _memoryBus.CommitTrees();
             _memoryBus.CommitColliders();
@@ -270,6 +298,8 @@ public class JiggleJobs {
         _memoryBus.ApplyPendingTeleports();
         Profiler.EndSample();
 
+        _memoryBus.ApplyPendingGrabConstraints();
+
         _memoryBus.RotateBuffers();
         jobInterpolation.previousTimeStamp = jobInterpolation.timeStamp;
         jobInterpolation.timeStamp = jobSimulate.timeStamp;
@@ -281,6 +311,15 @@ public class JiggleJobs {
         _memoryBus.CommitTrees();
         _memoryBus.CommitColliders();
         Profiler.EndSample();
+
+        // A bone destroyed while still enrolled shifts every later slot of the access arrays, so
+        // until the commit rebuilds them the slot indexing the pose buffers use is wrong and every
+        // transform job would cross avatar boundaries. Sitting the frame out costs a frame of
+        // jiggle; scheduling over it poses one player's bones from another player's tree.
+        accessArraysDesynced = _memoryBus.GetAccessArraysDesynced();
+        if (accessArraysDesynced) {
+            return;
+        }
 
         jobSimulate.UpdateArrays(_memoryBus);
         jobSimulate.substeps = substeps;
@@ -373,6 +412,10 @@ public class JiggleJobs {
         _memoryBus.ScheduleTeleport(tree, deltaPosition);
     }
 
+    public void SetGrabConstraints(JiggleGrabConstraint[] constraints, int count) {
+        _memoryBus.SetGrabConstraints(constraints, count);
+    }
+
     public void Teleport(JiggleTree tree, quaternion deltaRotation, float3 pivot, float3 deltaPosition) {
         if (tree == null) return;
         _memoryBus.ScheduleTeleport(tree, deltaRotation, pivot, deltaPosition);
@@ -380,6 +423,10 @@ public class JiggleJobs {
 
     public void SetTreeBacklog(bool backlogRemains) {
         _memoryBus.SetTreeBacklog(backlogRemains);
+    }
+
+    public void MarkAlwaysReadScale(JiggleTree tree) {
+        _memoryBus.MarkAlwaysReadScale(tree);
     }
 
     public void ScheduleAdd(JiggleTree tree) {
@@ -485,8 +532,7 @@ public class JiggleJobs {
 
                     if (point.childrenCount != 0) {
                         for (int j = 0; j < point.childrenCount; j++) {
-                            //var childPoint = tree.points[point.childrenIndices[j]];
-                            var childPose = poses[point.childrenIndices[j] + tree.transformIndexOffset];
+                            var childPose = poses[tree.GetChild(o, j) + tree.transformIndexOffset];
                             if (!pose.isVirtual && !childPose.isVirtual) {
                                 Gizmos.color = Color.cyan;
                                 Gizmos.DrawLine(pose.position, childPose.position);

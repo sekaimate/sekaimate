@@ -1,4 +1,4 @@
-using Basis.Network.Core;
+﻿using Basis.Network.Core;
 using Basis.Network.Core.Compression;
 using Xunit;
 using BitQuality = Basis.Network.Core.Compression.BasisAvatarBitPacking.BitQuality;
@@ -99,7 +99,7 @@ public class UplinkDeltaProtocolTests
         byte[] keyframe = S.MakeRealisticPayload(BitQuality.High, rng);
         var scratch = new byte[BasisAvatarDeltaCompression.MaxDeltaSize(BitQuality.High)];
         int bodyLen = BasisAvatarDeltaCompression.BuildDelta(keyframe, (byte[])keyframe.Clone(), BitQuality.High, scratch, 0);
-        // Wire: 3-byte frame header + 8-byte mask = 11 bytes vs the 237-byte keyframe frame.
         Assert.Equal(BasisAvatarDeltaCompression.DirtyMaskBytes, bodyLen);
     }
+
 }

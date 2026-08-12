@@ -249,7 +249,9 @@ namespace Basis.BasisUI
             panel.InputField = inputField;
             panel.TMPInputField = tmpInputField;
 
+            panel.SetLayer(PanelLayer.Overlay);
             panel.BuildPanel();
+            BasisPanelMoveHandle.Attach(panel, nameof(BasisMenuVirtualKeyboardPanel));
 
             UIAnimations.PopIn(panel);
             BasisCursorManagement.UnlockCursor(nameof(BasisMenuVirtualKeyboardPanel));
@@ -736,7 +738,7 @@ namespace Basis.BasisUI
                     return;
 
                 case BasisVirtualKeyboardSpecialKey.IsCopyKey:
-                    GUIUtility.systemCopyBuffer = ReadCurrentText();
+                    BasisClipboard.Copy(ReadCurrentText(), entry.Button);
                     return;
 
                 case BasisVirtualKeyboardSpecialKey.IsPasteKey:

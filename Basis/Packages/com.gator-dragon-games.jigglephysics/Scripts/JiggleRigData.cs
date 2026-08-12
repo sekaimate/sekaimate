@@ -25,6 +25,12 @@ public struct JiggleRigData {
     [SerializeField] public string serializedVersion;
     [SerializeField] public Transform rootBone;
     [SerializeField] public bool excludeRoot;
+    // Inverted sense on purpose: absent in previously-serialized data -> false -> grabbable.
+    [SerializeField] public bool lockFromGrabbing;
+    // Zero means "use the shipped default", which is what data serialized before this field
+    // existed deserializes to — so old bundles get a sensible pull limit rather than a rigid
+    // chain (0) with no migration step. Use lockFromGrabbing to forbid grabbing outright.
+    [SerializeField] public float maxGrabStretch;
     [SerializeField] public JiggleTreeInputParameters jiggleTreeInputParameters;
     [SerializeField] public Transform[] excludedTransforms;
     [SerializeField, HideInInspector] public JiggleTransformCachedData[] transformCachedData;
@@ -131,9 +137,19 @@ public struct JiggleRigData {
         return false;
     }
     
+    /// <summary>
+    /// Matches the cap OnValidate applies in the editor. OnValidate never runs for content loaded at
+    /// runtime, so without this a bundle can declare any number of colliders and each one costs a
+    /// pass per point per substep inside the simulate job.
+    /// </summary>
+    public const int MaxRuntimeJiggleColliders = 32;
+
     public void GetJiggleColliders(List<JiggleCollider> colliders) {
         colliders.Clear();
         var count = jiggleColliders.Length;
+        if (count > MaxRuntimeJiggleColliders) {
+            count = MaxRuntimeJiggleColliders;
+        }
         for(int i=0;i<count;i++) {
             colliders.Add(jiggleColliders[i].collider);
         }
@@ -155,7 +171,12 @@ public struct JiggleRigData {
         ValidateCurve(ref jiggleTreeInputParameters.airDrag.curve);
         ValidateCurve(ref jiggleTreeInputParameters.gravity.curve);
         ValidateCurve(ref jiggleTreeInputParameters.collisionRadius.curve);
-        BuildNormalizedDistanceFromRootList();
+        // Bones are mid-simulation in play mode; resampling would bake the jiggled pose into the serialized rest.
+        if (Application.isPlaying) {
+            RegenerateCacheLookup();
+        } else {
+            BuildNormalizedDistanceFromRootList();
+        }
         for (int i = 0; i < 100; i++) {
             if (!TryUpdateSerialization()) {
                 break;
@@ -184,8 +205,11 @@ public struct JiggleRigData {
         RegenerateCacheLookup();
     }
 
-    private void VisitAndSetCacheData(List<JiggleTransformCachedData> data, Transform t, Vector3 lastPosition, float currentLength, ref float maxLength) {
+    private void VisitAndSetCacheData(List<JiggleTransformCachedData> data, Transform t, Vector3 lastPosition, float currentLength, ref float maxLength, int depth = 0) {
         if (t == null || GetIsExcluded(t)) {
+            return;
+        }
+        if (depth >= JigglePhysics.MAX_VISIT_DEPTH) {
             return;
         }
         var scale = t.lossyScale;
@@ -204,7 +228,7 @@ public struct JiggleRigData {
         for (int i = 0; i < childCount; i++) {
             var child = t.GetChild(i);
             if (child == null || GetIsExcluded(child)) continue;
-            VisitAndSetCacheData(data, child, position, currentLength, ref maxLength);
+            VisitAndSetCacheData(data, child, position, currentLength, ref maxLength, depth + 1);
         }
     }
 
@@ -329,6 +353,8 @@ public struct JiggleRigData {
             serializedVersion = "v0.0.2",
             hasSerializedData = true,
             excludeRoot = false,
+            lockFromGrabbing = false,
+            maxGrabStretch = JiggleGrabConstraint.DefaultMaxStretchFactor,
             jiggleTreeInputParameters = JiggleTreeInputParameters.Default(),
             excludedTransforms = Array.Empty<Transform>(),
             transformCachedData = Array.Empty<JiggleTransformCachedData>(),

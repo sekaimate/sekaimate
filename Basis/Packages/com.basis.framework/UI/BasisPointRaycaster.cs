@@ -38,6 +38,7 @@ namespace Basis.Scripts.UI
 
         // Layer index, not a LayerMask
         private static int OverlayUILayer;
+        private static int HandHeldCameraUILayer;
         public const string OverlayUI = "OverlayUI";
         public override Camera eventCamera => BasisLocalCameraDriver.Instance.Camera;
 
@@ -126,6 +127,7 @@ namespace Basis.Scripts.UI
         public void Initialize(BasisInput basisInput)
         {
             OverlayUILayer = LayerMask.NameToLayer(OverlayUI);
+            HandHeldCameraUILayer = BasisLayerMapper.HandHeldCameraUILayer;
             BasisInput = basisInput;
             PhysicHits = new RaycastHit[BasisPlayerInteract.k_MaxPhysicHitCount];
             PhysicBackcastHits = new RaycastHit[4]; // We don't need as many backcast hits.
@@ -177,6 +179,8 @@ namespace Basis.Scripts.UI
         public void UpdateRaycast()
         {
             UpdateRay();
+
+            BasisPhysicsSyncGate.FlushIfDirty();
 
             PhysicHitCount = Physics.RaycastNonAlloc(
                 ray,
@@ -235,7 +239,7 @@ namespace Basis.Scripts.UI
                 if (_resolvedColliders[i] == null)
                     continue;
 
-                bool isOverlay = _resolvedLayers[i] == OverlayUILayer;
+                bool isOverlay = _resolvedLayers[i] == OverlayUILayer || _resolvedLayers[i] == HandHeldCameraUILayer;
                 float distance = PhysicHits[i].distance;
 
                 if (isOverlay)
@@ -338,7 +342,8 @@ namespace Basis.Scripts.UI
                     continue;
 
                 // Placement should usually ignore UI. If you want UI placement, remove this.
-                if (hit.collider.gameObject.layer == OverlayUILayer)
+                int hitLayer = hit.collider.gameObject.layer;
+                if (hitLayer == OverlayUILayer || hitLayer == HandHeldCameraUILayer)
                     continue;
 
                 if (hit.distance < bestDist)

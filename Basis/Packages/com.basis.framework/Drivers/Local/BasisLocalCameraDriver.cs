@@ -55,6 +55,40 @@ namespace Basis.Scripts.Drivers
             RenderSettingsApplied?.Invoke();
         }
 
+        /// <summary>
+        /// Raised once per rendered frame from <c>BasisEventDriver</c>'s before-render pass, after the
+        /// local player's render-time simulation has settled the camera and head. The late-latch slot:
+        /// the camera pose statics (<see cref="Position"/>, <see cref="HeadPosition"/>, the eye
+        /// vectors) are final here, and nothing has been drawn yet.
+        ///
+        /// Anything writing a transform that must not trail the head by a frame belongs here rather
+        /// than in <c>LateUpdate</c>. It runs with the whole render waiting on it, so keep handlers
+        /// short. Does not fire on a headless client, which never renders.
+        /// </summary>
+        public static event Action BeforeRender;
+
+        public static void RaiseBeforeRender()
+        {
+            // Subscribers are independent, and one of them is the sandbox bridge — a throwing
+            // handler must not take the rest of the frame's late-latch work down with it.
+            Delegate[] handlers = BeforeRender?.GetInvocationList();
+            if (handlers == null)
+            {
+                return;
+            }
+            for (int Index = 0; Index < handlers.Length; Index++)
+            {
+                try
+                {
+                    ((Action)handlers[Index])();
+                }
+                catch (Exception ex)
+                {
+                    BasisDebug.LogErrorOnce($"BasisLocalCameraDriver.BeforeRender handler failed: {ex}", BasisDebug.LogTag.Event);
+                }
+            }
+        }
+
         /// <summary>Optional input-lock helper for driving camera from input.</summary>
         public BasisLockToInput BasisLockToInput;
 
@@ -414,7 +448,7 @@ namespace Basis.Scripts.Drivers
         {
             if (BasisLocalAvatarDriver.Mapping != null && BasisLocalAvatarDriver.Mapping.head != null)
             {
-                BasisLocalAvatarDriver.Mapping.head.localScale = BasisLocalAvatarDriver.HeadScale;
+                BasisLocalAvatarDriver.Mapping.head.SetLocalScale(BasisLocalAvatarDriver.HeadScale);
             }
             if (HasEvents)
             {
@@ -483,7 +517,7 @@ namespace Basis.Scripts.Drivers
         {
             if (HasInstance)
             {
-                SelfTransform.GetPositionAndRotation(out Position, out Rotation);
+                SelfTransform.GetPose(out Position, out Rotation);
             }
             else
             {
@@ -507,7 +541,7 @@ namespace Basis.Scripts.Drivers
         /// </summary>
         public void UpdateCameraScale(BasisHeightDriver.HeightModeChange HeightModeChange)
         {
-            SelfTransform.localScale = Vector3.one * BasisHeightDriver.DeviceScale;
+            SelfTransform.SetLocalScale(Vector3.one * BasisHeightDriver.DeviceScale);
             if (BasisSettingsDefaults.UseCameraClipOverride.RawValue)
             {
                 // User has explicitly opted into raw clip values; bypass the eye-height clamp.
@@ -543,7 +577,6 @@ namespace Basis.Scripts.Drivers
             int ignoredByInteractable = LayerMask.NameToLayer("IgnoredByInteractable");
             int uiLayer = LayerMask.NameToLayer("UI");
             int overlayUiLayer = LayerMask.NameToLayer("OverlayUI");
-
             int allLayers = ~0;
 
             CameraCollisionMask = allLayers &
@@ -552,7 +585,8 @@ namespace Basis.Scripts.Drivers
                 ~(1 << localPlayerAvatar) &
                 ~(1 << ignoredByInteractable) &
                 ~(1 << uiLayer) &
-                ~(1 << overlayUiLayer);
+                ~(1 << overlayUiLayer) &
+                ~BasisLayerMapper.HandHeldCameraUIMask;
         }
 
         public void ToggleThirdPerson()
@@ -627,7 +661,7 @@ namespace Basis.Scripts.Drivers
             BasisAutoScaleEstimator.Tick(DeltaTime);
             if (BasisLocalAvatarDriver.Mapping.Hashead)
             {
-                SelfTransform.GetPositionAndRotation(out Position, out Rotation);
+                SelfTransform.GetPose(out Position, out Rotation);
 
                 if (IsThirdPerson)
                 {
@@ -648,17 +682,17 @@ namespace Basis.Scripts.Drivers
                 (Vector3 position, Quaternion rotation)? listenerOverride = AudioListenerPoseOverride?.Invoke();
                 if (listenerOverride.HasValue)
                 {
-                    ListenerTransform.SetPositionAndRotation(listenerOverride.Value.position, listenerOverride.Value.rotation);
+                    ListenerTransform.SetPose(listenerOverride.Value.position, listenerOverride.Value.rotation);
                     _listenerDetachedFromCamera = true;
                 }
                 else if (IsThirdPerson && BasisSettingsDefaults.AudioListenerFollowsHead.RawValue)
                 {
-                    ListenerTransform.SetPositionAndRotation(HeadPosition, HeadRotation);
+                    ListenerTransform.SetPose(HeadPosition, HeadRotation);
                     _listenerDetachedFromCamera = true;
                 }
                 else if (_listenerDetachedFromCamera)
                 {
-                    ListenerTransform.SetLocalPositionAndRotation(Vector3.zero, Quaternion.identity);
+                    ListenerTransform.SetLocalPose(Vector3.zero, Quaternion.identity);
                     _listenerDetachedFromCamera = false;
                 }
                 if (CameraData.allowXRRendering)
@@ -666,7 +700,7 @@ namespace Basis.Scripts.Drivers
                     Vector3 offset = VRMicrophoneLocalOffset;
                     offset.x += microphoneIconDriver.IconPositionOffset.x;
                     offset.y += microphoneIconDriver.IconPositionOffset.y;
-                    ParentOfUI.localPosition = offset;
+                    ParentOfUI.SetLocalPosition(offset);
                     _micLayoutValid = false;
                 }
                 else
@@ -689,8 +723,8 @@ namespace Basis.Scripts.Drivers
                         viewportPos.y += offset.y;
                         Vector3 worldPoint = Camera.ViewportToWorldPoint(viewportPos);
                         // assume this transform is the camera parent
-                        Vector3 localPos = SelfTransform.InverseTransformPoint(worldPoint);
-                        ParentOfUI.localPosition = localPos.normalized * MicrophoneAnchorDistance;
+                        Vector3 localPos = SelfTransform.ToLocalPoint(worldPoint);
+                        ParentOfUI.SetLocalPosition(localPos.normalized * MicrophoneAnchorDistance);
 
                         _micLayoutValid = true;
                         _micLayoutFov = fov;
@@ -707,7 +741,7 @@ namespace Basis.Scripts.Drivers
             {
                 if (_wasThirdPerson)
                 {
-                    SelfTransform.SetLocalPositionAndRotation(Vector3.zero, Quaternion.identity);
+                    SelfTransform.SetLocalPose(Vector3.zero, Quaternion.identity);
                     CameraInstance.fieldOfView = DefaultCameraFov;
                     _wasThirdPerson = false;
                 }
@@ -720,7 +754,7 @@ namespace Basis.Scripts.Drivers
             Transform parentTransform = SelfTransform.parent;
 
             float scale = BasisHeightDriver.AvatarToDefaultRatioScaledWithAvatarScale;
-            parentTransform.GetPositionAndRotation(out Vector3 targetTrackingPos, out Quaternion targetTrackingRot);
+            parentTransform.GetPose(out Vector3 targetTrackingPos, out Quaternion targetTrackingRot);
 
             Vector3 euler = targetTrackingRot.eulerAngles;
             float targetPitch = euler.x;
@@ -774,7 +808,7 @@ namespace Basis.Scripts.Drivers
                 desiredWorldPos = hit.point + (hit.normal * scaledRadius);
             }
 
-            SelfTransform.SetPositionAndRotation(desiredWorldPos, desiredRotation);
+            SelfTransform.SetPose(desiredWorldPos, desiredRotation);
         }
         private void OnClipOverrideToggleChanged(bool _) => UpdateCameraScale();
         private void OnClipBindingChangedFloat(float _) => UpdateCameraScale();

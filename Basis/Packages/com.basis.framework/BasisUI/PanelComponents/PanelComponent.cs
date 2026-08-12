@@ -13,7 +13,9 @@ namespace Basis.BasisUI
         {
             get
             {
-                if (!_descriptor) _descriptor = GetComponent<PanelElementDescriptor>();
+                if (_descriptor) return _descriptor;
+                if (this == null) return null;
+                _descriptor = GetComponent<PanelElementDescriptor>();
                 return _descriptor;
             }
         }
@@ -62,7 +64,7 @@ namespace Basis.BasisUI
             Selectable target = InteractableTarget;
             if (target != null) target.interactable = interactable;
 
-            if (_pointerInside) BasisMainMenu.ShowTooltip(TooltipText);
+            if (_pointerInside) BasisMainMenu.ShowTooltip(HoverTooltipText);
         }
 
         /// <summary>
@@ -82,18 +84,36 @@ namespace Basis.BasisUI
             }
         }
 
+        /// <summary>
+        /// What the tooltip bar actually shows: the control's own text, plus the reset gesture
+        /// while there is a default to go back to. Nothing else advertises that gesture, and a
+        /// hover is the moment it is about to be useful.
+        /// </summary>
+        private string HoverTooltipText
+        {
+            get
+            {
+                string text = TooltipText;
+                if (!HasResetDefault || !IsInteractable) return text;
+
+                string hint = BasisPanelResetGesture.HintText;
+                if (string.IsNullOrEmpty(hint)) return text;
+                return string.IsNullOrEmpty(text) ? hint : $"{text} — {hint}";
+            }
+        }
+
         public virtual void OnPointerEnter(PointerEventData eventData)
         {
             _pointerInside = true;
-            BasisMainMenu.ShowTooltip(TooltipText);
-            BasisPanelResetGesture.SetHovered(this);
+            BasisMainMenu.ShowTooltip(HoverTooltipText);
+            BasisPanelResetGesture.SetHovered(this, eventData);
         }
 
         public virtual void OnPointerExit(PointerEventData eventData)
         {
             _pointerInside = false;
             BasisMainMenu.HideTooltip();
-            BasisPanelResetGesture.ClearHovered(this);
+            BasisPanelResetGesture.ClearHovered(this, eventData);
         }
 
         // A closing menu tears its elements down without a pointer exit, so drop the hover here
@@ -101,6 +121,7 @@ namespace Basis.BasisUI
         protected override void OnDisable()
         {
             base.OnDisable();
+            if (_pointerInside) BasisMainMenu.HideTooltip();
             _pointerInside = false;
             BasisPanelResetGesture.ClearHovered(this);
         }

@@ -22,7 +22,9 @@
         "Unity.Addressables.Editor",
         "Basis.OpenLipSync.Runtime",
         "BasisEventDriver",
-        "Unity.TextMeshPro"
+        "Unity.TextMeshPro",
+        "glTFast",
+        "com.gator-dragon-games.jigglephysics.editor"
     ],
     "includePlatforms": [
         "Editor"

@@ -78,14 +78,30 @@ namespace Basis.Scripts.Drivers
         public bool AudioSourceInactive;
 
         /// <summary>
+        /// True while this player's voice is arriving on the shout channel instead of through
+        /// their own spatial AudioSource. Set by BasisShoutAudioDriver.
+        /// <para>Both of the rules that normally retire a viseme driver describe a shouting
+        /// player wrongly. A shouter sends on <c>ShoutVoiceChannel</c> only, so their spatial
+        /// receiver goes idle and <see cref="AudioSourceInactive"/> latches even though they are
+        /// mid-sentence; and shout deliberately ignores distance culling, so the viseme distance
+        /// cutoff retires exactly the players shout exists to make audible. Without this flag the
+        /// driver releases and re-acquires its OpenLipSync context every single frame, which
+        /// throws away the buffered audio before inference ever runs.</para>
+        /// </summary>
+        public volatile bool ShoutActive;
+
+        /// <summary>
         /// Tracks whether initialization completed successfully.
         /// </summary>
         public bool WasSuccessful;
 
         /// <summary>
-        /// Cached entity id of the face renderer used to safely bind/unbind events.
+        /// The visibility check this driver actually subscribed to. The swap-time unsubscribe
+        /// must target it — by the time TryInitialize runs for the incoming avatar, the player's
+        /// FaceRenderer already points at the NEW check while the outgoing avatar's check stays
+        /// alive (and fires DestroyCalled) until its end-of-frame destroy.
         /// </summary>
-        public EntityId HashInstanceID = EntityId.None;
+        private BasisMeshRendererCheck subscribedFaceRenderer;
 
         /// <summary>
         /// Configures lip-sync for the given player and avatar. Records eligibility
@@ -95,6 +111,7 @@ namespace Basis.Scripts.Drivers
         public bool TryInitialize(IBasisPlayer BasisPlayer)
         {
             WasSuccessful = false;
+            UnsubscribeFaceRenderer();
             Avatar = BasisPlayer.BasisAvatar;
             Player = BasisPlayer;
 
@@ -140,11 +157,12 @@ namespace Basis.Scripts.Drivers
                 HasViseme[Index] = Avatar.FaceVisemeMovement[Index] != -1;
             }
 
-            // Wire visibility and lifetime callbacks (only once per renderer instance)
-            if (Player != null && Player.FaceRenderer != null && HashInstanceID != Player.FaceRenderer.GetEntityId())
+            // Wire visibility and lifetime callbacks
+            if (Player != null && Player.FaceRenderer != null)
             {
-                Player.FaceRenderer.Check += UpdateFaceVisibility;
-                Player.FaceRenderer.DestroyCalled += TryShutdown;
+                subscribedFaceRenderer = Player.FaceRenderer;
+                subscribedFaceRenderer.Check += UpdateFaceVisibility;
+                subscribedFaceRenderer.DestroyCalled += TryShutdown;
             }
 
             UpdateFaceVisibility(Player.FaceIsVisible);
@@ -221,7 +239,7 @@ namespace Basis.Scripts.Drivers
             }
 
             // Release context back to pool when audio source is inactive (player not speaking)
-            if (UseOpenLipSync && openLipSyncContext != null && TrackedAudioSource != null && AudioSourceInactive)
+            if (UseOpenLipSync && openLipSyncContext != null && ShouldReleaseForIdleSource())
             {
                 ReleaseOpenLipSyncContext();
             }
@@ -240,9 +258,23 @@ namespace Basis.Scripts.Drivers
                 openLipSyncContext.Simulate(DeltaTime);
             }
         }
+        /// <summary>
+        /// Whether the player has gone quiet long enough to hand their OpenLipSync slot to
+        /// somebody closer. Judged from <see cref="TrackedAudioSource"/>, which is the player's
+        /// SPATIAL source — so a shouter, who sends on the shout channel and therefore never
+        /// feeds that source at all, reads as idle while mid-sentence. Releasing then is not
+        /// merely wasteful: <c>ProcessAudioSamples</c> immediately asks for the context back, so
+        /// the driver churns a fresh context every frame and the buffered audio is discarded
+        /// before inference ever sees it, which shows up as a mouth that never moves.
+        /// </summary>
+        public bool ShouldReleaseForIdleSource()
+        {
+            return TrackedAudioSource != null && AudioSourceInactive && !ShoutActive;
+        }
+
         private bool _overrideZeroed;
 
-        public void Apply()
+        public void Apply(float DeltaTime)
         {
             if (Basis.BasisUI.BasisSettingsDefaults.DisableLipSyncForFaceTracking.RawValue
                 && Player is BasisRemotePlayer remote && remote.RemoteFaceDriver != null && remote.RemoteFaceDriver.OverrideViseme)
@@ -260,7 +292,7 @@ namespace Basis.Scripts.Drivers
 
             if (UseOpenLipSync && openLipSyncContext != null)
             {
-                openLipSyncContext.Apply();
+                openLipSyncContext.Apply(DeltaTime);
             }
         }
         /// <summary>
@@ -312,17 +344,20 @@ namespace Basis.Scripts.Drivers
         }
 
         /// <summary>
-        /// Unbinds face renderer callbacks if the same renderer instance is still present.
+        /// Unbinds the face renderer callbacks this driver subscribed.
         /// </summary>
         public void OnDeInitialize()
         {
-            if (Player != null)
+            UnsubscribeFaceRenderer();
+        }
+
+        private void UnsubscribeFaceRenderer()
+        {
+            if (subscribedFaceRenderer != null)
             {
-                if (Player.FaceRenderer != null && HashInstanceID == Player.FaceRenderer.GetEntityId())
-                {
-                    Player.FaceRenderer.Check -= UpdateFaceVisibility;
-                    Player.FaceRenderer.DestroyCalled -= TryShutdown;
-                }
+                subscribedFaceRenderer.Check -= UpdateFaceVisibility;
+                subscribedFaceRenderer.DestroyCalled -= TryShutdown;
+                subscribedFaceRenderer = null;
             }
         }
 

@@ -4,11 +4,14 @@
     "references": [
         "Basis Framework",
         "Basis Framework Editor",
+        "BasisCommon",
         "BasisNetworkCore",
         "Unity.Collections",
         "Unity.Mathematics",
         "UnityEngine.TestRunner",
-        "BasisSDK"
+        "BasisSDK",
+        "BasisShims",
+        "Cilbox"
     ],
     "includePlatforms": [
         "Editor"

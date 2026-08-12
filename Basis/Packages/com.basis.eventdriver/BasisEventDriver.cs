@@ -8,6 +8,7 @@ using Basis.Scripts.Drivers;
 using Basis.Scripts.Networking;
 using Basis.Scripts.Networking.NetworkedAvatar;
 using Basis.Scripts.Networking.Transmitters;
+using Basis.Scripts.Platform;
 using Basis.BasisUI;
 using Basis.Scripts.UI;
 using Basis.Scripts.UI.NamePlate;
@@ -211,6 +212,11 @@ namespace Basis.EventDriver
         {
             using var updateScope = Prof.Update.Auto();
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            BasisFiniteWatchdog.Checkpoint("UpdateStart (render / physics / previous frame tail)");
+            BasisFiniteWatchdog.CheckpointRemote("UpdateStart (render / physics / previous frame tail)");
+#endif
+
             DeltaTime = Time.deltaTime;
             unscaledDeltaTime = Time.unscaledDeltaTime;
             realtimeSinceStartupAsDouble = Time.realtimeSinceStartupAsDouble;
@@ -244,6 +250,13 @@ namespace Basis.EventDriver
                 using (Prof.VisemeSimulate.Auto())
                 {
                     BasisLocalPlayer.Instance.LocalVisemeDriver.Simulate(DeltaTime);
+
+                    // Dispatch here rather than leaving it to the remote-audio stage further
+                    // down: that stage runs AFTER the local viseme Apply, so the local mouth
+                    // could never pick up work queued in the same frame and was permanently a
+                    // frame behind the mic. The batch task drains anything the remote stage
+                    // adds later, so starting early costs the remote players nothing.
+                    BasisOpenLipSyncContext.ProcessAllPending();
                 }
             }
             // Drain everything that arrived from worker threads
@@ -299,16 +312,37 @@ namespace Basis.EventDriver
             {
                 Basis.Scripts.Device_Management.EyeTracking.BasisGazeFoveationAutoDriver.Simulate();
             }
+            // After the input pump, so the device poses this reads are the ones polled this frame.
+            using (Prof.BodyEvidenceSample.Auto())
+            {
+                BasisBodyEvidenceSampler.Simulate(DeltaTime);
+                BasisHeightDriver.TickObservedEvidence(DeltaTime);
+            }
             using (Prof.HighPlayerCap.Auto())
             {
                 BasisPerformanceMode.Simulate();
                 BasisHighPlayerCapPerformanceMode.Simulate();
+            }
+            // Replays OS file drops collected on the window procedure. Kept on the main thread and
+            // out of the WndProc itself: a drop lands in the middle of a native message pump, which
+            // is no place to spawn a prop or force a menu open.
+            if (!IsHeadlessClient)
+            {
+                using (Prof.DesktopFileDrop.Auto())
+                {
+                    BasisDesktopFileDrop.Dispatch();
+                }
             }
             using (Prof.OnUpdateCallbacks.Auto())
             {
                 InvokeEventCallbacks(OnUpdate, nameof(OnUpdate), ref _onUpdateCachedDelegate, ref _onUpdateInvocationList);
             }
             timeSinceLastUpdate += DeltaTime;
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            BasisFiniteWatchdog.Checkpoint("UpdateTail (pre-animator)");
+            BasisFiniteWatchdog.CheckpointRemote("UpdateTail (pre-animator)");
+#endif
         }
 
         /// <summary>
@@ -340,8 +374,12 @@ namespace Basis.EventDriver
         // throwing content hook abort every later subscriber — which silently killed all avatar
         // transmission. Invoke each subscriber under its own catch instead; the invocation list
         // is cached and only rebuilt when the delegate instance changes.
+        // The cache is Action[], not the Delegate[] GetInvocationList hands back: every avatar
+        // with an eye-tracking actuation subscribes, so this list is per-avatar long and runs
+        // every frame — a downcast per entry per frame is pure overhead when the element type
+        // is already known. The cast is paid once, on rebuild.
         private static Action _afterAvatarChangesCachedDelegate;
-        private static Delegate[] _afterAvatarChangesInvocationList = System.Array.Empty<Delegate>();
+        private static Action[] _afterAvatarChangesInvocationList = System.Array.Empty<Action>();
 
         private static void InvokeAfterAvatarChangesSafely()
         {
@@ -349,16 +387,29 @@ namespace Basis.EventDriver
             if (!ReferenceEquals(current, _afterAvatarChangesCachedDelegate))
             {
                 _afterAvatarChangesCachedDelegate = current;
-                _afterAvatarChangesInvocationList = current == null ? System.Array.Empty<Delegate>() : current.GetInvocationList();
+                if (current == null)
+                {
+                    _afterAvatarChangesInvocationList = System.Array.Empty<Action>();
+                }
+                else
+                {
+                    Delegate[] raw = current.GetInvocationList();
+                    Action[] typed = new Action[raw.Length];
+                    for (int Index = 0; Index < raw.Length; Index++)
+                    {
+                        typed[Index] = (Action)raw[Index];
+                    }
+                    _afterAvatarChangesInvocationList = typed;
+                }
             }
 
-            Delegate[] list = _afterAvatarChangesInvocationList;
+            Action[] list = _afterAvatarChangesInvocationList;
             int count = list.Length;
             for (int Index = 0; Index < count; Index++)
             {
                 try
                 {
-                    ((Action)list[Index])();
+                    list[Index]();
                 }
                 catch (Exception ex)
                 {
@@ -382,6 +433,12 @@ namespace Basis.EventDriver
             using var lateUpdateScope = Prof.LateUpdate.Auto();
 
             ProfileLateUpdateInit();
+
+            // Bone-writing systems are fenced from each other through this method, so a local-space
+            // scan between them narrows a bad value to the one that just ran. Costs nothing unless
+            // the watchdog is armed from Basis/Debug/Finite Watchdog.
+            BasisFiniteWatchdog.Checkpoint("FrameStart (animator / physics / previous frame)");
+            BasisFiniteWatchdog.CheckpointRemote("FrameStart (animator / physics / previous frame)");
 
             if (StateOfOnRenderBefore)
             {
@@ -454,6 +511,7 @@ namespace Basis.EventDriver
                     Basis.Scripts.Networking.Sync.BasisSyncDriver.CompleteRemote();
                 }
                 ProfileEnd2(PROF_NET_COMPLETE_REMOTE_LERP);
+                BasisFiniteWatchdog.CheckpointRemote("PostSyncInterpolation (synced transforms)");
                 using (Prof.NetFireAfterRemoteSync.Auto())
                 {
                     BasisLocalPlayer.FireAfterRemoteSyncInterpolated();
@@ -466,6 +524,7 @@ namespace Basis.EventDriver
                 ProfileEnd2(PROF_NET_SIMULATE_APPLY);
                 ProfileEnd(PROF_NETWORK_APPLY);
             }
+            BasisFiniteWatchdog.CheckpointRemote("PostNetworkApply (remote pose apply)");
 
             // ── Device management ──
             ProfileBegin(PROF_DEVICE_MANAGEMENT);
@@ -477,6 +536,8 @@ namespace Basis.EventDriver
                 }
             }
             ProfileEnd(PROF_DEVICE_MANAGEMENT);
+            BasisFiniteWatchdog.Checkpoint("PostDeviceManagement (tracker / device poses)");
+            BasisFiniteWatchdog.CheckpointBoneControls("PostDeviceManagement (bone control pose data)");
 
             // ── BTween ──
             ProfileBegin(PROF_BTWEEN);
@@ -492,42 +553,77 @@ namespace Basis.EventDriver
             {
                 using (Prof.LocalPlayer.Auto())
                 {
-                    BasisLocalCameraDriver LocalCameraDriver = BasisLocalCameraDriver.Instance;
                     BasisLocalPlayer localplayer = BasisLocalPlayer.Instance;
-                    using (Prof.FacialBlink.Auto())
-                    {
-                        localplayer.FacialBlinkDriver.Simulate(TimeAsDouble);
-                    }
-                    using (Prof.VisemeApply.Auto())
-                    {
-                        localplayer.LocalVisemeDriver.Apply();
-                    }
+                    // Returns with the FBIK solve and the finger slerp job in flight; the remote-side
+                    // stages below are their overlap window, joined in the FinishSimulate block after
+                    // the remote audio simulate.
                     using (Prof.LocalPlayerSimulate.Auto())
                     {
                         localplayer.Simulate(DeltaTime);
                     }
-                    // Complete the finger slerp job (TransformAccessArray write) before touching the
-                    // camera transform, so Simulate never overlaps jobified transform access.
-                    using (Prof.LocalHandApply.Auto())
-                    {
-                        localplayer.LocalHandDriver.Apply();
-                    }
-                    using (Prof.LocalCameraSimulate.Auto())
-                    {
-                        LocalCameraDriver.Simulate(DeltaTime);
-                    }
-                    using (Prof.LocalEyeSimulate.Auto())
-                    {
-                        localplayer.LocalEyeDriver.Simulate(DeltaTime);
-                    }
                 }
             }
             ProfileEnd(PROF_LOCAL_PLAYER);
+            BasisFiniteWatchdog.Checkpoint("PostLocalPlayerSimulate (FBIK solve in flight)");
+
+            // Blink and viseme write local blendshape weights only — no pose reads, no jobs — so
+            // they run inside the solve window as overlap rather than ahead of Simulate. They stay
+            // ahead of the head blendshape read scheduled further down.
+            if (BasisLocalPlayer.PlayerReady)
+            {
+                BasisLocalPlayer localplayer = BasisLocalPlayer.Instance;
+                using (Prof.FacialBlink.Auto())
+                {
+                    localplayer.FacialBlinkDriver.Simulate(TimeAsDouble);
+                }
+                using (Prof.VisemeApply.Auto())
+                {
+                    localplayer.LocalVisemeDriver.Apply(DeltaTime);
+                }
+            }
 
             using (Prof.RemoteBoneComplete.Auto())
             {
                 BasisNetworkManagement.CompleteRemoteBoneJobSystemJobs();
             }
+            BasisFiniteWatchdog.CheckpointRemote("PostRemoteBoneJobs (skeleton / hips / mouth / nameplate write)");
+
+            // The beacon reads a remote MouthTransform's world position on the main thread, so it
+            // has to sit in the one window where that hierarchy carries no in-flight job: the mouth
+            // pose is final as of the join above, and the schedule cluster below re-covers remote
+            // hierarchies (face eye-write, nameplate, billboard) until their completes late in the
+            // frame. Downstream of those it also landed after the jiggle pose dispatch, where the
+            // read stalled on the pose jobs for as long as a player stayed highlighted.
+            using (Prof.SimulateBeacon.Auto())
+            {
+                IndividualPlayerProvider.SimulateBeacon(DeltaTime);
+            }
+
+            // Finger apply + eye schedule run inside the solve window: the head is the solve's
+            // INPUT (head-pinned), and the eye driver reads only the render-latched camera statics
+            // plus remote gaze-target positions (remote bones joined just above) — never the solved
+            // pose. Eye bones are outside the scatter set, and the apply job writes eye LOCAL
+            // rotations, so the head landing afterwards carries them correctly. The finger TAA must
+            // retire first — the eye TAA schedules over the same avatar hierarchy.
+            if (BasisLocalPlayer.PlayerReady)
+            {
+                BasisLocalPlayer localplayer = BasisLocalPlayer.Instance;
+                using (Prof.LocalHandApply.Auto())
+                {
+                    localplayer.LocalHandDriver.Apply();
+                }
+                BasisFiniteWatchdog.Checkpoint("PostFingerApply");
+                using (Prof.LocalEyeSimulate.Auto())
+                {
+                    localplayer.LocalEyeDriver.Simulate(DeltaTime);
+                }
+            }
+
+            using (Prof.PickupReweld.Auto())
+            {
+                Basis.Scripts.Networking.Sync.BasisSyncDriver.ReweldAttachedPickups();
+            }
+            BasisFiniteWatchdog.Checkpoint("PostPickupReweld");
 
             // ── Schedule cluster: nameplate pulse, billboard, remote face ──
             // Grouped directly after the remote bone complete (the face eye-write TAA touches
@@ -563,16 +659,59 @@ namespace Basis.EventDriver
             }
             ProfileEnd(PROF_REMOTE_AUDIO_SIMULATE);
 
-            // Complete the eye apply here rather than right after its schedule in LocalEyeDriver.Simulate,
-            // so the eye compute/apply jobs overlap the remote bone complete, the schedule cluster, and
-            // the remote audio simulate above.
-            // Still ahead of JigglePhysics.ScheduleSimulate, so the transform write has no jiggle job to stall on.
+            // Retire the eye TAA before the IK join below scatters the same hierarchy from the
+            // main thread; its jobs overlapped the reweld/schedule-cluster/remote-audio stages.
+            // Stays ahead of the SteamAudio schedule further down, as before.
             if (BasisLocalPlayer.PlayerReady)
             {
                 using (Prof.LocalEyeApply.Auto())
                 {
                     BasisLocalPlayer.Instance.LocalEyeDriver.Apply();
                 }
+                BasisFiniteWatchdog.Checkpoint("PostEyeApply");
+            }
+
+            // ── Local player finish: IK solve join + post-IK tail ──
+            // Everything since Simulate returned (remote bone join, finger apply, eye schedule,
+            // pickup reweld, the schedule cluster, remote audio) reads nothing the FBIK solve
+            // writes, so the solve ran through it on a worker. Join it now, then run the stages
+            // that need the solved pose: AfterSimulateOnLate (pickup weld reads IKWorldData) and
+            // the camera, which follows the AfterSimulateOnLate camera subscribers as before.
+            if (BasisLocalPlayer.PlayerReady)
+            {
+                using (Prof.LocalPlayerFinish.Auto())
+                {
+                    BasisLocalPlayer localplayer = BasisLocalPlayer.Instance;
+                    localplayer.FinishSimulate();
+                    using (Prof.LocalCameraSimulate.Auto())
+                    {
+                        BasisLocalCameraDriver.Instance.Simulate(DeltaTime);
+                    }
+                }
+                BasisFiniteWatchdog.Checkpoint("PostLocalPlayerFinish (IK join + camera)");
+            }
+            else
+            {
+                // The PIP driver's Simulate (its only steady-state fence) rides
+                // AfterSimulateOnLate inside FinishSimulate. While the local player is not
+                // ready its previously scheduled transform jobs would otherwise stay in
+                // flight across frames, with remote pucks free to be destroyed under them.
+                BasisNetworkPIPCameraDriver.CompletePending();
+            }
+
+            // ── Transmit range/distance schedule ──
+            // The transmit tick's distance/reduce/avatar-cap/audio-cap/dampen chain is kicked here
+            // and joined down in the AfterAvatarChanges block. Its inputs are final as of this
+            // line — remote mouth positions came off the bone job join above, the head position
+            // and gaze off the camera simulate immediately preceding — and nothing between here
+            // and the join reads the range/LOD arrays it writes, so the chain runs through the
+            // SteamAudio schedule, remote audio apply, blendshape read, authored motion,
+            // constraints and the jiggle prepare instead of being fenced a few microseconds
+            // after it was scheduled.
+            using (Prof.TransmitSchedule.Auto())
+            {
+                try { BasisNetworkTransmitter.ScheduleTransmitJobs?.Invoke(); }
+                catch (Exception ex) { BasisDebug.LogErrorOnce($"ScheduleTransmitJobs failed: {ex}", BasisDebug.LogTag.Event); }
             }
 
 #if STEAMAUDIO_ENABLED
@@ -590,7 +729,7 @@ namespace Basis.EventDriver
             ProfileBegin(PROF_REMOTE_AUDIO_APPLY);
             using (Prof.RemoteAudioApply.Auto())
             {
-                BasisRemoteAudioDriver.Apply();
+                BasisRemoteAudioDriver.Apply(DeltaTime);
             }
             ProfileEnd(PROF_REMOTE_AUDIO_APPLY);
 
@@ -634,6 +773,8 @@ namespace Basis.EventDriver
             {
                 BasisAuthoredMotionSystem.Complete(authoredMotionJob);
             }
+            BasisFiniteWatchdog.Checkpoint("PostAuthoredMotion");
+            BasisFiniteWatchdog.CheckpointRemote("PostAuthoredMotion");
 
             // ── Constraints: resolve the BasisConstraint* components ──
             // Sits after authored motion (so a constraint may source an authored bone) and ahead of
@@ -704,6 +845,20 @@ namespace Basis.EventDriver
             // thread, which would force a sync on freshly-dispatched jiggle transform jobs over
             // the same avatar hierarchies. Constraints are fenced above, so this window is
             // job-free for those bones.
+            // Post-load avatar setup runs HERE rather than wherever its bundle-load continuation
+            // happened to resume. This is the frame's install-safe window (see the frame-sync
+            // note below): remote bone jobs joined, constraints fenced, jiggle prepared but not
+            // dispatched — so calibration's container mutation never blocks on an in-flight
+            // chain. Ahead of the transmit tick so the far LOD pass below sees this frame's
+            // freshly installed avatars. Loads only park for this when the wait is free; see
+            // BasisAvatarSetupBudget.
+            using (Prof.AvatarInstallPump.Auto())
+            {
+                Basis.Scripts.Avatar.BasisAvatarSetupBudget.RunQuietPoint();
+            }
+            BasisFiniteWatchdog.Checkpoint("PostAvatarInstall (calibration / far-LOD swap)");
+            BasisFiniteWatchdog.CheckpointRemote("PostAvatarInstall (calibration / far-LOD swap)");
+
             ProfileBegin(PROF_NETWORK_TRANSMIT);
             using (Prof.AfterAvatarChanges.Auto())
             {
@@ -720,10 +875,35 @@ namespace Basis.EventDriver
             // jiggle has prepared but not yet dispatched. A read here cannot stall on a
             // TransformAccessArray job, and a write here is picked up by JigglePhysics this frame
             // instead of next. Every entry runs under its own catch inside the registry.
+            BasisFiniteWatchdog.Checkpoint("PostConstraints (+ avatar install, transmit)");
+            BasisFiniteWatchdog.CheckpointRemote("PostConstraints (+ avatar install, transmit)");
+
             using (Prof.FrameSync.Auto())
             {
                 BasisFrameSyncRegistry.Simulate();
             }
+            // Jiggle grab targets ride the same window: skeletons posed, nothing dispatched yet,
+            // so the pin targets pushed here are sampled by this frame's simulate.
+            Basis.Scripts.BasisSdk.Interactions.BasisJiggleGrabDriver.FrameTick();
+            // Touch reporting reads the same posed bones. Returns on a count check when no content
+            // has asked for jiggle events, which is the usual case.
+            Basis.Scripts.BasisSdk.Interactions.BasisJiggleInteractionEvents.FrameTick();
+            // Avatar visibility schedules here and is joined at the LateUpdate tail. Bounds come off
+            // the avatar roots through a TransformAccessArray job, so the main thread only packs the
+            // camera frusta; this is the earliest that transform job can go — it needs the same
+            // free-of-in-flight-transform-jobs window as the frame sync above — and the join is the
+            // latest point still ahead of every Application.onBeforeRender handler, which is where
+            // mirrors render. Everything between the two overlaps the cull.
+            if (Basis.Scripts.Rendering.BasisVisibilitySystem.Enabled)
+            {
+                using (Prof.AvatarVisibilitySchedule.Auto())
+                {
+                    Basis.Scripts.Rendering.BasisVisibilitySystem.Schedule(default);
+                    JobHandle.ScheduleBatchedJobs();
+                }
+            }
+            BasisFiniteWatchdog.Checkpoint("PostFrameSync (pre jiggle dispatch)");
+            BasisFiniteWatchdog.CheckpointRemote("PostFrameSync (pre jiggle dispatch)");
 
             if (jiggleReady)
             {
@@ -747,6 +927,7 @@ namespace Basis.EventDriver
                 BasisRemoteNamePlateDriver.CompleteNamePlates(TimeAsDouble);
             }
             ProfileEnd(PROF_NAMEPLATE_COMPLETE);
+            BasisFiniteWatchdog.CheckpointRemote("PostNamePlates");
 
 #if STEAMAUDIO_ENABLED
             // ── SteamAudio apply ──
@@ -769,10 +950,6 @@ namespace Basis.EventDriver
             {
                 BasisJoinLeaveNotification.Simulate(TimeAsDouble);
             }
-            using (Prof.SimulateBeacon.Auto())
-            {
-                IndividualPlayerProvider.SimulateBeacon(DeltaTime);
-            }
 
             bool drawJiggle = SMModuleDebugOptions.UseGizmos && SMModuleDebugOptions.UseJiggleVisuals;
             if (drawJiggle)
@@ -792,10 +969,11 @@ namespace Basis.EventDriver
             }
 
             // ── JigglePhysics complete pose ──
-            // Deferred to a player-loop step just ahead of the particle update when possible, so the
-            // rest of the frame overlaps the pose jobs instead of the main thread waiting on them
-            // here. Nothing between this point and there reads a jiggled bone; rendering is the
-            // consumer. Falls back to completing inline when the loop step could not be installed.
+            // Deferred to a player-loop step just after the custom render texture update when
+            // possible, so the rest of the frame overlaps the pose jobs instead of the main thread
+            // waiting on them here. Nothing between this point and there reads a jiggled bone;
+            // UpdateAllRenderers, which runs right after, is the consumer. Falls back to completing
+            // inline when the loop step could not be installed.
             ProfileBegin(PROF_JIGGLE_COMPLETE_POSE);
             if (BasisLateJiggleCompletion.Enabled)
             {
@@ -807,6 +985,8 @@ namespace Basis.EventDriver
                 {
                     JigglePhysics.CompletePose();
                 }
+                BasisFiniteWatchdog.Checkpoint("PostJigglePose (inline)");
+                BasisFiniteWatchdog.CheckpointRemote("PostJigglePose (inline)");
             }
             ProfileEnd(PROF_JIGGLE_COMPLETE_POSE);
 
@@ -843,6 +1023,20 @@ namespace Basis.EventDriver
                 BasisTrackerMarkerGizmos.Tick();
                 BasisGizmoManager.Render(BasisLocalCameraDriver.Position);
             }
+            // Join the avatar cull scheduled back at the frame-sync window and write the changed
+            // renderers. Returns immediately when nothing was scheduled, so the toggle can flip
+            // mid-frame. Last stop before rendering: mirrors read these flags in onBeforeRender.
+            using (Prof.AvatarVisibilityApply.Auto())
+            {
+                Basis.Scripts.Rendering.BasisVisibilitySystem.CompleteAndApply();
+            }
+
+            // One-shot NaN hunter for the Invalid AABB / IsFinite(distanceForSort) spam: names
+            // the first non-finite camera/renderer and disarms. Armed from Basis/Debug/Finite
+            // Watchdog; costs nothing while off.
+            BasisFiniteWatchdog.Checkpoint("LateUpdateTail");
+            BasisFiniteWatchdog.CheckpointRemote("LateUpdateTail");
+            BasisFiniteWatchdog.Tick();
             ProfileLateUpdateFinish();
         }
         /// <summary>
@@ -870,22 +1064,39 @@ namespace Basis.EventDriver
                 BasisGlobalNamePlateRenderer.FinishFrame();
             }
 
+            // Outside the PlayerReady gate on purpose: this is the fence for the eye transform
+            // job scheduled in LateUpdate. Skipping it while the local avatar reloads would
+            // leave that job in flight across the frame boundary with remote avatars free to
+            // be destroyed under it.
+            try { using (Prof.RemoteFaceApply.Auto()) BasisRemoteFaceManagement.Apply(); }
+            catch (Exception ex) { BasisDebug.LogErrorOnce($"BasisEventDriver remote-face apply failed: {ex}", BasisDebug.LogTag.Event); }
+            BasisFiniteWatchdog.CheckpointRemote("PostRemoteFaceApply (remote eye bones)");
+
             if (BasisLocalPlayer.PlayerReady)
             {
                 try { using (Prof.SimulateOnRender.Auto()) BasisLocalPlayer.Instance.SimulateOnRender(); }
                 catch (Exception ex) { BasisDebug.LogErrorOnce($"BasisEventDriver.SimulateOnRender failed: {ex}", BasisDebug.LogTag.Event); }
+                BasisFiniteWatchdog.Checkpoint("PostSimulateOnRender");
 
 
                 try { using (Prof.EyeTrackingSimulate.Auto()) Basis.Scripts.Device_Management.EyeTracking.BasisEyeTrackingManager.Simulate(); }
                 catch (Exception ex) { BasisDebug.LogErrorOnce($"BasisEventDriver eye-tracking simulate failed: {ex}", BasisDebug.LogTag.Event); }
-
-                try { using (Prof.RemoteFaceApply.Auto()) BasisRemoteFaceManagement.Apply(); }
-                catch (Exception ex) { BasisDebug.LogErrorOnce($"BasisEventDriver remote-face apply failed: {ex}", BasisDebug.LogTag.Event); }
 #if !BASIS_DISABLE_MICROPHONE
                 try { using (Prof.MicrophoneIcon.Auto()) BasisLocalCameraDriver.Instance.microphoneIconDriver.Simulate(DeltaTime); }
                 catch (Exception ex) { BasisDebug.LogErrorOnce($"BasisEventDriver microphone-icon simulate failed: {ex}", BasisDebug.LogTag.Event); }
 #endif
             }
+
+            // Last thing before the render: the camera, head and eye statics have settled above, so
+            // anything late-latching to them (sandboxed world scripts via BasisBeforeRenderShim, and
+            // any native subscriber) gets a final pose. RaiseBeforeRender isolates its own handlers.
+            using (Prof.BeforeRenderCallbacks.Auto())
+            {
+                BasisLocalCameraDriver.RaiseBeforeRender();
+            }
+            BasisFiniteWatchdog.Checkpoint("PostBeforeRenderCallbacks (last write before the render)");
+            BasisFiniteWatchdog.CheckpointRemote("PostBeforeRenderCallbacks (last write before the render)");
+
             StateOfOnRenderBefore = false;
 
             ProfileBeforeRenderFinish();

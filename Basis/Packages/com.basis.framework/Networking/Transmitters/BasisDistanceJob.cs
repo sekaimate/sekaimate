@@ -47,6 +47,10 @@ public struct BasisDistanceJobParallel : IJobParallelFor
     [WriteOnly] public NativeArray<float> distanceSq;
     [WriteOnly] public NativeArray<short> MeshLodLevel;
 
+    /// <summary>Per-index pose LOD (0 = closest, 3 = furthest), banded off avatar range rather than
+    /// the mesh LOD percentage so pose skipping is independent of the mesh/skin/shadow LOD slider.</summary>
+    [WriteOnly] public NativeArray<short> PoseLodLevel;
+
     [WriteOnly] public NativeArray<bool> MicrophoneRange;
     [WriteOnly] public NativeArray<bool> hearingRange;
     [WriteOnly] public NativeArray<bool> AvatarRange;
@@ -101,6 +105,11 @@ public struct BasisDistanceJobParallel : IJobParallelFor
         short newLod = (short)lod;
 
         MeshLodLevel[i] = newLod;
+
+        // Pose LOD bands on the fraction of avatar range travelled, so the thresholds track the
+        // distance at which a player stops being readable rather than the mesh LOD quality percent.
+        float rangeFrac = SquaredAvatarDistance > 1e-6f ? effectiveD2 / SquaredAvatarDistance : 0f;
+        PoseLodLevel[i] = (short)math.clamp((int)math.floor(rangeFrac * 4f), 0, 3);
 
         bool lodChanged = newLod != PrevMeshLodLevel[i];
         MeshLodRange[i] = lodChanged;
@@ -186,7 +195,9 @@ public struct BasisAvatarCapJob : IJob
 
     public void Execute()
     {
-        if (MaxVisible <= 0 || ReceiverCount <= 0)
+        // The job only runs when the limiter is enabled, so 0 means "show zero real
+        // avatars", not unlimited — unlimited is the limiter toggle being off.
+        if (MaxVisible < 0 || ReceiverCount <= 0)
         {
             return;
         }
@@ -280,57 +291,6 @@ public struct BasisAvatarCapJob : IJob
         AvatarCapEntry tmp = Entries[a];
         Entries[a] = Entries[b];
         Entries[b] = tmp;
-    }
-}
-
-/// <summary>
-/// Burst job: filters AvatarRange based on view-cone direction.
-/// Only players within the specified cone angle (relative to the local
-/// camera forward) keep AvatarRange = true. Players outside the cone
-/// have AvatarRange set to false, causing a fallback avatar.
-/// Scheduled after distance + cap jobs so it acts as a final filter.
-/// Uses hysteresis: players already visible use a wider exit threshold
-/// to prevent flickering when the camera wobbles near the cone boundary.
-/// </summary>
-[BurstCompile(FloatMode = FloatMode.Fast, FloatPrecision = FloatPrecision.Standard)]
-public struct BasisViewConeAvatarJob : IJobParallelFor
-{
-    public float3 ListenerPosition;
-    public float3 ListenerForward;
-    public float CosHalfCone;
-    /// <summary>Wider threshold for players that were visible last frame (lower cosine = wider angle).</summary>
-    public float CosHalfConeExit;
-
-    [ReadOnly] public NativeArray<float3> TargetPositions;
-    [ReadOnly] public NativeArray<bool> PrevInAvatarRange;
-
-    [NativeDisableParallelForRestriction]
-    public NativeArray<bool> AvatarRange;
-
-    public void Execute(int i)
-    {
-        if (!AvatarRange[i])
-        {
-            return;
-        }
-
-        float3 toTarget = TargetPositions[i] - ListenerPosition;
-        float sqrMag = math.lengthsq(toTarget);
-
-        if (sqrMag < 0.001f)
-        {
-            return;
-        }
-
-        float3 dir = toTarget * math.rsqrt(sqrMag);
-        float dot = math.dot(ListenerForward, dir);
-
-        // Hysteresis: players already visible use a wider exit cone
-        float threshold = PrevInAvatarRange[i] ? CosHalfConeExit : CosHalfCone;
-        if (dot < threshold)
-        {
-            AvatarRange[i] = false;
-        }
     }
 }
 
@@ -466,11 +426,20 @@ public struct BasisAudioCapJob : IJob
 }
 
 /// <summary>
-/// Burst parallel job: computes per-player directional dampening multipliers.
-/// Reads targetPositions (shared [ReadOnly] with the distance job) so it can
-/// run fully in parallel with distance, reduce, and cap jobs.
-/// Output is written to a NativeArray; the caller copies to managed AudioReceiverModule
-/// in a trivial main-thread loop.
+/// Burst parallel job: computes the per-player spatial voice terms — the
+/// listener cone-of-influence attenuation, and the two high-shelf depths that
+/// carry the frequency-dependent half of the model (talker mouth directivity,
+/// and the listener's own head shadowing whoever is behind them).
+///
+/// Reads targetPositions/targetForwards (shared [ReadOnly] with the distance
+/// job) so it can run fully in parallel with distance, reduce, and cap jobs.
+/// Output goes to NativeArrays; the caller copies to the managed
+/// AudioReceiverModule in a trivial main-thread loop.
+///
+/// The cone is split into a broadband term and a shelf term rather than being a
+/// single fader: see <c>BasisVoiceAcoustics.ListenerConeTerms</c> for why, and
+/// for the guarantee that the two together still attenuate by exactly what the
+/// user's dampening slider asks for.
 /// </summary>
 [BurstCompile(FloatMode = FloatMode.Fast, FloatPrecision = FloatPrecision.Standard)]
 public struct BasisDirectionalDampenJob : IJobParallelFor
@@ -481,31 +450,82 @@ public struct BasisDirectionalDampenJob : IJobParallelFor
     public float HalfConeRad;
     public float MinVolume;
 
+    /// <summary>False when the cone angle is 360 — directivity still runs.</summary>
+    public bool ConeEnabled;
+    /// <summary>False to leave both shelves flat (tone shaping turned off).</summary>
+    public bool ToneEnabled;
+
+    /// <summary>Mirrors BasisVoiceAcoustics.ConeMaxShelfDb.</summary>
+    public float ConeMaxShelfDb;
+    /// <summary>Mirrors BasisVoiceAcoustics.ConeHighFrequencyShare.</summary>
+    public float ConeHighFrequencyShare;
+    /// <summary>Mirrors the broadband loss the capped cone shelf delivers.</summary>
+    public float ConeShelfBroadbandDb;
+    /// <summary>Mirrors BasisVoiceAcoustics.DirectivityShelfMaxDb.</summary>
+    public float DirectivityShelfMaxDb;
+    /// <summary>Mirrors BasisVoiceAcoustics.DirectivityShapePower.</summary>
+    public float DirectivityShapePower;
+
     [ReadOnly] public NativeArray<float3> TargetPositions;
+    [ReadOnly] public NativeArray<float3> TargetForwards;
+
     [WriteOnly] public NativeArray<float> Multipliers;
+    [WriteOnly] public NativeArray<float> ConeShelfDb;
+    [WriteOnly] public NativeArray<float> DirectivityShelfDb;
 
     public void Execute(int i)
     {
+        Multipliers[i] = 1f;
+        ConeShelfDb[i] = 0f;
+        DirectivityShelfDb[i] = 0f;
+
         float3 toSource = TargetPositions[i] - ListenerPosition;
         float sqrMag = math.lengthsq(toSource);
 
+        // Inside a few centimetres there is no meaningful direction to either the
+        // talker or their mouth axis, and both terms would chatter on noise.
         if (sqrMag < 0.001f)
         {
-            Multipliers[i] = 1f;
             return;
         }
 
-        float3 dir = toSource * math.rsqrt(sqrMag);
-        float dot = math.dot(ListenerForward, dir);
+        float3 dirToSource = toSource * math.rsqrt(sqrMag);
 
-        if (dot >= CosHalfCone)
+        if (ConeEnabled)
         {
-            Multipliers[i] = 1f;
-            return;
+            float dot = math.dot(ListenerForward, dirToSource);
+            if (dot < CosHalfCone)
+            {
+                float theta = math.acos(math.clamp(dot, -1f, 1f));
+                float falloff = math.smoothstep(HalfConeRad, math.PI, theta);
+                float wantDb = 20f * math.log10(math.max(1e-4f, MinVolume)) * falloff;
+
+                if (ToneEnabled)
+                {
+                    float shelfDb = math.clamp(wantDb * ConeHighFrequencyShare, ConeMaxShelfDb, 0f);
+                    float deliveredDb = ConeShelfBroadbandDb * (shelfDb / ConeMaxShelfDb);
+                    ConeShelfDb[i] = shelfDb;
+                    Multipliers[i] = math.pow(10f, math.min(0f, wantDb - deliveredDb) / 20f);
+                }
+                else
+                {
+                    Multipliers[i] = math.lerp(1f, MinVolume, falloff);
+                }
+            }
         }
 
-        float theta = math.acos(math.clamp(dot, -1f, 1f));
-        float falloff = math.smoothstep(HalfConeRad, math.PI, theta);
-        Multipliers[i] = math.lerp(1f, MinVolume, falloff);
+        if (ToneEnabled)
+        {
+            // Angle between the mouth axis and the ray from the mouth to the
+            // listener. TargetForwards is already unit length (it comes out of a
+            // quaternion rotate), so no renormalise.
+            float cosOffAxis = math.clamp(math.dot(TargetForwards[i], -dirToSource), -1f, 1f);
+            float u = math.saturate((1f - cosOffAxis) * 0.5f);
+            // pow(0, p) under FloatMode.Fast goes through exp2(p * log2(0)); branch
+            // around it rather than trust that to land on 0 rather than NaN. The
+            // result feeds a one-pole filter on the audio thread, and a NaN there is
+            // unrecoverable for that voice.
+            DirectivityShelfDb[i] = u > 0f ? -DirectivityShelfMaxDb * math.pow(u, DirectivityShapePower) : 0f;
+        }
     }
 }
