@@ -951,7 +951,7 @@ namespace Basis.EventDriver
                 BasisJoinLeaveNotification.Simulate(TimeAsDouble);
             }
 
-            bool drawJiggle = SMModuleDebugOptions.UseGizmos && SMModuleDebugOptions.UseJiggleVisuals;
+            bool drawJiggle = SupportsJiggleVisuals && SMModuleDebugOptions.UseGizmos && SMModuleDebugOptions.UseJiggleVisuals;
             if (drawJiggle)
             {
                 using (Prof.JiggleRender.Auto())
@@ -1039,6 +1039,13 @@ namespace Basis.EventDriver
             BasisFiniteWatchdog.Tick();
             ProfileLateUpdateFinish();
         }
+
+        private const bool SupportsJiggleVisuals =
+#if UNITY_WEBGL
+            false;
+#else
+            true;
+#endif
         /// <summary>
         /// Callback invoked before rendering each frame (client), used to run final local player
         /// render-time simulation and to publish avatar changes.
