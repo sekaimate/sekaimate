@@ -1,6 +1,7 @@
 using Basis.Scripts.BasisSdk.Players;
 using Basis.Scripts.Drivers;
 using Basis.Scripts.TransformBinders.BoneControl;
+using Basis.BasisUI;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -57,16 +58,20 @@ namespace Basis.Scripts.Device_Management.Devices.Desktop
             }
             if (BasisDeviceManagement.IsMobileHardware() || AlwaysSpawnHeadsUpControls)
             {
+#if UNITY_WEBGL && !UNITY_EDITOR
+                Controls = UnityEngine.Object.Instantiate(
+                    AddressableAssets.GetPrefab(OnScreenControls),
+                    BasisLocalCameraDriver.Instance.transform,
+                    true);
+#else
                 UnityEngine.ResourceManagement.AsyncOperations.AsyncOperationHandle<GameObject> op = Addressables.InstantiateAsync(OnScreenControls, BasisLocalCameraDriver.Instance.transform, true);
                 Controls = op.WaitForCompletion();
+#endif
                 Controls.transform.SetLocalPositionAndRotation(new Vector3(0, 0, 0.3f), Quaternion.identity);
             }
             else
             {
-                if (Controls != null)
-                {
-                    Addressables.ReleaseInstance(Controls);
-                }
+                ReleaseControls();
             }
 
             EnhancedTouchSupport.Enable();
@@ -151,10 +156,7 @@ namespace Basis.Scripts.Device_Management.Devices.Desktop
 
             BasisDesktopEye.Instance = null;
             BasisAvatarEyeInput = null;
-            if (Controls != null)
-            {
-                Addressables.ReleaseInstance(Controls);
-            }
+            ReleaseControls();
             foreach (BasisTouchInputDevice Device in Inputs)
             {
                 BasisDeviceManagement.Instance.RemoveDevicesFrom(nameof(BasisDesktopManagement), Device.UniqueDeviceIdentifier);
@@ -163,6 +165,21 @@ namespace Basis.Scripts.Device_Management.Devices.Desktop
             UnityEngine.InputSystem.EnhancedTouch.Touch.onFingerDown -= OnFingerDown;
             UnityEngine.InputSystem.EnhancedTouch.Touch.onFingerUp -= onFingerUp;
             EnhancedTouchSupport.Disable();
+        }
+
+        private void ReleaseControls()
+        {
+            if (Controls == null)
+            {
+                return;
+            }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+            UnityEngine.Object.Destroy(Controls);
+#else
+            Addressables.ReleaseInstance(Controls);
+#endif
+            Controls = null;
         }
         /// <summary>
         /// Determines whether the desktop device can boot based on the provided request string.

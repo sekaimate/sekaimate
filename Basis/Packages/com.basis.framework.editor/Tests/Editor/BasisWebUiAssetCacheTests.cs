@@ -91,7 +91,6 @@ public class BasisWebUiAssetCacheTests
     }
 
     [TestCase("Packages/com.basis.sdk/Prefabs/UI/Loading Bar.prefab")]
-    [TestCase("OnScreenControls")]
     [TestCase("DesktopReticle")]
     [TestCase("Packages/com.basis.sdk/Prefabs/AvatarOrb.prefab")]
     [TestCase("Packages/com.basis.sdk/Prefabs/PropOrb.prefab")]
@@ -209,6 +208,7 @@ public class BasisWebUiAssetCacheTests
     public void WebDesktopControlsUsePreloadedPrefabWhileNativeKeepsAddressablesInstance()
     {
         string source = File.ReadAllText("Packages/com.basis.framework/Device Management/Devices/Desktop/BasisDesktopMangement.cs");
+        string cacheSource = File.ReadAllText("Packages/com.basis.framework/BasisUI/Addressables/AddressableAsset.cs");
 
         StringAssert.Contains("#if UNITY_WEBGL && !UNITY_EDITOR", source);
         StringAssert.Contains("AddressableAssets.GetPrefab(OnScreenControls)", source);
@@ -217,6 +217,7 @@ public class BasisWebUiAssetCacheTests
         StringAssert.Contains("Addressables.InstantiateAsync(OnScreenControls", source);
         StringAssert.Contains("WaitForCompletion", source);
         StringAssert.Contains("Addressables.ReleaseInstance(Controls)", source);
+        StringAssert.Contains("await LoadPrefabAsync(\"OnScreenControls\")", cacheSource);
     }
 
     [Test]
@@ -239,9 +240,9 @@ public class BasisWebUiAssetCacheTests
         string startupSource = File.ReadAllText("Packages/com.basis.framework/Device Management/BasisDeviceManagement.cs");
 
         StringAssert.Contains("public static async Task InitializeAsync()", managerSource);
-        StringAssert.Contains("await gizmoHandle.Task", managerSource);
-        StringAssert.Contains("await lineGizmoHandle.Task", managerSource);
-        StringAssert.Contains("await materialHandle.Task", managerSource);
+        StringAssert.Contains("await _gizmoHandle.Task", managerSource);
+        StringAssert.Contains("await _lineGizmoHandle.Task", managerSource);
+        StringAssert.Contains("await _materialHandle.Task", managerSource);
         StringAssert.Contains("#if UNITY_WEBGL && !UNITY_EDITOR", managerSource);
         StringAssert.Contains("#else", managerSource);
         StringAssert.Contains("WaitForCompletion", managerSource);
