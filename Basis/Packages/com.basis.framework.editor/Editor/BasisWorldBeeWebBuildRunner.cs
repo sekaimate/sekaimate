@@ -149,9 +149,22 @@ public static class BasisWorldBeeWebBuildRunner
             settings.AssetBundleUnCombined = originalAssetBundleUnCombined;
             settings.OpenFolderOnDisc = originalOpenFolderOnDisc;
             EditorUtility.ClearProgressBar();
-            EditorSceneManager.RestoreSceneManagerSetup(originalSceneSetup);
-            AssetDatabase.DeleteAsset(verificationRoot);
-            AssetDatabase.Refresh();
+            try
+            {
+                if (originalSceneSetup.Length == 0)
+                {
+                    EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+                }
+                else
+                {
+                    EditorSceneManager.RestoreSceneManagerSetup(originalSceneSetup);
+                }
+            }
+            finally
+            {
+                AssetDatabase.DeleteAsset(verificationRoot);
+                AssetDatabase.Refresh();
+            }
         }
     }
 
