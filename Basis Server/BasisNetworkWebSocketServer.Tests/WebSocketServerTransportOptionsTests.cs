@@ -86,6 +86,27 @@ public sealed class WebSocketServerTransportOptionsTests
         Assert.False(options.IsOriginAllowed("https://unknown.example"));
     }
 
+    [Fact]
+    public void FromConfiguration_MapsExplicitEndpointSettings()
+    {
+        Configuration configuration = new()
+        {
+            WebSocketPort = 8443,
+            WebSocketPath = "/network",
+            WebSocketMaximumPayloadLength = 2048,
+            WebSocketPendingSendCapacity = 12,
+            WebSocketAllowedOrigins = new[] { "https://basis.example" },
+        };
+
+        WebSocketServerTransportOptions options = WebSocketServerTransportOptions.FromConfiguration(configuration);
+
+        Assert.Equal(8443, options.Port);
+        Assert.Equal("/network", options.Path);
+        Assert.Equal(2048, options.MaximumPayloadLength);
+        Assert.Equal(12, options.PendingSendCapacity);
+        Assert.True(options.IsOriginAllowed("https://basis.example"));
+    }
+
     private static WebSocketServerTransportOptions ValidOptions()
     {
         WebSocketServerTransportOptions options = new()
