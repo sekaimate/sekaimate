@@ -24,14 +24,11 @@ public class BasisWebPointerLockTests
     {
         string source = File.ReadAllText(BrowserPluginPath);
 
-        Assert.Multiple(() =>
-        {
-            StringAssert.Contains("pointerlockchange", source);
-            StringAssert.Contains("pointerlockerror", source);
-            StringAssert.Contains("visibilitychange", source);
-            StringAssert.Contains("blur", source);
-            StringAssert.Contains("document.pointerLockElement", source);
-        });
+        StringAssert.Contains("pointerlockchange", source);
+        StringAssert.Contains("pointerlockerror", source);
+        StringAssert.Contains("visibilitychange", source);
+        StringAssert.Contains("blur", source);
+        StringAssert.Contains("document.pointerLockElement", source);
     }
 
     [Test]
