@@ -67,6 +67,9 @@ public static partial class BasisEncryptionWrapper
 
     public static Task EncryptFileAsync(string UniqueID, BasisPassword password, string inputPath, string outputPath, BasisProgressReport reportProgress)
     {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        return EncryptFileInternalAsync(UniqueID, password, inputPath, outputPath, reportProgress);
+#else
         var inputFileInfo = new FileInfo(inputPath);
 
         if (inputFileInfo.Length > LargeFileThreshold)
@@ -79,6 +82,7 @@ public static partial class BasisEncryptionWrapper
             // Run directly (async IO) for small files
             return EncryptFileInternalAsync(UniqueID, password, inputPath, outputPath, reportProgress);
         }
+#endif
     }
 
     private static async Task EncryptFileInternalAsync(string UniqueID, BasisPassword password, string inputPath, string outputPath, BasisProgressReport reportProgress)
