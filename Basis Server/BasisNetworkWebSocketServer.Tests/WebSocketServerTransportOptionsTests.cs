@@ -65,6 +65,17 @@ public sealed class WebSocketServerTransportOptionsTests
         Assert.Throws<ArgumentOutOfRangeException>(options.Validate);
     }
 
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(0)]
+    public void Validate_RejectsNonPositivePendingSendCapacity(int pendingSendCapacity)
+    {
+        WebSocketServerTransportOptions options = ValidOptions();
+        options.PendingSendCapacity = pendingSendCapacity;
+
+        Assert.Throws<ArgumentOutOfRangeException>(options.Validate);
+    }
+
     [Fact]
     public void IsOriginAllowed_RejectsUnknownOrMissingOrigin()
     {
@@ -82,6 +93,7 @@ public sealed class WebSocketServerTransportOptionsTests
             Port = 4297,
             Path = "/basis",
             MaximumPayloadLength = 1024,
+            PendingSendCapacity = 8,
         };
         options.AllowedOrigins.Add("https://basis.example");
         return options;

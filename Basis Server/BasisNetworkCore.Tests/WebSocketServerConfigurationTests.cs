@@ -1,0 +1,17 @@
+using Xunit;
+
+public sealed class WebSocketServerConfigurationTests
+{
+    [Fact]
+    public void Defaults_KeepWebSocketListenerDisabled()
+    {
+        Configuration configuration = new();
+
+        Assert.False(configuration.WebSocketEnabled);
+        Assert.Equal((ushort)4297, configuration.WebSocketPort);
+        Assert.Equal("/basis", configuration.WebSocketPath);
+        Assert.Equal(1024 * 1024, configuration.WebSocketMaximumPayloadLength);
+        Assert.Equal(64, configuration.WebSocketPendingSendCapacity);
+        Assert.Empty(configuration.WebSocketAllowedOrigins);
+    }
+}
