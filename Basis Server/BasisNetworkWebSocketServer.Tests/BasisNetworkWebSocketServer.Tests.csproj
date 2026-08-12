@@ -17,5 +17,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\BasisNetworkWebSocketServer\BasisNetworkWebSocketServer.csproj" />
+    <ProjectReference Include="..\BasisNetworkCore\BasisNetworkCore.csproj" />
   </ItemGroup>
 </Project>
