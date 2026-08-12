@@ -8,6 +8,7 @@ namespace Basis.Network.Core
         Data = 2,
         Reject = 3,
         Disconnect = 4,
+        Accept = 5,
     }
 
     public enum WebSocketFrameDecodeError
@@ -140,6 +141,7 @@ namespace Basis.Network.Core
         private static bool IsKnownFrameKind(WebSocketFrameKind kind)
         {
             return kind == WebSocketFrameKind.Hello
+                || kind == WebSocketFrameKind.Accept
                 || kind == WebSocketFrameKind.Data
                 || kind == WebSocketFrameKind.Reject
                 || kind == WebSocketFrameKind.Disconnect;

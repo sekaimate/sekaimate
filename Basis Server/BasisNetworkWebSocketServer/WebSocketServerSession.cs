@@ -48,6 +48,12 @@ public sealed class WebSocketServerSession : IAsyncDisposable
                     if (decision.Accepted)
                     {
                         _protocol.Accept();
+                        await SendFrameAsync(
+                            WebSocketFrameKind.Accept,
+                            0,
+                            DeliveryMethod.ReliableOrdered,
+                            ReadOnlyMemory<byte>.Empty,
+                            cancellationToken).ConfigureAwait(false);
                     }
                     else
                     {
