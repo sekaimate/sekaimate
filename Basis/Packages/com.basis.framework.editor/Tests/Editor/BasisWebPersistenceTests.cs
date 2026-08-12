@@ -1,5 +1,6 @@
 using System.IO;
 using NUnit.Framework;
+using UnityEditor;
 
 public class BasisWebPersistenceTests
 {
@@ -43,5 +44,39 @@ public class BasisWebPersistenceTests
             "File.WriteAllBytes(filePath, serializedData);\n            await BasisWebPersistence.FlushAsync();",
             metadata);
         StringAssert.Contains("await File.WriteAllBytesAsync(filePath, serializedData);", metadata);
+    }
+
+    [Test]
+    public void WebBuildEnablesAutomaticPersistentDataSync()
+    {
+        const string html = "<script>\nvar config = {\n  dataUrl: buildUrl + '/build.data',\n};\n</script>";
+
+        string configured = BasisWebBuildConfiguration.AddAutomaticPersistentDataSync(html);
+
+        StringAssert.Contains("autoSyncPersistentDataPath: true,", configured);
+        Assert.That(
+            BasisWebBuildConfiguration.AddAutomaticPersistentDataSync(configured),
+            Is.EqualTo(configured));
+    }
+
+    [Test]
+    public void NativeBuildDoesNotModifyGeneratedIndex()
+    {
+        const string html = "<script>\nvar config = {\n  dataUrl: buildUrl + '/build.data',\n};\n</script>";
+
+        string configured = BasisWebBuildConfiguration.ConfigureGeneratedIndex(BuildTarget.StandaloneOSX, html);
+
+        Assert.That(configured, Is.EqualTo(html));
+    }
+
+    [Test]
+    public void ExistingDisabledAutomaticSyncIsEnabled()
+    {
+        const string html = "<script>\nvar config = {\n  autoSyncPersistentDataPath: false,\n};\n</script>";
+
+        string configured = BasisWebBuildConfiguration.AddAutomaticPersistentDataSync(html);
+
+        StringAssert.Contains("autoSyncPersistentDataPath: true,", configured);
+        StringAssert.DoesNotContain("autoSyncPersistentDataPath: false", configured);
     }
 }
