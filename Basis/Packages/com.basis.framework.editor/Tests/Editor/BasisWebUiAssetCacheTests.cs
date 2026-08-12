@@ -38,4 +38,20 @@ public class BasisWebUiAssetCacheTests
         StringAssert.Contains("LoadResourceLocationsAsync(UiLabel, typeof(Sprite))", source);
         StringAssert.DoesNotContain("LoadResourceLocationsAsync(UiLabel, typeof(UnityEngine.Object))", source);
     }
+
+    [TestCase("Packages/com.basis.sdk/Textures/Runtime/microphone-solid.png")]
+    [TestCase("Packages/com.basis.sdk/Textures/Runtime/microphone-mute-solid.png")]
+    [TestCase("Packages/com.basis.sdk/Textures/Runtime/people-outline.png")]
+    public void FoundationUiSpritesUseRuntimePreloadLabel(string address)
+    {
+        string source = File.ReadAllText("Assets/AddressableAssetsData/AssetGroups/Basis Foundation Assets.asset");
+        int addressIndex = source.IndexOf($"m_Address: {address}", System.StringComparison.Ordinal);
+
+        Assert.That(addressIndex, Is.GreaterThanOrEqualTo(0));
+        int nextEntryIndex = source.IndexOf("  - m_GUID:", addressIndex, System.StringComparison.Ordinal);
+        string entry = nextEntryIndex < 0
+            ? source.Substring(addressIndex)
+            : source.Substring(addressIndex, nextEntryIndex - addressIndex);
+        StringAssert.Contains("- basis-ui", entry);
+    }
 }
