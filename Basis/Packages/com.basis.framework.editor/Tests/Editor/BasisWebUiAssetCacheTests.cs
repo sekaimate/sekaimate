@@ -41,6 +41,16 @@ public class BasisWebUiAssetCacheTests
     }
 
     [Test]
+    public void UiAssetCacheReportsInitializationOnlyAfterAllAssetsLoad()
+    {
+        string source = File.ReadAllText("Packages/com.basis.framework/BasisUI/Addressables/AddressableAsset.cs");
+
+        StringAssert.Contains("if (isInitialized)", source);
+        StringAssert.Contains("isInitialized = true;", source);
+        StringAssert.DoesNotContain("if (Prefabs.Count > 0 || SpriteAssets.Count > 0)", source);
+    }
+
+    [Test]
     public void WebEmbeddedItemSpritesAreExplicitlyPreloadedByAddress()
     {
         string source = File.ReadAllText("Packages/com.basis.framework/BasisUI/Addressables/AddressableAsset.cs");
