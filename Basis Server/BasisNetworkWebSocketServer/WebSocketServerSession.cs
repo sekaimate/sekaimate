@@ -18,16 +18,23 @@ public sealed class WebSocketServerSession : IAsyncDisposable
         WebSocket socket,
         IWebSocketServerConnectionHandler handler,
         int maximumPayloadLength,
-        IPEndPoint remoteEndPoint)
+        IPEndPoint remoteEndPoint,
+        int peerId)
     {
+        if (peerId < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(peerId));
+        }
         _socket = socket;
         _handler = handler;
         _maximumPayloadLength = maximumPayloadLength;
         _protocol = new WebSocketServerProtocol(maximumPayloadLength);
         RemoteEndPoint = remoteEndPoint;
+        PeerId = peerId;
     }
 
     public IPEndPoint RemoteEndPoint { get; }
+    public int PeerId { get; }
     public WebSocketServerProtocolState State => _protocol.State;
 
     internal async Task RunAsync(CancellationToken cancellationToken)
@@ -52,7 +59,7 @@ public sealed class WebSocketServerSession : IAsyncDisposable
                             WebSocketFrameKind.Accept,
                             0,
                             DeliveryMethod.ReliableOrdered,
-                            ReadOnlyMemory<byte>.Empty,
+                            WebSocketAcceptPayloadCodec.Encode(PeerId),
                             cancellationToken).ConfigureAwait(false);
                     }
                     else

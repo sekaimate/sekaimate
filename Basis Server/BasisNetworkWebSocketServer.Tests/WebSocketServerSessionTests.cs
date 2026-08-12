@@ -9,6 +9,7 @@ namespace BasisNetworkWebSocketServer.Tests;
 public sealed class WebSocketServerSessionTests
 {
     private const int MaximumPayloadLength = 1024;
+    private const int PeerId = 0x01020304;
 
     [Fact]
     public async Task RunAsync_SendsAcceptBeforeDeliveringQueuedData()
@@ -23,13 +24,18 @@ public sealed class WebSocketServerSessionTests
             socket,
             handler,
             MaximumPayloadLength,
-            new IPEndPoint(IPAddress.Loopback, 12345));
+            new IPEndPoint(IPAddress.Loopback, 12345),
+            PeerId);
 
         await session.RunAsync(CancellationToken.None);
 
         Assert.Equal(
             new[] { "handler:hello", "send:Accept", "handler:data", "handler:disconnected" },
             events);
+        Assert.Equal(PeerId, session.PeerId);
+        WebSocketFrame accept = Assert.Single(socket.SentFrames);
+        Assert.Equal(WebSocketFrameKind.Accept, accept.Kind);
+        Assert.Equal(new byte[] { 1, 2, 3, 4 }, accept.Payload);
     }
 
     private static byte[] Frame(WebSocketFrameKind kind, byte[] payload)
@@ -87,6 +93,8 @@ public sealed class WebSocketServerSessionTests
         private WebSocketState _state = WebSocketState.Open;
         private WebSocketCloseStatus? _closeStatus;
         private string? _closeStatusDescription;
+
+        public List<WebSocketFrame> SentFrames { get; } = new();
 
         public FakeWebSocket(List<string> events, params byte[][] receivedMessages)
         {
@@ -153,6 +161,7 @@ public sealed class WebSocketServerSessionTests
                 MaximumPayloadLength,
                 out WebSocketFrame frame,
                 out _));
+            SentFrames.Add(frame);
             _events.Add($"send:{frame.Kind}");
             return Task.CompletedTask;
         }

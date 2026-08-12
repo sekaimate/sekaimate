@@ -10,6 +10,7 @@ namespace Basis.Network.WebSocketServer;
 public sealed class BasisWebSocketServerTransport : IAsyncDisposable
 {
     private readonly WebApplication _application;
+    private readonly WebSocketPeerIdAllocator _peerIdAllocator = new();
     private int _started;
 
     public BasisWebSocketServerTransport(
@@ -31,6 +32,7 @@ public sealed class BasisWebSocketServerTransport : IAsyncDisposable
             context,
             options,
             connectionHandler,
+            _peerIdAllocator,
             context.RequestAborted)));
         _application = application;
     }
@@ -57,6 +59,7 @@ public sealed class BasisWebSocketServerTransport : IAsyncDisposable
         HttpContext context,
         WebSocketServerTransportOptions options,
         IWebSocketServerConnectionHandler connectionHandler,
+        WebSocketPeerIdAllocator peerIdAllocator,
         CancellationToken cancellationToken)
     {
         if (!context.WebSockets.IsWebSocketRequest)
@@ -78,7 +81,8 @@ public sealed class BasisWebSocketServerTransport : IAsyncDisposable
             socket,
             connectionHandler,
             options.MaximumPayloadLength,
-            remoteEndPoint);
+            remoteEndPoint,
+            peerIdAllocator.Allocate());
         await session.RunAsync(cancellationToken).ConfigureAwait(false);
     }
 
