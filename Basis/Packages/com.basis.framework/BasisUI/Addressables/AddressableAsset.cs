@@ -69,10 +69,11 @@ namespace Basis.BasisUI
         private static readonly List<AsyncOperationHandle<GameObject>> PrefabHandles = new();
         private static readonly List<AsyncOperationHandle<Sprite>> SpriteHandles = new();
         private static Task initializeTask;
+        private static bool isInitialized;
 
         public static Task InitializeAsync()
         {
-            if (Prefabs.Count > 0 || SpriteAssets.Count > 0)
+            if (isInitialized)
             {
                 return Task.CompletedTask;
             }
@@ -94,6 +95,7 @@ namespace Basis.BasisUI
                 await LoadSpriteAsync(Sprites.Camera);
                 await LoadSpriteAsync(Sprites.Mirror);
 #endif
+                isInitialized = true;
             }
             catch
             {
@@ -196,6 +198,7 @@ namespace Basis.BasisUI
             Prefabs.Clear();
             SpriteAssets.Clear();
             initializeTask = null;
+            isInitialized = false;
         }
 
         public static bool AddressExists(string key)
