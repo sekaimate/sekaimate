@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text.RegularExpressions;
 using NUnit.Framework;
 using UnityEditor;
 
@@ -54,12 +55,11 @@ public class BasisWebPersistenceTests
         string avatarKeys = File.ReadAllText(
             "Packages/com.basis.framework/UI Panels/BasisDataStoreAvatarKeys.cs");
 
-        StringAssert.Contains(
-            "#if UNITY_WEBGL && !UNITY_EDITOR\n                File.WriteAllBytes(FilePath, byteData);\n                await BasisWebPersistence.FlushAsync();",
-            itemKeys);
-        StringAssert.Contains(
-            "#if UNITY_WEBGL && !UNITY_EDITOR\n                File.WriteAllBytes(FilePath, byteData);\n                await BasisWebPersistence.FlushAsync();",
-            avatarKeys);
+        const string webWritePattern =
+            @"#if UNITY_WEBGL && !UNITY_EDITOR\s+(?:try\s+\{\s+)?File\.WriteAllBytes\(FilePath, byteData\);\s+await BasisWebPersistence\.FlushAsync\(\);";
+
+        Assert.That(Regex.IsMatch(itemKeys, webWritePattern), Is.True);
+        Assert.That(Regex.IsMatch(avatarKeys, webWritePattern), Is.True);
     }
 
     [Test]
@@ -128,9 +128,11 @@ public class BasisWebPersistenceTests
         StringAssert.Contains(
             "#if UNITY_WEBGL && !UNITY_EDITOR\n            text = File.ReadAllText(FilePath);\n#else\n            text = await File.ReadAllTextAsync(FilePath);\n#endif",
             source);
-        StringAssert.Contains(
-            "#if UNITY_WEBGL && !UNITY_EDITOR\n            File.WriteAllText(FilePath, doc.ToString());\n            await BasisWebPersistence.FlushAsync();",
-            source);
+        Assert.That(
+            Regex.IsMatch(
+                source,
+                @"#if UNITY_WEBGL && !UNITY_EDITOR\s+try\s+\{\s+File\.WriteAllText\(FilePath, doc\.ToString\(\)\);\s+await BasisWebPersistence\.FlushAsync\(\);"),
+            Is.True);
     }
 
     [Test]
