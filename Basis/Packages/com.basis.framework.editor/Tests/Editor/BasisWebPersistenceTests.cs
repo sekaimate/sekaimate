@@ -84,9 +84,29 @@ public class BasisWebPersistenceTests
         string itemKeys = File.ReadAllText(
             "Packages/com.basis.framework/UI Panels/BasisDataStoreItemKeys.cs");
 
+        StringAssert.Contains("byteData = await File.ReadAllBytesAsync(FilePath);", itemKeys);
         StringAssert.Contains("await File.WriteAllBytesAsync(tempPath, byteData);", itemKeys);
         StringAssert.Contains("File.Replace(tempPath, FilePath, null);", itemKeys);
         StringAssert.Contains("File.Move(tempPath, FilePath);", itemKeys);
+    }
+
+    [Test]
+    public void WebItemKeyStoreDoesNotEnterNativeSwapBranch()
+    {
+        string itemKeys = File.ReadAllText(
+            "Packages/com.basis.framework/UI Panels/BasisDataStoreItemKeys.cs");
+
+        int webWrite = itemKeys.IndexOf("File.WriteAllBytes(FilePath, byteData);");
+        int nativeBranch = itemKeys.IndexOf("#else", webWrite);
+        int replace = itemKeys.IndexOf("File.Replace(tempPath, FilePath, null);", nativeBranch);
+        int move = itemKeys.IndexOf("File.Move(tempPath, FilePath);", nativeBranch);
+        int branchEnd = itemKeys.IndexOf("#endif", nativeBranch);
+
+        Assert.That(webWrite, Is.GreaterThanOrEqualTo(0));
+        Assert.That(nativeBranch, Is.GreaterThan(webWrite));
+        Assert.That(replace, Is.GreaterThan(nativeBranch));
+        Assert.That(move, Is.GreaterThan(replace));
+        Assert.That(branchEnd, Is.GreaterThan(move));
     }
 
     [Test]
@@ -95,6 +115,7 @@ public class BasisWebPersistenceTests
         string avatarKeys = File.ReadAllText(
             "Packages/com.basis.framework/UI Panels/BasisDataStoreAvatarKeys.cs");
 
+        StringAssert.Contains("byte[] byteData = await File.ReadAllBytesAsync(FilePath);", avatarKeys);
         StringAssert.Contains("await File.WriteAllBytesAsync(FilePath, byteData);", avatarKeys);
     }
 
