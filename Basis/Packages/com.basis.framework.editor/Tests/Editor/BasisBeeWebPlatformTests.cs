@@ -1,10 +1,20 @@
 using System;
+using System.IO;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 
 public class BasisBeeWebPlatformTests
 {
+    [Test]
+    public void AssetBundleBuildDoesNotMutateAnyScriptingBackend()
+    {
+        string source = File.ReadAllText(
+            "Packages/com.basis.sdk/Scripts/Editor/AssetBundleBuilder/BasisAssetBundlePipeline.cs");
+
+        StringAssert.DoesNotContain("PlayerSettings.SetScriptingBackend", source);
+    }
+
     [Test]
     public void SdkBuildTargetsAppendWebGlWithoutChangingExistingTargets()
     {
