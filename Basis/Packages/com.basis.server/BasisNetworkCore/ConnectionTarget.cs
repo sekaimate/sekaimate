@@ -43,6 +43,9 @@ namespace Basis.Network.Core
             public const string Port = "port";
             public const string Password = "password";
             public const string LobbyId = "lobbyId";
+            public const string Scheme = "scheme";
+            public const string Path = "path";
+            public const string Secure = "secure";
         }
     }
 
