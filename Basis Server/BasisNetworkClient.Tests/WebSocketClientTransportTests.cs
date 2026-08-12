@@ -32,7 +32,7 @@ public sealed class WebSocketClientTransportTests
     }
 
     [Fact]
-    public void BrowserOpen_SendsHelloBeforeReportingConnected()
+    public void BrowserOpen_SendsHelloAndWaitsForAccept()
     {
         FakeBrowserBridge bridge = new();
         WebSocketClientTransport transport = new(bridge, 1024);
@@ -43,12 +43,26 @@ public sealed class WebSocketClientTransportTests
 
         bridge.Open();
 
-        Assert.Equal(new[] { "hello", "connected" }, sequence);
-        Assert.Equal(WebSocketClientState.Connected, transport.State);
+        Assert.Equal(new[] { "hello" }, sequence);
+        Assert.Equal(WebSocketClientState.Connecting, transport.State);
         Assert.True(WebSocketFrameCodec.TryDecode(
             Assert.Single(bridge.SentFrames), 1024, out WebSocketFrame frame, out _));
         Assert.Equal(WebSocketFrameKind.Hello, frame.Kind);
         Assert.Equal(new byte[] { 4, 2 }, frame.Payload);
+    }
+
+    [Fact]
+    public void AcceptFrame_TransitionsToConnectedAndReportsItOnce()
+    {
+        FakeBrowserBridge bridge = new();
+        WebSocketClientTransport transport = ConnectingTransport(bridge);
+        int connectedCount = 0;
+        transport.Connected += () => connectedCount++;
+
+        bridge.Message(ControlFrame(WebSocketFrameKind.Accept));
+
+        Assert.Equal(WebSocketClientState.Connected, transport.State);
+        Assert.Equal(1, connectedCount);
     }
 
     [Fact]
@@ -62,6 +76,10 @@ public sealed class WebSocketClientTransportTests
             new byte[] { 1 }, 7, DeliveryMethod.Sequenced));
 
         bridge.Open();
+        Assert.Throws<InvalidOperationException>(() => transport.Send(
+            new byte[] { 1 }, 7, DeliveryMethod.Sequenced));
+
+        bridge.Message(ControlFrame(WebSocketFrameKind.Accept));
         transport.Send(new byte[] { 1, 3, 5 }, 7, DeliveryMethod.Sequenced);
 
         Assert.True(WebSocketFrameCodec.TryDecode(
@@ -70,6 +88,41 @@ public sealed class WebSocketClientTransportTests
         Assert.Equal((byte)7, frame.Channel);
         Assert.Equal(DeliveryMethod.Sequenced, frame.DeliveryMethod);
         Assert.Equal(new byte[] { 1, 3, 5 }, frame.Payload);
+    }
+
+    [Fact]
+    public void DataBeforeAccept_ClosesConnectionAsProtocolError()
+    {
+        FakeBrowserBridge bridge = new();
+        WebSocketClientTransport transport = ConnectingTransport(bridge);
+        string? error = null;
+        transport.Error += message => error = message;
+
+        bridge.Message(WebSocketFrameCodec.Encode(
+            WebSocketFrameKind.Data,
+            0,
+            DeliveryMethod.ReliableOrdered,
+            Array.Empty<byte>(),
+            1024));
+
+        Assert.Equal(WebSocketClientState.Closed, transport.State);
+        Assert.Equal((ushort)1002, bridge.CloseCode);
+        Assert.Contains("Data", error);
+    }
+
+    [Fact]
+    public void DisconnectBeforeAccept_ClosesConnectionAsProtocolError()
+    {
+        FakeBrowserBridge bridge = new();
+        WebSocketClientTransport transport = ConnectingTransport(bridge);
+        string? error = null;
+        transport.Error += message => error = message;
+
+        bridge.Message(ControlFrame(WebSocketFrameKind.Disconnect));
+
+        Assert.Equal(WebSocketClientState.Closed, transport.State);
+        Assert.Equal((ushort)1002, bridge.CloseCode);
+        Assert.Contains("Disconnect", error);
     }
 
     [Fact]
@@ -113,7 +166,7 @@ public sealed class WebSocketClientTransportTests
     public void RejectFrame_ReportsPayloadAndClosesConnection()
     {
         FakeBrowserBridge bridge = new();
-        WebSocketClientTransport transport = ConnectedTransport(bridge);
+        WebSocketClientTransport transport = ConnectingTransport(bridge);
         byte[]? rejection = null;
         transport.Rejected += payload => rejection = payload;
         byte[] encoded = WebSocketFrameCodec.Encode(
@@ -128,6 +181,21 @@ public sealed class WebSocketClientTransportTests
         Assert.Equal(new byte[] { 9, 9 }, rejection);
         Assert.Equal(WebSocketClientState.Closed, transport.State);
         Assert.Equal((ushort)1008, bridge.CloseCode);
+    }
+
+    [Fact]
+    public void DuplicateAccept_ClosesConnectionAsProtocolError()
+    {
+        FakeBrowserBridge bridge = new();
+        WebSocketClientTransport transport = ConnectedTransport(bridge);
+        string? error = null;
+        transport.Error += message => error = message;
+
+        bridge.Message(ControlFrame(WebSocketFrameKind.Accept));
+
+        Assert.Equal(WebSocketClientState.Closed, transport.State);
+        Assert.Equal((ushort)1002, bridge.CloseCode);
+        Assert.Contains("Accept", error);
     }
 
     [Fact]
@@ -170,10 +238,27 @@ public sealed class WebSocketClientTransportTests
 
     private static WebSocketClientTransport ConnectedTransport(FakeBrowserBridge bridge)
     {
+        WebSocketClientTransport transport = ConnectingTransport(bridge);
+        bridge.Message(ControlFrame(WebSocketFrameKind.Accept));
+        return transport;
+    }
+
+    private static WebSocketClientTransport ConnectingTransport(FakeBrowserBridge bridge)
+    {
         WebSocketClientTransport transport = new(bridge, 1024);
         transport.Connect("ws://127.0.0.1:4297/basis", Array.Empty<byte>());
         bridge.Open();
         return transport;
+    }
+
+    private static byte[] ControlFrame(WebSocketFrameKind kind)
+    {
+        return WebSocketFrameCodec.Encode(
+            kind,
+            0,
+            DeliveryMethod.ReliableOrdered,
+            Array.Empty<byte>(),
+            1024);
     }
 
     private sealed class FakeBrowserBridge : IWebSocketBrowserBridge, IWebSocketBrowserConnection
