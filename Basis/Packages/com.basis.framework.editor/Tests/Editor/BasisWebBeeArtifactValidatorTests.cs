@@ -48,6 +48,17 @@ public class BasisWebBeeArtifactValidatorTests
         StringAssert.Contains("length is invalid", error);
     }
 
+    [Test]
+    public void AcceptsZeroCrcValue()
+    {
+        BasisBundleConnector connector = CreateConnector();
+        connector.BasisBundleGenerated[0].AssetBundleCRC = 0;
+
+        bool valid = BasisWebBeeArtifactValidator.TryValidate(connector, 64, 200, out string error);
+
+        Assert.That(valid, Is.True, error);
+    }
+
     private static BasisBundleConnector CreateConnector()
     {
         return new BasisBundleConnector

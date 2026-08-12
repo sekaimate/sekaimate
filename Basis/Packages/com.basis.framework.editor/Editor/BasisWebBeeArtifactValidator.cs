@@ -42,12 +42,6 @@ public static class BasisWebBeeArtifactValidator
             return false;
         }
 
-        if (section.AssetBundleCRC == 0)
-        {
-            error = "BEE section CRC is missing.";
-            return false;
-        }
-
         if (connectorLength <= 0 || section.EndByte <= 0)
         {
             error = "BEE connector or section length is invalid.";
