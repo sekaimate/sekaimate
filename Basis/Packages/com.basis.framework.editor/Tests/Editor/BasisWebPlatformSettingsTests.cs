@@ -8,7 +8,9 @@ public class BasisWebPlatformSettingsTests
     [TestCase("Packages/com.steam.steamvr/SteamVR/SteamVR.asmdef")]
     [TestCase("Packages/com.steam.steamvr/SteamVR_Input/SteamVR_Actions.asmdef")]
     [TestCase("Packages/com.basis.openvr/BasisOpenVR.asmdef")]
-    public void DesktopOpenVrAssemblyExcludesWebGl(string assemblyDefinitionPath)
+    [TestCase("Packages/com.github.homuler.mediapipe/Runtime/Mediapipe.Runtime.asmdef")]
+    [TestCase("Packages/com.basis.mediapipe/Runtime/Homuler/BasisMediaPipe.Homuler.asmdef")]
+    public void UnsupportedNativeAssemblyExcludesWebGl(string assemblyDefinitionPath)
     {
         string json = File.ReadAllText(assemblyDefinitionPath);
         AssemblyDefinitionSettings settings = JsonUtility.FromJson<AssemblyDefinitionSettings>(json);
