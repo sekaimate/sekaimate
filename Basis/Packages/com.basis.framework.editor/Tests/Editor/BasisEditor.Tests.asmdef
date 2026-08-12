@@ -4,6 +4,7 @@
     "references": [
         "BasisEditor",
         "Basis Framework",
+        "BasisSDK",
         "Unity.Addressables.Editor",
         "UnityEngine.TestRunner"
     ],
