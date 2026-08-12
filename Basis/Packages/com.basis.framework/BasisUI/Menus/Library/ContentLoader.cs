@@ -446,7 +446,11 @@ namespace Basis.BasisUI
                                 else
                                 {
                                     AsyncOperationHandle<GameObject> op = Addressables.InstantiateAsync(item.Url, finalPos, finalRot, parentTarget);
+#if UNITY_WEBGL && !UNITY_EDITOR
+                                    GameObject instance = await op.Task;
+#else
                                     GameObject instance = op.WaitForCompletion();
+#endif
                                     BasisRuntimeSpawnRegistry.AddGameObject(
                                         item.Url,
                                         instance.name,
