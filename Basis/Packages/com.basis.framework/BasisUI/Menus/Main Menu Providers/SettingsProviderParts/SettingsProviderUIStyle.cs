@@ -19,8 +19,9 @@ public static class SettingsProviderUIStyle
     }
 
     [RuntimeInitializeOnLoadMethod]
-    private static void Init()
+    private static async void Init()
     {
+        await UiStyleSettings.InitializeAsync();
         CacheOriginals();
         ApplySavedPaletteColors();
     }

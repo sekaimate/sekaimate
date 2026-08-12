@@ -13,6 +13,7 @@ public class BasisWebStartupAddressablesTests
     [TestCase("Packages/com.basis.framework/UI/BasisUIRaycast.cs")]
     [TestCase("Packages/com.basis.framework/Interactions/BasisPlayerInteract.cs")]
     [TestCase("Packages/com.basis.framework/BasisUI/Menus/Library/EmbeddedItems.cs")]
+    [TestCase("Packages/com.basis.sdk/UiStyling/Runtime/Components/UiStyleSettings.cs")]
     public void StartupAddressablesDoNotBlock(string sourcePath)
     {
         string source = File.ReadAllText(sourcePath);
@@ -75,5 +76,13 @@ public class BasisWebStartupAddressablesTests
         string source = File.ReadAllText("Packages/com.basis.framework/UI Panels/BasisDataStoreItemKeys.cs");
 
         StringAssert.Contains("await BasisUI.EmbeddedItems.InitializeAsync()", source);
+    }
+
+    [Test]
+    public void WebUiStyleInitializationAwaitsAddressables()
+    {
+        string source = File.ReadAllText("Packages/com.basis.framework/BasisUI/Menus/Main Menu Providers/SettingsProviderParts/SettingsProviderUIStyle.cs");
+
+        StringAssert.Contains("await UiStyleSettings.InitializeAsync()", source);
     }
 }
