@@ -247,6 +247,7 @@ namespace Basis.Scripts.UI.UI_Panels
         // re-acquiring the lock (which would deadlock since the lock is not re-entrant).
         private static async Task LoadKeysInternal()
         {
+            await BasisUI.EmbeddedItems.InitializeAsync();
             EnsureInit();
 
             if (!File.Exists(FilePath))

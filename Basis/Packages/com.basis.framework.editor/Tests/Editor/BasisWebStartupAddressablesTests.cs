@@ -12,6 +12,7 @@ public class BasisWebStartupAddressablesTests
     [TestCase("Packages/com.basis.framework/UI/NamePlate/BasisRemoteNamePlateDriver.cs")]
     [TestCase("Packages/com.basis.framework/UI/BasisUIRaycast.cs")]
     [TestCase("Packages/com.basis.framework/Interactions/BasisPlayerInteract.cs")]
+    [TestCase("Packages/com.basis.framework/BasisUI/Menus/Library/EmbeddedItems.cs")]
     public void StartupAddressablesDoNotBlock(string sourcePath)
     {
         string source = File.ReadAllText(sourcePath);
@@ -66,5 +67,13 @@ public class BasisWebStartupAddressablesTests
 
         StringAssert.Contains("#if !UNITY_WEBGL || UNITY_EDITOR", source);
         StringAssert.Contains("await UnityServices.InitializeAsync()", source);
+    }
+
+    [Test]
+    public void ItemKeysAwaitEmbeddedCatalogInitialization()
+    {
+        string source = File.ReadAllText("Packages/com.basis.framework/UI Panels/BasisDataStoreItemKeys.cs");
+
+        StringAssert.Contains("await BasisUI.EmbeddedItems.InitializeAsync()", source);
     }
 }

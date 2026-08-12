@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Basis.Scripts.UI.UI_Panels;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
@@ -24,12 +25,13 @@ namespace Basis.BasisUI
         private static EmbeddedItemsCatalogAsset _catalog;
         private static ItemKey[] _embeddedKeys = EmptyKeys;
         private static bool _loaded;
+        private static Task _initializationTask;
 
         public static EmbeddedItemsCatalogAsset Catalog
         {
             get
             {
-                EnsureLoaded();
+                EnsureInitialized();
                 return _catalog;
             }
         }
@@ -38,25 +40,49 @@ namespace Basis.BasisUI
         {
             get
             {
-                EnsureLoaded();
+                EnsureInitialized();
                 return _embeddedKeys;
             }
         }
 
-        private static void EnsureLoaded()
+        public static Task InitializeAsync()
         {
             if (_loaded)
             {
-                return;
+                return Task.CompletedTask;
             }
 
-            _loaded = true;
-            AsyncOperationHandle<EmbeddedItemsCatalogAsset> handle = Addressables.LoadAssetAsync<EmbeddedItemsCatalogAsset>(CatalogAddress);
-            _catalog = handle.WaitForCompletion();
+            return _initializationTask ??= LoadCatalogAsync();
+        }
 
+        private static async Task LoadCatalogAsync()
+        {
+#if UNITY_EDITOR
+            _catalog = AssetDatabase.LoadAssetAtPath<EmbeddedItemsCatalogAsset>(CatalogAssetPath);
+#else
+            AsyncOperationHandle<EmbeddedItemsCatalogAsset> handle = Addressables.LoadAssetAsync<EmbeddedItemsCatalogAsset>(CatalogAddress);
+            _catalog = await handle.Task;
+#endif
+
+            _loaded = true;
             RebuildCache();
         }
 
+        private static void EnsureInitialized()
+        {
+#if UNITY_EDITOR
+            if (!_loaded)
+            {
+                _catalog = AssetDatabase.LoadAssetAtPath<EmbeddedItemsCatalogAsset>(CatalogAssetPath);
+                _loaded = true;
+                RebuildCache();
+            }
+#endif
+            if (!_loaded)
+            {
+                throw new InvalidOperationException($"{nameof(EmbeddedItems)} must be initialized before use.");
+            }
+        }
 
         private static void RebuildCache()
         {
@@ -91,7 +117,7 @@ namespace Basis.BasisUI
 
         public static bool TryGetDefinition(ItemKey item, out EmbeddedItemDefinition definition)
         {
-            EnsureLoaded();
+            EnsureInitialized();
 
             if (item == null || string.IsNullOrEmpty(item.Url))
             {
