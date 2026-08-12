@@ -3,6 +3,7 @@
     "rootNamespace": "",
     "references": [
         "BasisServersProvider",
+        "Basis Framework",
         "BasisNetworkCore",
         "UnityEngine.TestRunner"
     ],
