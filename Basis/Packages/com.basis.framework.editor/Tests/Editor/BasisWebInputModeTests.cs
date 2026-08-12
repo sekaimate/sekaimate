@@ -39,13 +39,10 @@ public class BasisWebInputModeTests
         BasisDesktopManagement desktop = gameObject.AddComponent<BasisDesktopManagement>();
         BasisWebManagement web = gameObject.AddComponent<BasisWebManagement>();
 
-        Assert.Multiple(() =>
-        {
-            Assert.That(desktop.IsDeviceBootable(BasisConstants.Desktop), Is.True);
-            Assert.That(desktop.IsDeviceBootable(BasisConstants.Web), Is.False);
-            Assert.That(web.IsDeviceBootable(BasisConstants.Web), Is.True);
-            Assert.That(web.IsDeviceBootable(BasisConstants.Desktop), Is.False);
-        });
+        Assert.That(desktop.IsDeviceBootable(BasisConstants.Desktop), Is.True);
+        Assert.That(desktop.IsDeviceBootable(BasisConstants.Web), Is.False);
+        Assert.That(web.IsDeviceBootable(BasisConstants.Web), Is.True);
+        Assert.That(web.IsDeviceBootable(BasisConstants.Desktop), Is.False);
 
         Object.DestroyImmediate(gameObject);
     }
