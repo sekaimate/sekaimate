@@ -7,6 +7,7 @@ using UnityEngine;
 public sealed class BasisWebShaderStripper : IPreprocessShaders
 {
     private const string JiggleShaderName = "Jiggle/ProceduralPrimitiveURP";
+    private const string VoxelizeShaderName = "Hidden/VoxelizeShader";
     public int callbackOrder => 0;
 
     public void OnProcessShader(Shader shader, ShaderSnippetData snippet, IList<ShaderCompilerData> variants)
@@ -27,6 +28,6 @@ public sealed class BasisWebShaderStripper : IPreprocessShaders
 
     public static bool ShouldStrip(string shaderName)
     {
-        return shaderName == JiggleShaderName;
+        return shaderName == JiggleShaderName || shaderName == VoxelizeShaderName;
     }
 }

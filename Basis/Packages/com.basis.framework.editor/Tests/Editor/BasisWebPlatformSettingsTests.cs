@@ -69,6 +69,7 @@ public class BasisWebPlatformSettingsTests
 
     [TestCase("Universal Render Pipeline/Lit", false)]
     [TestCase("Jiggle/ProceduralPrimitiveURP", true)]
+    [TestCase("Hidden/VoxelizeShader", true)]
     public void WebShaderStripperRemovesUnsupportedVariants(string shaderName, bool expected)
     {
         Assert.That(BasisWebShaderStripper.ShouldStrip(shaderName), Is.EqualTo(expected));
