@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Net;
 
 namespace Basis.Network.Core
 {
@@ -17,7 +18,8 @@ namespace Basis.Network.Core
                 || !Uri.TryCreate(raw, UriKind.Absolute, out Uri uri)
                 || !IsSupportedScheme(uri.Scheme)
                 || string.IsNullOrEmpty(uri.Host)
-                || !string.IsNullOrEmpty(uri.UserInfo))
+                || !string.IsNullOrEmpty(uri.UserInfo)
+                || !IsSecureOrLoopback(uri))
             {
                 throw new FormatException("A valid ws or wss URI without user information or a fragment is required.");
             }
@@ -87,6 +89,16 @@ namespace Basis.Network.Core
         {
             return string.Equals(scheme, WebSocketScheme, StringComparison.Ordinal)
                 || string.Equals(scheme, SecureWebSocketScheme, StringComparison.Ordinal);
+        }
+
+        private static bool IsSecureOrLoopback(Uri uri)
+        {
+            if (string.Equals(uri.Scheme, SecureWebSocketScheme, StringComparison.Ordinal))
+            {
+                return true;
+            }
+            return string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase)
+                || (IPAddress.TryParse(uri.Host, out IPAddress address) && IPAddress.IsLoopback(address));
         }
 
         private static string NormalizeHost(string host)
