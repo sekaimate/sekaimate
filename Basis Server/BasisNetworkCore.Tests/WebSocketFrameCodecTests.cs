@@ -24,6 +24,20 @@ public sealed class WebSocketFrameCodecTests
     };
 
     [Theory]
+    [InlineData(WebSocketFrameKind.Hello, 1)]
+    [InlineData(WebSocketFrameKind.Data, 2)]
+    [InlineData(WebSocketFrameKind.Reject, 3)]
+    [InlineData(WebSocketFrameKind.Disconnect, 4)]
+    [InlineData(WebSocketFrameKind.Accept, 5)]
+    public void Encode_UsesStableFrameKindWireValue(WebSocketFrameKind kind, byte wireValue)
+    {
+        byte[] encoded = WebSocketFrameCodec.Encode(
+            kind, 0, DeliveryMethod.ReliableOrdered, Array.Empty<byte>(), 0);
+
+        Assert.Equal(wireValue, encoded[0]);
+    }
+
+    [Theory]
     [MemberData(nameof(FrameKinds))]
     public void EncodeAndDecode_PreservesEveryFrameKind(WebSocketFrameKind kind)
     {
