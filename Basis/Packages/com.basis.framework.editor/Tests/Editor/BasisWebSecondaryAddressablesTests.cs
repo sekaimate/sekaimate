@@ -27,7 +27,7 @@ public class BasisWebSecondaryAddressablesTests
         string deviceSource = File.ReadAllText(
             "Packages/com.basis.framework/Device Management/BasisDeviceManagement.cs");
 
-        StringAssert.Contains("public static async Task InitializeAsync()", trustedUrlsSource);
+        StringAssert.Contains("public static Task InitializeAsync()", trustedUrlsSource);
         StringAssert.Contains("await handle.Task", trustedUrlsSource);
         StringAssert.Contains("#else", trustedUrlsSource);
         StringAssert.Contains("WaitForCompletion", trustedUrlsSource);

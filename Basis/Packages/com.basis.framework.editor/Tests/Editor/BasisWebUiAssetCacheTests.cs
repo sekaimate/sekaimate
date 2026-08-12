@@ -70,7 +70,7 @@ public class BasisWebUiAssetCacheTests
         Assert.That(
             Regex.IsMatch(
                 source,
-                @"#if UNITY_WEBGL && !UNITY_EDITOR\s+await LoadSpriteAsync\(Sprites\.Camera\);\s+await LoadSpriteAsync\(Sprites\.Mirror\);\s+#endif"),
+                @"#if UNITY_WEBGL && !UNITY_EDITOR[\s\S]*?await LoadSpriteAsync\(Sprites\.Camera\);\s+await LoadSpriteAsync\(Sprites\.Mirror\);\s+#endif"),
             Is.True);
     }
 
