@@ -24,29 +24,31 @@ public static class BasisHeadlessBuild
         BuildServer(BuildTarget.StandaloneWindows64);
     }
 
+    public static void BuildWeb()
+    {
+        string buildPath = RequireArgument("customBuildPath");
+        BuildPlayer(BuildTarget.WebGL, CreateWebBuildPlayerOptions(buildPath));
+    }
+
+    public static BuildPlayerOptions CreateWebBuildPlayerOptions(string buildPath)
+    {
+        return new BuildPlayerOptions
+        {
+            scenes = EditorBuildSettings.scenes.Where(scene => scene.enabled).Select(scene => scene.path).ToArray(),
+            locationPathName = buildPath,
+            target = BuildTarget.WebGL,
+            targetGroup = BuildTargetGroup.WebGL,
+            options = BuildOptions.Development
+        };
+    }
+
     private static void BuildServer(BuildTarget target)
     {
         string buildPath = RequireArgument("customBuildPath");
-        string buildName = GetArgument("customBuildName") ?? Path.GetFileNameWithoutExtension(buildPath);
-        string projectPath = GetArgument("projectPath") ?? Directory.GetCurrentDirectory();
         string standaloneSubtargetArg = GetArgument("standaloneBuildSubtarget") ?? "Server";
         string linuxArchitectureArg = GetArgument("linuxArchitecture");
 
-        Debug.Log($"[BasisHeadlessBuild] Starting {target} build");
-        Debug.Log($"[BasisHeadlessBuild] projectPath={projectPath}");
-        Debug.Log($"[BasisHeadlessBuild] buildName={buildName}");
-        Debug.Log($"[BasisHeadlessBuild] buildPath={buildPath}");
-        Debug.Log($"[BasisHeadlessBuild] activeBuildTarget(before)={EditorUserBuildSettings.activeBuildTarget}");
-        Debug.Log($"[BasisHeadlessBuild] activeBuildTargetGroup(before)={BuildPipeline.GetBuildTargetGroup(EditorUserBuildSettings.activeBuildTarget)}");
-        Debug.Log($"[BasisHeadlessBuild] standaloneBuildSubtarget(arg)={standaloneSubtargetArg}");
-        Debug.Log($"[BasisHeadlessBuild] linuxArchitecture(arg)={linuxArchitectureArg ?? "<default>"}");
-
         BuildTargetGroup targetGroup = BuildPipeline.GetBuildTargetGroup(target);
-        if (!BuildPipeline.IsBuildTargetSupported(targetGroup, target))
-        {
-            throw new BuildFailedException($"Build target {target} is not supported in this editor.");
-        }
-
         if (EditorUserBuildSettings.activeBuildTarget != target)
         {
             bool switched = EditorUserBuildSettings.SwitchActiveBuildTarget(targetGroup, target);
@@ -61,10 +63,35 @@ public static class BasisHeadlessBuild
             PlayerSettings.SetArchitecture(NamedBuildTarget.FromBuildTargetGroup(targetGroup), linuxArchitecture);
             Debug.Log($"[BasisHeadlessBuild] Linux architecture(set)={linuxArchitecture}");
         }
-        Debug.Log($"[BasisHeadlessBuild] activeBuildTarget(after)={EditorUserBuildSettings.activeBuildTarget}");
-        Debug.Log($"[BasisHeadlessBuild] standaloneBuildSubtarget(set)={EditorUserBuildSettings.standaloneBuildSubtarget}");
 
-        EnsureBuildDirectory(buildPath);
+        BuildPlayerOptions options = new BuildPlayerOptions
+        {
+            scenes = EditorBuildSettings.scenes.Where(scene => scene.enabled).Select(scene => scene.path).ToArray(),
+            locationPathName = buildPath,
+            target = target,
+            targetGroup = targetGroup,
+            subtarget = (int)standaloneSubtarget,
+            options = BuildOptions.None
+        };
+
+        BuildPlayer(target, options);
+    }
+
+    private static void BuildPlayer(BuildTarget target, BuildPlayerOptions options)
+    {
+        string projectPath = GetArgument("projectPath") ?? Directory.GetCurrentDirectory();
+
+        Debug.Log($"[BasisHeadlessBuild] Starting {target} build");
+        Debug.Log($"[BasisHeadlessBuild] projectPath={projectPath}");
+        Debug.Log($"[BasisHeadlessBuild] buildPath={options.locationPathName}");
+        Debug.Log($"[BasisHeadlessBuild] activeBuildTarget={EditorUserBuildSettings.activeBuildTarget}");
+
+        if (!BuildPipeline.IsBuildTargetSupported(options.targetGroup, target))
+        {
+            throw new BuildFailedException($"Build target {target} is not supported in this editor.");
+        }
+
+        EnsureBuildDirectory(options.locationPathName);
         LogEnabledScenes();
 
         AddressableAssetSettings addressableSettings = AddressableAssetSettingsDefaultObject.Settings;
@@ -88,16 +115,6 @@ public static class BasisHeadlessBuild
 
         try
         {
-            BuildPlayerOptions options = new BuildPlayerOptions
-            {
-                scenes = EditorBuildSettings.scenes.Where(scene => scene.enabled).Select(scene => scene.path).ToArray(),
-                locationPathName = buildPath,
-                target = target,
-                targetGroup = targetGroup,
-                subtarget = (int)standaloneSubtarget,
-                options = BuildOptions.None
-            };
-
             BuildReport report = BuildPipeline.BuildPlayer(options);
             Debug.Log($"[BasisHeadlessBuild] Build result={report.summary.result}");
             Debug.Log($"[BasisHeadlessBuild] Build output path={report.summary.outputPath}");
