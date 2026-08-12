@@ -398,27 +398,43 @@ namespace Basis.BasisUI
             if (!isValid) return BundledContentHolder.Mode.Legacy;
 
             BasisLoadableBundleWrapper loaded = await LoadWrapperFromDisc(tempItem, tempWrapper);
-            BundledContentHolder.Mode itemType = BundledContentHolder.Mode.Legacy;
-            // MetaData is a struct (value type) so it can't appear in a ?. chain — gate
-            // up to BasisBundleConnector with ?., then read MetaData.ComponentNames directly.
             var connector = loaded?.BasisLoadableBundle?.BasisBundleConnector;
-            if (connector != null)
+            return ResolveModeFromConnector(connector);
+        }
+
+        public static BundledContentHolder.Mode ResolveModeFromConnector(BasisBundleConnector connector)
+        {
+            if (connector?.BasisBundleGenerated == null)
             {
-                var components = connector.MetaData.ComponentNames;
-                if (components != null)
+                return BundledContentHolder.Mode.Legacy;
+            }
+
+            if (connector.BasisBundleGenerated.Any(section =>
+                    section != null && string.Equals(section.AssetMode, "Scene", StringComparison.Ordinal)))
+            {
+                return BundledContentHolder.Mode.World;
+            }
+
+            if (!connector.BasisBundleGenerated.Any(section =>
+                    section != null && string.Equals(section.AssetMode, "GameObject", StringComparison.Ordinal)))
+            {
+                return BundledContentHolder.Mode.Legacy;
+            }
+
+            BasisBundleConnector.BasisComponentName[] components = connector.MetaData.ComponentNames;
+            if (components != null)
+            {
+                foreach (BasisBundleConnector.BasisComponentName component in components)
                 {
-                    foreach (BasisBundleConnector.BasisComponentName comp in components)
+                    switch (component.Name?.ToLowerInvariant())
                     {
-                        switch (comp.Name?.ToLower())
-                        {
-                            case "basisprop": itemType = BundledContentHolder.Mode.Prop; break;
-                            case "basisavatar": itemType = BundledContentHolder.Mode.Avatar; break;
-                            case "basisscene": itemType = BundledContentHolder.Mode.World; break;
-                        }
+                        case "basisavatar": return BundledContentHolder.Mode.Avatar;
+                        case "basisprop": return BundledContentHolder.Mode.Prop;
                     }
                 }
             }
-            return itemType;
+
+            return BundledContentHolder.Mode.Legacy;
         }
 
         #endregion
