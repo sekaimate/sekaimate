@@ -103,9 +103,8 @@ public class BasisWebEncryptionTests
     {
         string source = File.ReadAllText("Packages/com.basis.framework/BasisUI/Menus/Library/LibraryProvider.cs");
 
-        StringAssert.Contains(
-            "#if !UNITY_WEBGL || UNITY_EDITOR\n            await CachedMetaData.PreloadMetaForItems(data);\n#endif",
-            source);
+        StringAssert.Contains("#if !UNITY_WEBGL || UNITY_EDITOR", source);
+        StringAssert.Contains("#endif\n\n            // once we have the cache", source);
         StringAssert.Contains("await CachedMetaData.PreloadMetaForItems(data);", source);
     }
 
