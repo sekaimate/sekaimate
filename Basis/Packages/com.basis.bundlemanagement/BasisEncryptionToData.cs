@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 using UnityEngine;
 public static class BasisEncryptionToData
 {
-    public static async Task<AssetBundleCreateRequest> GenerateBundleFromFile(string Password, byte[] Bytes, uint CRC, BasisProgressReport progressCallback)
+    public static async Task<AssetBundle> GenerateBundleFromFile(string Password, byte[] Bytes, uint CRC, BasisProgressReport progressCallback)
     {
         // Define the password object for decryption
         var BasisPassword = new BasisEncryptionWrapper.BasisPassword
@@ -23,6 +23,9 @@ public static class BasisEncryptionToData
 
         BasisDebug.Log("Attempting Asset Bundle Load...", BasisDebug.LogTag.Event);
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+        AssetBundle assetBundle = AssetBundle.LoadFromMemory(decrypted.Data, CRC);
+#else
         AssetBundleCreateRequest assetBundleCreateRequest;
         try
         {
@@ -55,17 +58,18 @@ public static class BasisEncryptionToData
             await Task.Delay(50); // Adjust delay as needed (e.g., 50ms)
         }
 
-        progressCallback?.ReportProgress(UniqueID, 100, "loading bundle");
         await assetBundleCreateRequest;
+        AssetBundle assetBundle = assetBundleCreateRequest.assetBundle;
+#endif
 
-        // req.assetBundle can still be null if CRC fails or bytes aren’t a bundle.
-        if (assetBundleCreateRequest.assetBundle == null)
+        if (assetBundle == null)
         {
-            BasisDebug.LogError("AssetBundle load finished but assetBundle is null (CRC mismatch or invalid bundle bytes).");
+            BasisDebug.LogError("AssetBundle load finished but the bundle is null (CRC mismatch or invalid bundle bytes).");
             return null;
         }
 
-        return assetBundleCreateRequest;
+        progressCallback?.ReportProgress(UniqueID, 100, "loading bundle");
+        return assetBundle;
     }
     public static async Task<BasisBundleConnector> GenerateMetaFromBytes(string password, byte[] encryptedBytes, BasisProgressReport progressCallback)
     {

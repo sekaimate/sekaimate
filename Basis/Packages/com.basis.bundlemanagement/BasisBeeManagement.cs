@@ -212,8 +212,8 @@ public static class BasisBeeManagement
         BasisDebug.Log("Calling Load Request", BasisDebug.LogTag.System);
         try
         {
-            AssetBundleCreateRequest bundleRequest = await BasisEncryptionToData.GenerateBundleFromFile(wrapper.LoadableBundle.UnlockPassword, output.Item2, output.Item1.AssetBundleCRC, report);
-            if (bundleRequest == null || bundleRequest.assetBundle == null)
+            AssetBundle assetBundle = await BasisEncryptionToData.GenerateBundleFromFile(wrapper.LoadableBundle.UnlockPassword, output.Item2, output.Item1.AssetBundleCRC, report);
+            if (assetBundle == null)
             {
                 if (shouldUseOnDiskMeta && !didForceRedownload)
                 {
@@ -226,16 +226,16 @@ public static class BasisBeeManagement
                         throw new Exception($"Unable to reload bundle after cache mismatch. {output.Item3}");
                     }
 
-                    bundleRequest = await BasisEncryptionToData.GenerateBundleFromFile(wrapper.LoadableBundle.UnlockPassword, output.Item2, output.Item1.AssetBundleCRC, report);
+                    assetBundle = await BasisEncryptionToData.GenerateBundleFromFile(wrapper.LoadableBundle.UnlockPassword, output.Item2, output.Item1.AssetBundleCRC, report);
                 }
 
-                if (bundleRequest == null || bundleRequest.assetBundle == null)
+                if (assetBundle == null)
                 {
                     throw new Exception("AssetBundle creation failed after attempting to refresh the cached bundle.");
                 }
             }
 
-            wrapper.AssetBundle = bundleRequest.assetBundle;
+            wrapper.AssetBundle = assetBundle;
             #if UNITY_BUNDLEUNLOAD
             wrapper.IsBundleBackingStoreReleased = false;
             #endif
@@ -296,13 +296,13 @@ public static class BasisBeeManagement
             }
         }
 
-        AssetBundleCreateRequest bundleRequest = await BasisEncryptionToData.GenerateBundleFromFile(wrapper.LoadableBundle.UnlockPassword, output.Item2, output.Item1.AssetBundleCRC, report);
-        if (bundleRequest == null || bundleRequest.assetBundle == null)
+        AssetBundle generatedAssetBundle = await BasisEncryptionToData.GenerateBundleFromFile(wrapper.LoadableBundle.UnlockPassword, output.Item2, output.Item1.AssetBundleCRC, report);
+        if (generatedAssetBundle == null)
         {
             throw new Exception($"AssetBundle creation failed for local bee file {localBeePath}.");
         }
 
-        wrapper.AssetBundle = bundleRequest.assetBundle;
+        wrapper.AssetBundle = generatedAssetBundle;
         #if UNITY_BUNDLEUNLOAD
         wrapper.IsBundleBackingStoreReleased = false;
         #endif
