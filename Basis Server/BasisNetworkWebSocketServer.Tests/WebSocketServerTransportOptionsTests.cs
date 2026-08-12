@@ -77,6 +77,15 @@ public sealed class WebSocketServerTransportOptionsTests
     }
 
     [Fact]
+    public void Validate_RequiresCertificateForTlsEndpoint()
+    {
+        WebSocketServerTransportOptions options = ValidOptions();
+        options.UseTls = true;
+
+        Assert.Throws<ArgumentException>(options.Validate);
+    }
+
+    [Fact]
     public void IsOriginAllowed_RejectsUnknownOrMissingOrigin()
     {
         WebSocketServerTransportOptions options = ValidOptions();
@@ -96,6 +105,7 @@ public sealed class WebSocketServerTransportOptionsTests
             WebSocketMaximumPayloadLength = 2048,
             WebSocketPendingSendCapacity = 12,
             WebSocketAllowedOrigins = new[] { "https://basis.example" },
+            WebSocketUseTls = false,
         };
 
         WebSocketServerTransportOptions options = WebSocketServerTransportOptions.FromConfiguration(configuration);

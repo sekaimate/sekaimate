@@ -12,6 +12,8 @@ public sealed class WebSocketServerConfigurationTests
         Assert.Equal("/basis", configuration.WebSocketPath);
         Assert.Equal(1024 * 1024, configuration.WebSocketMaximumPayloadLength);
         Assert.Equal(64, configuration.WebSocketPendingSendCapacity);
+        Assert.True(configuration.WebSocketUseTls);
+        Assert.Equal(string.Empty, configuration.WebSocketCertificatePath);
         Assert.Empty(configuration.WebSocketAllowedOrigins);
     }
 }
