@@ -1311,13 +1311,15 @@ public partial class BasisHandHeldCamera : BasisHandHeldCameraInteractable
     /// <param name="screenshot">CPU-side texture to encode.</param>
     public void SaveScreenshotAsync(Texture2D screenshot) => SaveScreenshotAsync(screenshot, null);
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+    public void SaveScreenshotAsync(Texture2D screenshot, BasisHandHeldCameraPhotoMetadata.PhotoMetadata photoMetadata)
+#else
     public async void SaveScreenshotAsync(Texture2D screenshot, BasisHandHeldCameraPhotoMetadata.PhotoMetadata photoMetadata)
+#endif
     {
         string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
         string extension = captureFormat == "EXR" ? "exr" : "png";
         string filename = $"Screenshot_{timestamp}_{captureWidth}x{captureHeight}.{extension}";
-        string path = GetSavePath(filename);
-
         byte[] imageData = captureFormat == "EXR"
             ? screenshot.EncodeToEXR(Texture2D.EXRFlags.CompressZIP)
             : screenshot.EncodeToPNG();
@@ -1325,7 +1327,13 @@ public partial class BasisHandHeldCamera : BasisHandHeldCameraInteractable
         if (photoMetadata != null)
             imageData = BasisHandHeldCameraPhotoMetadata.Embed(imageData, captureFormat, photoMetadata, screenshot.width, screenshot.height);
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+        string contentType = captureFormat == "EXR" ? "application/octet-stream" : "image/png";
+        BasisWebFileDownload.Save(filename, imageData, contentType);
+#else
+        string path = GetSavePath(filename);
         await File.WriteAllBytesAsync(path, imageData);
+#endif
     }
 
     /// <summary>Builds a platform-appropriate save path for a screenshot filename.</summary>

@@ -176,7 +176,11 @@ public partial class BasisHandHeldCamera
         });
     }
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+    private void Process360AndSave(byte[] raw, int width, int height, bool exr, BasisHandHeldCameraPhotoMetadata.PhotoMetadata photoMetadata, int perEyeWidth, int fullHeight, bool stereo, float headingDegrees, float exposure, float contrast, float saturation)
+#else
     private async void Process360AndSave(byte[] raw, int width, int height, bool exr, BasisHandHeldCameraPhotoMetadata.PhotoMetadata photoMetadata, int perEyeWidth, int fullHeight, bool stereo, float headingDegrees, float exposure, float contrast, float saturation)
+#endif
     {
         byte[] imageData;
 
@@ -190,7 +194,11 @@ public partial class BasisHandHeldCamera
         }
         else
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            byte[] rgba = TonemapEquirectToRgba32(raw, width, height, exposure, contrast, saturation);
+#else
             byte[] rgba = await Task.Run(() => TonemapEquirectToRgba32(raw, width, height, exposure, contrast, saturation));
+#endif
             var tex = new Texture2D(width, height, TextureFormat.RGBA32, false);
             tex.LoadRawTextureData(rgba);
             tex.Apply(false);
@@ -214,9 +222,14 @@ public partial class BasisHandHeldCamera
         string extension = exr ? "exr" : "png";
         string layout = stereo ? "Stereo" : "Mono";
         string filename = $"Screenshot360_{layout}_{timestamp}_{width}x{height}.{extension}";
-        string path = GetSavePath(filename);
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+        string contentType = exr ? "application/octet-stream" : "image/png";
+        BasisWebFileDownload.Save(filename, imageData, contentType);
+#else
+        string path = GetSavePath(filename);
         await File.WriteAllBytesAsync(path, imageData);
+#endif
     }
 
     private static byte[] TonemapEquirectToRgba32(byte[] linearFloatRgba, int width, int height, float exposure, float contrast, float saturation)
