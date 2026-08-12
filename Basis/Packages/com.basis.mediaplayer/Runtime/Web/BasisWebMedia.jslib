@@ -55,7 +55,10 @@ mergeInto(LibraryManager.library, {
     var player = BasisWebMedia.players[mediaId];
     if (!player) return;
     player.error = 0;
-    player.audioContext.resume();
+    var resumeRequest = player.audioContext.resume();
+    if (resumeRequest) {
+      resumeRequest.catch(function() { player.error = 1; });
+    }
     var playRequest = player.video.play();
     if (playRequest) {
       playRequest.catch(function(error) {
