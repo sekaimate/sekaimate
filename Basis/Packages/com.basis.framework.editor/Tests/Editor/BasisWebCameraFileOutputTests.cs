@@ -53,6 +53,10 @@ public class BasisWebCameraFileOutputTests
         StringAssert.Contains("await File.WriteAllBytesAsync(path, imageData);", camera);
         StringAssert.Contains("BasisWebFileDownload.Save(filename, imageData, contentType);", camera360);
         StringAssert.Contains("await File.WriteAllBytesAsync(path, imageData);", camera360);
+        StringAssert.Contains(
+            "#if UNITY_WEBGL && !UNITY_EDITOR\n            byte[] rgba = TonemapEquirectToRgba32",
+            camera360);
+        StringAssert.Contains("await Task.Run(() => TonemapEquirectToRgba32", camera360);
     }
 
     [Test]
