@@ -382,7 +382,8 @@ public static class BasisBeeManagement
         (BasisBundleConnector Connector, string ErrorMessage) output;
         if (useCachedConnector)
         {
-            output = await BasisBundleManagement.ReadConnectorFile(wrapper, MetaInfo.StoredLocal, report, cancellationToken).ConfigureAwait(false);
+            BasisDebug.Log("Process On Disc Meta Data Async", BasisDebug.LogTag.Event);
+            output = await BasisBundleManagement.ReadConnectorFile(wrapper, MetaInfo.StoredLocal, report, cancellationToken).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
         }
         else
         {

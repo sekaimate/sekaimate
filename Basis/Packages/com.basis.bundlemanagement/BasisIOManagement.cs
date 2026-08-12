@@ -491,7 +491,7 @@ public static class BasisIOManagement
         }
 
         // Read Int32 connector size (little-endian)
-        byte[] sizeBytes = await ReadExactAsync(fs, BasisBeeConstants.DiskHeaderSize, cancellationToken).ConfigureAwait(false);
+        byte[] sizeBytes = await ReadExactAsync(fs, BasisBeeConstants.DiskHeaderSize, cancellationToken).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
         if (sizeBytes.Length != BasisBeeConstants.DiskHeaderSize)
         {
             return BeeResult<BeeReadResult>.Fail($"ReadBEEFileEx: Failed to read connector size (header). Got {sizeBytes.Length} bytes.");
@@ -505,13 +505,14 @@ public static class BasisIOManagement
         }
 
         // Read connector bytes
-        byte[] connectorBytes = await ReadExactAsync(fs, connectorSize, cancellationToken).ConfigureAwait(false);
+        byte[] connectorBytes = await ReadExactAsync(fs, connectorSize, cancellationToken).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
         if (connectorBytes.Length != connectorSize)
         {
             return BeeResult<BeeReadResult>.Fail($"ReadBEEFileEx: Failed to read full connector block. Expected {connectorSize}, got {connectorBytes.Length}.");
         }
 
-        BasisBundleConnector connector = await BasisEncryptionToData.GenerateMetaFromBytes(vp, connectorBytes, progressCallback).ConfigureAwait(false);
+        BasisBundleConnector connector = await BasisEncryptionToData.GenerateMetaFromBytes(vp, connectorBytes, progressCallback).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
+        BasisDebug.Log("GenerateMetaFromBytes", BasisDebug.LogTag.Event);
 
         if (connector == null)
             return BeeResult<BeeReadResult>.Fail("ReadBEEFileEx: Failed to regenerate connector metadata (null).");
@@ -527,7 +528,7 @@ public static class BasisIOManagement
         }
         else
         {
-            sectionData = await ReadExactAsync(fs, checked((int)remaining), cancellationToken).ConfigureAwait(false);
+            sectionData = await ReadExactAsync(fs, checked((int)remaining), cancellationToken).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
             if (sectionData == null || sectionData.LongLength != remaining)
             {
                 return BeeResult<BeeReadResult>.Fail($"ReadBEEFileEx: Failed to read full section data. Expected {remaining}, got {sectionData?.LongLength ?? 0}.");
@@ -556,7 +557,7 @@ public static class BasisIOManagement
             return BeeResult<BeeReadResult>.Fail($"ReadBEEFileEx: File too small to contain header. Size={fs.Length} bytes.");
 
         // Read Int32 connector size (little-endian)
-        byte[] sizeBytes = await ReadExactAsync(fs, BasisBeeConstants.DiskHeaderSize, cancellationToken).ConfigureAwait(false);
+        byte[] sizeBytes = await ReadExactAsync(fs, BasisBeeConstants.DiskHeaderSize, cancellationToken).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
         if (sizeBytes.Length != BasisBeeConstants.DiskHeaderSize)
             return BeeResult<BeeReadResult>.Fail($"ReadBEEFileEx: Failed to read connector size (header). Got {sizeBytes.Length} bytes.");
 
@@ -566,11 +567,12 @@ public static class BasisIOManagement
             return BeeResult<BeeReadResult>.Fail($"ReadBEEFileEx: Invalid connector size {connectorSize}. Remaining file bytes: {remainingPossible}. File may be corrupt.");
 
         // Read connector bytes
-        byte[] connectorBytes = await ReadExactAsync(fs, connectorSize, cancellationToken).ConfigureAwait(false);
+        byte[] connectorBytes = await ReadExactAsync(fs, connectorSize, cancellationToken).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
         if (connectorBytes.Length != connectorSize)
             return BeeResult<BeeReadResult>.Fail($"ReadBEEFileEx: Failed to read full connector block. Expected {connectorSize}, got {connectorBytes.Length}.");
 
-        BasisBundleConnector connector = await BasisEncryptionToData.GenerateMetaFromBytes(vp, connectorBytes, progressCallback).ConfigureAwait(false);
+        BasisBundleConnector connector = await BasisEncryptionToData.GenerateMetaFromBytes(vp, connectorBytes, progressCallback).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
+        BasisDebug.Log("GenerateMetaFromBytes", BasisDebug.LogTag.Event);
 
         if (connector == null)
             return BeeResult<BeeReadResult>.Fail("ReadBEEFileEx: Failed to regenerate connector metadata (null).");
@@ -600,7 +602,7 @@ public static class BasisIOManagement
         if (fs.Length < BasisBeeConstants.RemoteHeaderSize)
             return BeeResult<BeeReadResult>.Fail($"ReadRemoteBeeFromDiskEx: File too small to contain remote header. Size={fs.Length} bytes.");
 
-        byte[] headerBytes = await ReadExactAsync(fs, BasisBeeConstants.RemoteHeaderSize, cancellationToken).ConfigureAwait(false);
+        byte[] headerBytes = await ReadExactAsync(fs, BasisBeeConstants.RemoteHeaderSize, cancellationToken).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
         if (headerBytes.Length != BasisBeeConstants.RemoteHeaderSize)
             return BeeResult<BeeReadResult>.Fail($"ReadRemoteBeeFromDiskEx: Failed to read remote header. Got {headerBytes.Length} bytes.");
 
@@ -615,11 +617,11 @@ public static class BasisIOManagement
         if (connectorLength > remainingAfterHeader)
             return BeeResult<BeeReadResult>.Fail($"ReadRemoteBeeFromDiskEx: Connector length {connectorLength} exceeds file remainder {remainingAfterHeader}.");
 
-        byte[] connectorBytes = await ReadExactAsync(fs, checked((int)connectorLength), cancellationToken).ConfigureAwait(false);
+        byte[] connectorBytes = await ReadExactAsync(fs, checked((int)connectorLength), cancellationToken).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
         if (connectorBytes.LongLength != connectorLength)
             return BeeResult<BeeReadResult>.Fail($"ReadRemoteBeeFromDiskEx: Failed to read full connector block. Expected {connectorLength}, got {connectorBytes.Length}.");
 
-        BasisBundleConnector connector = await BasisEncryptionToData.GenerateMetaFromBytes(vp, connectorBytes, progressCallback).ConfigureAwait(false);
+        BasisBundleConnector connector = await BasisEncryptionToData.GenerateMetaFromBytes(vp, connectorBytes, progressCallback).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
         if (connector == null)
             return BeeResult<BeeReadResult>.Fail("ReadRemoteBeeFromDiskEx: Failed to parse connector metadata (null).");
 
@@ -689,7 +691,7 @@ public static class BasisIOManagement
             return BeeResult<BeeReadResult>.Fail($"ReadRemoteBeeFromDiskEx: No platform-matching section found. Platform Request was {Application.platform}. {BasisBundleConnector.DebugOfPlatforms(connector)}");
 
         fs.Seek(matchOffset, SeekOrigin.Begin);
-        byte[] platformSectionData = await ReadExactAsync(fs, checked((int)matchLength), cancellationToken).ConfigureAwait(false);
+        byte[] platformSectionData = await ReadExactAsync(fs, checked((int)matchLength), cancellationToken).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
         if (platformSectionData.LongLength != matchLength)
             return BeeResult<BeeReadResult>.Fail($"ReadRemoteBeeFromDiskEx: Expected section length {matchLength}, got {platformSectionData.Length}.");
 
@@ -978,12 +980,12 @@ public static class BasisIOManagement
                     fs.Write(sectionBytes, 0, sectionBytes.Length);
                 }
 #else
-                await fs.WriteAsync(sizeLE, 0, sizeLE.Length).ConfigureAwait(false);
-                await fs.WriteAsync(connectorBytes, 0, connectorBytes.Length).ConfigureAwait(false);
+                await fs.WriteAsync(sizeLE, 0, sizeLE.Length).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
+                await fs.WriteAsync(connectorBytes, 0, connectorBytes.Length).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
 
                 if (writeSection)
                 {
-                    await fs.WriteAsync(sectionBytes, 0, sectionBytes.Length).ConfigureAwait(false);
+                    await fs.WriteAsync(sectionBytes, 0, sectionBytes.Length).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
                 }
 #endif
             }
