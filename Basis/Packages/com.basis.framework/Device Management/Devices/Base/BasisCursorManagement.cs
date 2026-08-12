@@ -8,6 +8,10 @@ public static class BasisCursorManagement
 {
     // A list of unique requests to unlock the cursor.
     private static List<string> cursorUnlockRequests = new List<string>();
+#if UNITY_WEBGL && !UNITY_EDITOR
+    private static CursorLockMode webLockState = CursorLockMode.None;
+    private static bool webCursorVisible = true;
+#endif
     // Event that gets triggered whenever the cursor state changes
     public static event Action<CursorLockMode, bool> OnCursorStateChange;
 
@@ -42,11 +46,19 @@ public static class BasisCursorManagement
 
     public static CursorLockMode ActiveLockState()
     {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        return webLockState;
+#else
         return Cursor.lockState;
+#endif
     }
     public static bool IsVisible()
     {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        return webCursorVisible;
+#else
         return Cursor.visible;
+#endif
     }
 
 #if UNITY_EDITOR
@@ -70,10 +82,44 @@ public static class BasisCursorManagement
         cursorUnlockRequests.Remove(requestName);
         if (cursorUnlockRequests.Count == 0)
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            BasisWebPointerLockBridge.EnsureInitialized();
+#else
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
             OnCursorStateChange?.Invoke(CursorLockMode.Locked, false);
+#endif
         }
+    }
+
+    public static bool LockCursorFromUserGesture(string requestName)
+    {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        if (ShouldIgnoreCursorRequests())
+        {
+            return false;
+        }
+
+        cursorUnlockRequests.Remove(requestName);
+        return RequestPointerLockFromUserGesture();
+#else
+        LockCursor(requestName);
+        return ActiveLockState() == CursorLockMode.Locked;
+#endif
+    }
+
+    public static bool RequestPointerLockFromUserGesture()
+    {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        if (ShouldIgnoreCursorRequests() || cursorUnlockRequests.Count != 0)
+        {
+            return false;
+        }
+
+        return BasisWebPointerLockBridge.RequestFromUserGesture();
+#else
+        return false;
+#endif
     }
 
     /// <summary>
@@ -105,16 +151,23 @@ public static class BasisCursorManagement
         {
             cursorUnlockRequests.Add(requestName);
         }
-        if (Cursor.lockState == CursorLockMode.None)
+        if (ActiveLockState() == CursorLockMode.None)
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            BasisWebPointerLockBridge.EnsureInitialized();
+#endif
             return;
         }
+#if UNITY_WEBGL && !UNITY_EDITOR
+        BasisWebPointerLockBridge.Exit();
+#else
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
         if (FireCursorStateChange)
         {
             OnCursorStateChange?.Invoke(CursorLockMode.None, true);
         }
+#endif
     }
 
     /// <summary>
@@ -128,10 +181,13 @@ public static class BasisCursorManagement
             return;
         }
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+        BasisWebPointerLockBridge.Exit();
+#else
         Cursor.lockState = CursorLockMode.Confined;
         Cursor.visible = true;
-        //  BasisDebug.Log("Cursor Confined");
         OnCursorStateChange?.Invoke(CursorLockMode.Confined, true);
+#endif
     }
     private static bool ShouldIgnoreCursorRequests()
     {
@@ -142,9 +198,35 @@ public static class BasisCursorManagement
     public static void OnReset()
     {
         cursorUnlockRequests.Clear();
+#if UNITY_WEBGL && !UNITY_EDITOR
+        ApplyWebPointerLockState(false, true);
+        BasisWebPointerLockBridge.Exit();
+#else
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
         OnCursorStateChange?.Invoke(CursorLockMode.None, true);
+#endif
         SetCursorType(BasisCursorType.Default);
     }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+    internal static void ApplyWebPointerLockState(bool isLocked)
+    {
+        ApplyWebPointerLockState(isLocked, false);
+    }
+
+    private static void ApplyWebPointerLockState(bool isLocked, bool forceNotification)
+    {
+        CursorLockMode lockState = isLocked ? CursorLockMode.Locked : CursorLockMode.None;
+        bool isVisible = !isLocked;
+        if (!forceNotification && webLockState == lockState && webCursorVisible == isVisible)
+        {
+            return;
+        }
+
+        webLockState = lockState;
+        webCursorVisible = isVisible;
+        OnCursorStateChange?.Invoke(lockState, isVisible);
+    }
+#endif
 }

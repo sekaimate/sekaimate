@@ -49,7 +49,7 @@ public class BasisUIInput : BaseInputModule
 
         // Sync position.
         var pointerType = eventData.pointerType;
-        if (pointerType == UIPointerType.MouseOrPen && Cursor.lockState == CursorLockMode.Locked)
+        if (pointerType == UIPointerType.MouseOrPen && BasisCursorManagement.ActiveLockState() == CursorLockMode.Locked)
         {
             eventData.position = new Vector2(Screen.width / 2f, Screen.height / 2f);
             ////REVIEW: This is consistent with StandaloneInputModule but having no deltas in locked mode seems wrong
@@ -294,7 +294,7 @@ public class BasisUIInput : BaseInputModule
     private void ProcessPointerButtonDrag(ref PointerModel.ButtonState button, ExtendedPointerEventData eventData)
     {
         if (!eventData.IsPointerMoving() ||
-            (eventData.pointerType == UIPointerType.MouseOrPen && Cursor.lockState == CursorLockMode.Locked) ||
+            (eventData.pointerType == UIPointerType.MouseOrPen && BasisCursorManagement.ActiveLockState() == CursorLockMode.Locked) ||
             eventData.pointerDrag == null)
             return;
 
