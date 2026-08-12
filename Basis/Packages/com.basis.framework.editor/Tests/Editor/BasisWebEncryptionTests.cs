@@ -57,6 +57,25 @@ public class BasisWebEncryptionTests
     }
 
     [Test]
+    public void WebGlCachedBeeReadsPreserveTheUnityContext()
+    {
+        string constantsSource = File.ReadAllText("Packages/com.basis.bundlemanagement/BasisBeeConstants.cs");
+        string bundleSource = File.ReadAllText("Packages/com.basis.bundlemanagement/BasisBundleManagement.cs");
+        string ioSource = File.ReadAllText("Packages/com.basis.bundlemanagement/BasisIOManagement.cs");
+        string managementSource = File.ReadAllText("Packages/com.basis.bundlemanagement/BasisBeeManagement.cs");
+
+        StringAssert.Contains(
+            "#if UNITY_WEBGL && !UNITY_EDITOR\n    public const bool ContinueOnCapturedContext = true;\n#else\n    public const bool ContinueOnCapturedContext = false;",
+            constantsSource);
+        StringAssert.DoesNotContain("ConfigureAwait(false)", bundleSource);
+        StringAssert.DoesNotContain("ConfigureAwait(false)", ioSource);
+        StringAssert.DoesNotContain("ConfigureAwait(false)", managementSource);
+        StringAssert.Contains("ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext)", bundleSource);
+        StringAssert.Contains("ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext)", ioSource);
+        StringAssert.Contains("ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext)", managementSource);
+    }
+
+    [Test]
     public void WebGlBeeCacheUsesSynchronousFileOperations()
     {
         string ioSource = File.ReadAllText("Packages/com.basis.bundlemanagement/BasisIOManagement.cs");
