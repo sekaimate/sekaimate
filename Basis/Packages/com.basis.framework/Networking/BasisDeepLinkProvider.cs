@@ -32,7 +32,10 @@ namespace Basis.Scripts.Networking
         public const string BundleUrlName = "org.basisvr." + DeepLinkScheme;
 
         /// <summary>When true, only one Windows client instance runs at a time. Change before building.</summary>
-        private const bool SingleInstance = false;
+        // A browser invokes the URL-protocol handler by launching the executable again on
+        // Windows. Forward that link to the already-running client instead of leaving the
+        // participant in a second instance. This is essential for one-click meeting invites.
+        private const bool SingleInstance = true;
 
         private const string DeepLinkEntryId = "__deeplink__";
 
@@ -119,6 +122,18 @@ namespace Basis.Scripts.Networking
             string portStr = entry.Target?.Get(ConnectionTarget.Keys.Port) ?? string.Empty;
             ushort port = ushort.TryParse(portStr, out ushort p) ? p : LNLConnectionTargetParser.DefaultPort;
             return FormatDeepLink(addr, port, !string.IsNullOrEmpty(entry.Password) ? entry.Password : null);
+        }
+
+        /// <summary>
+        /// Accepts a trusted invite received through a local integration bridge. This is the same
+        /// confirmation-first flow used by an OS URL protocol handler, but also works while the
+        /// Unity Editor is in Play mode where no operating-system protocol handler is registered.
+        /// </summary>
+        public static bool TryActivateInvite(string url)
+        {
+            if (!TryParseBasisUrl(url, out _)) return false;
+            OnDeepLinkActivated(url);
+            return true;
         }
 
         private static void OnDeepLinkActivated(string url)
@@ -274,7 +289,7 @@ namespace Basis.Scripts.Networking
             try
             {
 #if UNITY_STANDALONE_WIN
-                // Application.dataPath = "C:\path\to\BasisVR_Data" — strip suffix, add .exe
+                // Application.dataPath = "C:\path\to\Basis Unity_Data" — strip suffix, add .exe
                 string dataPath = Application.dataPath.Replace('/', '\\');
                 if (!dataPath.EndsWith("_Data", StringComparison.OrdinalIgnoreCase)) return;
                 string exePath = dataPath.Substring(0, dataPath.Length - 5) + ".exe";

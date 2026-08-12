@@ -39,7 +39,8 @@ namespace Basis.Scripts.Networking
             localId = (ushort)LocalPlayerPeer.RemoteId;
             return true;
         }
-        public static void Connect(ushort port, string ipString, string primitivePassword, bool isHostMode, string networkStackId = "")
+        public static void Connect(ushort port, string ipString, string primitivePassword, bool isHostMode,
+            string networkStackId = "", byte[] connectionAuthenticationPayload = null)
         {
             BNL.LogOutput -= LogOutput;
             BNL.LogOutput += LogOutput;
@@ -87,11 +88,6 @@ namespace Basis.Scripts.Networking
 
             byte[] avatarBytes = BasisBundleConversionNetwork.ConvertBasisLoadableBundleToBytes(basisLocalPlayer.AvatarMetaData);
 
-            // Calibration usually happens before ever connecting, so the body fit has to ride the very
-            // first record — otherwise the server stores identity for us and nobody sees the fitted
-            // proportions until the next recalibration happens to produce a different answer.
-            Basis.IK.BasisBodyFitResult bodyFit = Basis.Scripts.Drivers.BasisLocalRigDriver.AppliedBodyFit;
-
             var readyMessage = new ReadyMessage
             {
                 clientAvatarChangeMessage = new ClientAvatarChangeMessage
@@ -99,9 +95,6 @@ namespace Basis.Scripts.Networking
                     byteArray = avatarBytes,
                     loadMode = basisLocalPlayer.AvatarLoadMode,
                     LocalAvatarIndex = 0,
-                    ArmScale = bodyFit.HasArmFit ? bodyFit.ArmScale : 1f,
-                    LegScale = bodyFit.HasBodyFit ? bodyFit.LegScale : 1f,
-                    TorsoScale = bodyFit.HasBodyFit ? bodyFit.TorsoScale : 1f,
                 },
                 playerMetaDataMessage = new ClientMetaDataMessage
                 {
@@ -113,6 +106,10 @@ namespace Basis.Scripts.Networking
 
             BasisNetworkAvatarCompressor.InitialAvatarData(basisLocalPlayer.BasisAvatar.Animator, out var dataSet);
             readyMessage.localAvatarSyncMessage = dataSet.LASM;
+            byte[] authenticationPayload = connectionAuthenticationPayload
+                ?? Encoding.UTF8.GetBytes(primitivePassword);
+
+            BasisDebug.Log($"Connecting with {(connectionAuthenticationPayload == null ? "password" : "SSO admission")} authentication ({authenticationPayload.Length} bytes).", BasisDebug.LogTag.Networking);
 
             BasisDebug.Log("Network Starting Client");
 
@@ -133,7 +130,7 @@ namespace Basis.Scripts.Networking
                     // Pass the token into anything that supports cancellation
                     LocalPlayerPeer = NetworkClient.StartClient(
                         ipString, port, readyMessage,
-                        Encoding.UTF8.GetBytes(primitivePassword), serverConfig);
+                        authenticationPayload, serverConfig);
 
                     NetworkClient.listener.PeerConnectedEvent -= PeerConnectedEvent;
                     NetworkClient.listener.PeerConnectedEvent += PeerConnectedEvent;
@@ -248,12 +245,10 @@ namespace Basis.Scripts.Networking
                 }
                 Basis.Scripts.Device_Management.Devices.Headless.BasisHeadlessInput.Instance?.StopMovement();
 #endif
-                BasisNetworkConnectionWatchdog.NotifyDisconnected(disconnectInfo);
                 BasisNetworkAvatarCompressor.Dispose();
                 BasisP2PManager.Shutdown();
                 BasisAvatarRateRegistry.Reset();
                 await BasisNetworkLifeCycle.RebootManagement(true, peer, disconnectInfo);
-                BasisNetworkConnectionWatchdog.NotifyRebootComplete();
 #if UNITY_SERVER
                 if (!HeadlessReconnectSuppressed)
                 {

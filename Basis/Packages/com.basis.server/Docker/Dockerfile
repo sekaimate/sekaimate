@@ -1,18 +1,19 @@
 # Stage 1: Build the server
-FROM mcr.microsoft.com/dotnet/sdk:10.0-noble AS build
+FROM mcr.microsoft.com/dotnet/sdk:8.0-noble AS build
 WORKDIR /src
 
-# Copy the entire server project (including .props, Contrib, LiteNetLib, etc.)
+# Copy the repository: the standalone server project also references the managed
+# dependency DLLs committed under sibling Packages/ directories.
 COPY ["./", "Server/"]
 
-WORKDIR "/src/Server/BasisServerConsole"
+WORKDIR "/src/Server/Packages/com.basis.server/BasisServerConsole"
 
 # Restore dependencies and publish the application
 RUN dotnet restore ./BasisNetworkConsole.csproj
 RUN dotnet publish -c Release --no-restore -o /app/publish
 
 # Stage 2: Create runtime image
-FROM mcr.microsoft.com/dotnet/runtime:10.0-noble
+FROM mcr.microsoft.com/dotnet/runtime:8.0-noble
 
 # Install Curl for healthcheck
 RUN apt-get update && \

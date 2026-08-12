@@ -1,0 +1,26 @@
+{
+    "name": "Basis.Integration.Sso",
+    "rootNamespace": "Basis.Integration.Sso",
+    "references": [
+        "BasisDebug",
+        "BasisCommon",
+        "Basis Framework",
+        "BasisNetworkClient",
+        "BasisNetworkCore"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        {
+            "name": "com.jose-jwt",
+            "expression": "",
+            "define": "BASIS_HAS_JOSE_JWT"
+        }
+    ],
+    "noEngineReferences": false
+}

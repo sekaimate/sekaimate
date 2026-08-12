@@ -1,0 +1,3 @@
+{
+  "_comment": "Organization SSO settings are delivered at runtime by the Basis SSO Broker. Open an organization setup URL or a meeting invitation while Basis is running. Do not put provider credentials in this build-time file."
+}

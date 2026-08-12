@@ -27,7 +27,11 @@ When you first run the server using `docker compose up`, the following directori
 ```text
 Docker/
 ├── config/
-└── initialresources/
+├── initialresources/
+└── sso/
+    ├── docker-compose.yml   # broker + Nginx + React管理画面
+    ├── broker/              # broker設定と配布用クライアント設定
+    └── nginx/certs/         # ローカルTLS証明書（Git管理外）
 ```
 
 - `config/`: Contains XML configuration files for the server (e.g., main settings, admin lists, ban lists). The server may auto-generate or update these based on its internal defaults and environment variables.
@@ -36,6 +40,33 @@ Docker/
 ## Configuration
 
 The server's behavior is primarily controlled by environment variables when running with Docker, which can override settings that might otherwise be loaded from or written to XML configuration files.
+
+The Compose setup reads `Docker/.env` automatically. It is local-only and Git-ignored. Start by
+copying the template, then set a non-default password and (for first-time administration) your
+client DID:
+
+```sh
+cd Packages/com.basis.server/Docker
+cp .env.example .env
+# Edit .env, then:
+docker compose up -d --build
+```
+
+To obtain `BasisFirstAdmin`, open the Basis client at **Settings → Developer → Identity (DID)**,
+reveal the value with the eye icon, and copy the full `did:key:...` value. When SSO is active,
+obtain it after signing into the same Google/Okta identity you will use to administer the server.
+
+SSO はゲームサーバーと別 Compose で起動する。Nginx が `https://localhost` を担当し、
+broker の HTTP ポートはホストへ公開しない。詳しい設定・ローカル CA の信頼・管理画面の使い方は
+[`sso/README.md`](sso/README.md) を参照する。
+
+### Browser-managed SSO client configuration
+
+The broker can configure a running client without embedding `basis-sso.json` into its build. Start
+the SSO Compose stack and open `https://localhost/admin/`; the local-only development gateway does
+not require an admin token. Configure the organization settings and use **Basis に組織設定を送る**.
+Opening that URL on the same machine while Basis is running applies the configuration only to that
+process; it is not written to disk.
 
 ### Configuration Files
 
@@ -142,6 +173,27 @@ services:
     ```bash
     docker compose down
     ```
+
+## SSO broker
+
+ゲームサーバーと OIDC broker は別 Compose で起動する。先にゲームサーバーを起動し、
+次に SSO stack を起動する。
+
+```sh
+docker compose up -d --build
+
+cd sso
+docker compose up -d --build
+docker compose logs -f basis-sso-broker basis-sso-admin
+```
+
+broker はゲームサーバーの `config/config.xml` に生成される鍵を待機して読み取る。平文の
+broker ポートは Docker network 内部だけで、Nginx が `https://localhost` の唯一の入口となる。
+`https://localhost/admission/local` をクライアント設定へ配布する。Google/Okta と管理画面、
+ローカル CA の信頼登録は [`sso/README.md`](sso/README.md) を参照する。
+
+For a non-Docker standalone server, the server can instead start and stop a published local
+broker automatically through `RequireSso=true` and `AutoStartSsoBroker=true` in `config.xml`.
 
 ## Customizing Configuration
 

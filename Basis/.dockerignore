@@ -1,0 +1,22 @@
+# Unity-generated and developer-local files do not participate in the standalone
+# server build. Keeping them out of the context makes Docker builds practical.
+.git/
+.agents/
+.codex/
+Library/
+Logs/
+Temp/
+Obj/
+UserSettings/
+Build/
+Builds/
+ServerBuild/
+bin/
+obj/
+**/bin/
+**/obj/
+*.sln
+*.user
+*.pid
+*.log
+.DS_Store
