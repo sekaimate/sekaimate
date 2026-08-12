@@ -38,6 +38,48 @@ public sealed class WebSocketServerSessionTests
         Assert.Equal(new byte[] { 1, 2, 3, 4 }, accept.Payload);
     }
 
+    [Fact]
+    public async Task RunAsync_DrainsPreAcceptDataAfterAcceptInFifoOrder()
+    {
+        List<string> events = new();
+        FakeWebSocket socket = new(events,
+            Frame(WebSocketFrameKind.Hello, new byte[] { 10 }),
+            Frame(WebSocketFrameKind.Disconnect, Array.Empty<byte>()));
+        QueueingHandler handler = new();
+        await using WebSocketServerSession session = new(
+            socket,
+            handler,
+            MaximumPayloadLength,
+            new IPEndPoint(IPAddress.Loopback, 12345),
+            PeerId,
+            pendingSendCapacity: 2);
+
+        await session.RunAsync(CancellationToken.None);
+
+        Assert.Equal(
+            new[] { WebSocketFrameKind.Accept, WebSocketFrameKind.Data, WebSocketFrameKind.Data },
+            socket.SentFrames.Select(frame => frame.Kind));
+        Assert.Equal(new byte[] { 1 }, socket.SentFrames[1].Payload);
+        Assert.Equal(new byte[] { 2 }, socket.SentFrames[2].Payload);
+    }
+
+    [Fact]
+    public async Task RunAsync_RejectsPreAcceptDataBeyondConfiguredCapacity()
+    {
+        List<string> events = new();
+        FakeWebSocket socket = new(events, Frame(WebSocketFrameKind.Hello, new byte[] { 10 }));
+        OverflowingHandler handler = new();
+        await using WebSocketServerSession session = new(
+            socket,
+            handler,
+            MaximumPayloadLength,
+            new IPEndPoint(IPAddress.Loopback, 12345),
+            PeerId,
+            pendingSendCapacity: 1);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => session.RunAsync(CancellationToken.None));
+    }
+
     private static byte[] Frame(WebSocketFrameKind kind, byte[] payload)
     {
         return WebSocketFrameCodec.Encode(
@@ -84,6 +126,44 @@ public sealed class WebSocketServerSessionTests
             _events.Add("handler:disconnected");
             return ValueTask.CompletedTask;
         }
+    }
+
+    private sealed class QueueingHandler : IWebSocketServerConnectionHandler
+    {
+        public ValueTask<WebSocketConnectionDecision> OnConnectionRequestedAsync(
+            WebSocketServerSession session,
+            ReadOnlyMemory<byte> helloPayload,
+            CancellationToken cancellationToken)
+        {
+            session.QueueData(new byte[] { 1 }, 3, DeliveryMethod.ReliableOrdered);
+            session.QueueData(new byte[] { 2 }, 4, DeliveryMethod.Sequenced);
+            return ValueTask.FromResult(WebSocketConnectionDecision.Accept());
+        }
+
+        public ValueTask OnDataReceivedAsync(WebSocketServerSession session, byte channel, DeliveryMethod deliveryMethod, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
+            => ValueTask.CompletedTask;
+
+        public ValueTask OnDisconnectedAsync(WebSocketServerSession session, CancellationToken cancellationToken)
+            => ValueTask.CompletedTask;
+    }
+
+    private sealed class OverflowingHandler : IWebSocketServerConnectionHandler
+    {
+        public ValueTask<WebSocketConnectionDecision> OnConnectionRequestedAsync(
+            WebSocketServerSession session,
+            ReadOnlyMemory<byte> helloPayload,
+            CancellationToken cancellationToken)
+        {
+            session.QueueData(new byte[] { 1 }, 0, DeliveryMethod.ReliableOrdered);
+            session.QueueData(new byte[] { 2 }, 0, DeliveryMethod.ReliableOrdered);
+            return ValueTask.FromResult(WebSocketConnectionDecision.Accept());
+        }
+
+        public ValueTask OnDataReceivedAsync(WebSocketServerSession session, byte channel, DeliveryMethod deliveryMethod, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
+            => ValueTask.CompletedTask;
+
+        public ValueTask OnDisconnectedAsync(WebSocketServerSession session, CancellationToken cancellationToken)
+            => ValueTask.CompletedTask;
     }
 
     private sealed class FakeWebSocket : WebSocket
