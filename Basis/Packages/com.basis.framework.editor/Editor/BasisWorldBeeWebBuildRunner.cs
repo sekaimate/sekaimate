@@ -69,13 +69,10 @@ public static class BasisWorldBeeWebBuildRunner
             throw new InvalidOperationException("BEE build settings are missing.");
         }
 
-        string originalTemporaryStorage = settings.TemporaryStorage;
-        string originalAssetBundleDirectory = settings.AssetBundleDirectory;
-        string originalAssetBundleUnCombined = settings.AssetBundleUnCombined;
-        bool originalOpenFolderOnDisc = settings.OpenFolderOnDisc;
         byte[] originalModelMeta = File.ReadAllBytes(SourceModelMetaPath);
         string verificationFolderName = $"BasisWorldBeeVerification_{Guid.NewGuid():N}";
         string verificationRoot = $"Assets/{verificationFolderName}";
+        string bundleFolder = null;
 
         try
         {
@@ -97,10 +94,7 @@ public static class BasisWorldBeeWebBuildRunner
                 throw new InvalidOperationException("Verification scene does not contain a BasisScene.");
             }
 
-            settings.TemporaryStorage = $"{verificationRoot}/TemporaryStorage";
-            settings.AssetBundleDirectory = outputRoot;
-            settings.AssetBundleUnCombined = Path.Combine(outputRoot, "AssetCache");
-            settings.OpenFolderOnDisc = false;
+            content.BasisBundleDescription.AssetBundleName = $"web-world-verification-{Guid.NewGuid():N}";
 
             (bool success, string message) = await BasisBundleBuild.SceneBundleBuild(
                 null,
@@ -113,8 +107,8 @@ public static class BasisWorldBeeWebBuildRunner
                 throw new InvalidOperationException($"World BEE build failed: {message}");
             }
 
-            string bundleFolder = Path.Combine(
-                outputRoot,
+            bundleFolder = Path.Combine(
+                BasisBundleBuild.PathConversion(settings.AssetBundleDirectory),
                 BasisBundleBuild.MakeSafeFolderName(content.BasisBundleDescription.AssetBundleName));
             string[] beePaths = Directory.GetFiles(bundleFolder, "*.BEE", SearchOption.TopDirectoryOnly);
             if (beePaths.Length != 1)
@@ -140,16 +134,17 @@ public static class BasisWorldBeeWebBuildRunner
                 throw new InvalidOperationException(validationError);
             }
 
-            Debug.Log($"[BasisWorldBeeWebBuildRunner] BEE_PATH={beePath}");
+            string outputPath = Path.Combine(outputRoot, Path.GetFileName(beePath));
+            File.Copy(beePath, outputPath);
+            File.Copy(
+                Path.Combine(bundleFolder, $"{settings.ProtectedPasswordFileName}.txt"),
+                Path.Combine(outputRoot, $"{settings.ProtectedPasswordFileName}.txt"));
+            Debug.Log($"[BasisWorldBeeWebBuildRunner] BEE_PATH={outputPath}");
             Debug.Log($"[BasisWorldBeeWebBuildRunner] BEE_PASSWORD={password}");
-            return beePath;
+            return outputPath;
         }
         finally
         {
-            settings.TemporaryStorage = originalTemporaryStorage;
-            settings.AssetBundleDirectory = originalAssetBundleDirectory;
-            settings.AssetBundleUnCombined = originalAssetBundleUnCombined;
-            settings.OpenFolderOnDisc = originalOpenFolderOnDisc;
             File.WriteAllBytes(SourceModelMetaPath, originalModelMeta);
             EditorUtility.ClearProgressBar();
             try
@@ -167,6 +162,10 @@ public static class BasisWorldBeeWebBuildRunner
             {
                 AssetDatabase.DeleteAsset(verificationRoot);
                 AssetDatabase.Refresh();
+                if (!string.IsNullOrWhiteSpace(bundleFolder) && Directory.Exists(bundleFolder))
+                {
+                    Directory.Delete(bundleFolder, true);
+                }
             }
         }
     }
