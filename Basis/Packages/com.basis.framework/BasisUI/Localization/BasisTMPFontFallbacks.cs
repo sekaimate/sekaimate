@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using TMPro;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
@@ -242,13 +243,30 @@ namespace Basis.BasisUI
             }),
         };
 
-#if !BASIS_DISABLE_TMP_FALLBACKS
-        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
-        private static void AutoInstall()
+        public static async Task InitializeAsync()
         {
+#if BASIS_DISABLE_TMP_FALLBACKS
+            await Task.CompletedTask;
+#else
+            if (_shippedJapaneseFallback == null)
+            {
+                Font font = await Addressables.LoadAssetAsync<Font>(ShippedJapaneseFontAddress).Task;
+                if (font == null)
+                {
+                    throw new InvalidOperationException($"Embedded Japanese font not found at '{ShippedJapaneseFontAddress}'.");
+                }
+
+                _shippedJapaneseFallback = TMP_FontAsset.CreateFontAsset(font);
+                if (_shippedJapaneseFallback == null)
+                {
+                    throw new InvalidOperationException("CreateFontAsset returned null for the embedded Japanese font.");
+                }
+                _shippedJapaneseFallback.name = JaJpLabel;
+            }
+
             InstallFallbacks();
-        }
 #endif
+        }
 
         /// <summary>
         /// Idempotent. Builds any missing dynamic-OS TMP font assets and
@@ -312,33 +330,7 @@ namespace Basis.BasisUI
                 return _shippedJapaneseFallback;
             }
 
-            Font font;
-            try
-            {
-                font = Addressables.LoadAssetAsync<Font>(ShippedJapaneseFontAddress).WaitForCompletion();
-            }
-            catch (Exception e)
-            {
-                BasisDebug.LogError($"[BasisTMPFontFallbacks] Failed to load embedded Japanese font '{ShippedJapaneseFontAddress}': {e.Message}");
-                return null;
-            }
-
-            if (font == null)
-            {
-                BasisDebug.LogError($"[BasisTMPFontFallbacks] Embedded Japanese font not found at '{ShippedJapaneseFontAddress}'.");
-                return null;
-            }
-
-            TMP_FontAsset tmpFont = TMP_FontAsset.CreateFontAsset(font);
-            if (tmpFont == null)
-            {
-                BasisDebug.LogError("[BasisTMPFontFallbacks] CreateFontAsset returned null for the embedded Japanese font.");
-                return null;
-            }
-
-            tmpFont.name = JaJpLabel;
-            _shippedJapaneseFallback = tmpFont;
-            return tmpFont;
+            return null;
         }
 
         /// <summary>

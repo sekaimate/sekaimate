@@ -40,14 +40,18 @@ namespace Basis.Scripts.Avatar
         private static GameObject CachedLoadingAvatarPrefab;
         private static AsyncOperationHandle<GameObject> _loadingAvatarHandle;
 
-        public static void Initialize()
+        public static async Task InitializeAsync()
         {
             if (_loadingAvatarHandle.IsValid())
             {
+                if (!CachedLoadingAvatarPrefab)
+                {
+                    CachedLoadingAvatarPrefab = await _loadingAvatarHandle.Task;
+                }
                 return;
             }
             _loadingAvatarHandle = Addressables.LoadAssetAsync<GameObject>(LoadingAvatar.BasisLocalEncryptedBundle.DownloadedBeeFileLocation);
-            CachedLoadingAvatarPrefab = _loadingAvatarHandle.WaitForCompletion();
+            CachedLoadingAvatarPrefab = await _loadingAvatarHandle.Task;
         }
 
         public static void DeInitialize()

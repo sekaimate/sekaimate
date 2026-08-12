@@ -238,15 +238,16 @@ namespace Basis.Scripts.Device_Management
             // auto-detection can see an empty settings dict on first run — any
             // earlier binding constructor would write "en" as a default and
             // defeat the HasSaveData("language") check.
-            Basis.BasisUI.BasisLocalization.Initialize();
-            Basis.BasisUI.BasisTMPFontFallbacks.RefreshJapanesePriority();
-            BasisSettingsDefaults.LoadAll();
-            Basis.BasisUI.SettingsProvider.ApplyJiggleStartupSettings();
-            // Applied here and nowhere else: the GPU Resident Drawer rebuild this triggers is only
-            // cheap while the loading scene is the whole scene.
-            Basis.Scripts.Rendering.BasisGpuOcclusionCulling.ApplyStartupSetting();
             try
             {
+                await Basis.BasisUI.BasisLocalization.InitializeAsync();
+                await Basis.BasisUI.BasisTMPFontFallbacks.InitializeAsync();
+                Basis.BasisUI.BasisTMPFontFallbacks.RefreshJapanesePriority();
+                BasisSettingsDefaults.LoadAll();
+                Basis.BasisUI.SettingsProvider.ApplyJiggleStartupSettings();
+                // Applied here and nowhere else: the GPU Resident Drawer rebuild this triggers is only
+                // cheap while the loading scene is the whole scene.
+                Basis.Scripts.Rendering.BasisGpuOcclusionCulling.ApplyStartupSetting();
                 await Initialize();
             }
             catch (Exception e)
@@ -316,8 +317,8 @@ namespace Basis.Scripts.Device_Management
         public async Task Initialize()
         {
 
-            BasisAvatarFactory.Initialize();
-            BasisPlayerFactory.Initialize();
+            await BasisAvatarFactory.InitializeAsync();
+            await BasisPlayerFactory.InitializeAsync();
             BasisXRManagement.Initialize();
             BasisCommandLineArgs.Initialize(BakedInCommandLineArgs, out ForcedDefault);
 
