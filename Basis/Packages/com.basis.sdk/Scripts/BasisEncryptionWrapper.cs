@@ -243,10 +243,19 @@ public static partial class BasisEncryptionWrapper
                 {
                     ct.ThrowIfCancellationRequested();
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+                    int bytesRead = cryptoStream.Read(buffer, 0, bufferSize);
+#else
                     int bytesRead = await cryptoStream.ReadAsync(buffer.AsMemory(0, bufferSize), ct);
+#endif
                     if (bytesRead <= 0) break;
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+                    msOutput.Write(buffer, 0, bytesRead);
+                    await Task.Yield();
+#else
                     await msOutput.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
+#endif
 
                     totalRead += bytesRead;
 
