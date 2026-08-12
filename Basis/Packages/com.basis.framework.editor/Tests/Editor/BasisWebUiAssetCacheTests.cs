@@ -165,4 +165,42 @@ public class BasisWebUiAssetCacheTests
             : source.Substring(addressIndex, nextEntryIndex - addressIndex);
         StringAssert.Contains("- basis-ui", entry);
     }
+
+    [Test]
+    public void WebPlacementOutlinesUsePreloadedPrefabWhileNativeKeepsSynchronousAddressables()
+    {
+        string source = File.ReadAllText("Packages/com.basis.framework/BasisUI/Menus/Library/PlacementManager.cs");
+
+        Assert.That(Regex.Matches(source, "#if UNITY_WEBGL && !UNITY_EDITOR").Count, Is.EqualTo(2));
+        Assert.That(Regex.Matches(source, "AddressableAssets.GetPrefab\\(SpawnOutlineAddress\\)").Count, Is.EqualTo(2));
+        Assert.That(Regex.Matches(source, "Addressables.LoadAssetAsync<GameObject>\\(SpawnOutlineAddress\\)").Count, Is.EqualTo(2));
+        Assert.That(Regex.Matches(source, "WaitForCompletion\\(\\)").Count, Is.EqualTo(2));
+    }
+
+    [Test]
+    public void WebSpawnOutlineUsesRuntimePreloadLabel()
+    {
+        string source = File.ReadAllText("Assets/AddressableAssetsData/AssetGroups/Basis Foundation Assets.asset");
+        const string address = "Packages/com.basis.sdk/Prefabs/SpawnOutline.prefab";
+        int addressIndex = source.IndexOf($"m_Address: {address}", System.StringComparison.Ordinal);
+
+        Assert.That(addressIndex, Is.GreaterThanOrEqualTo(0));
+        int nextEntryIndex = source.IndexOf("  - m_GUID:", addressIndex, System.StringComparison.Ordinal);
+        string entry = nextEntryIndex < 0
+            ? source.Substring(addressIndex)
+            : source.Substring(addressIndex, nextEntryIndex - addressIndex);
+        StringAssert.Contains("- basis-ui", entry);
+    }
+
+    [Test]
+    public void WebEmbeddedAddressableInstantiationAwaitsWithoutBlockingNative()
+    {
+        string source = File.ReadAllText("Packages/com.basis.framework/BasisUI/Menus/Library/ContentLoader.cs");
+
+        Assert.That(
+            Regex.IsMatch(
+                source,
+                @"#if UNITY_WEBGL && !UNITY_EDITOR\s+GameObject instance = await op\.Task;\s+#else\s+GameObject instance = op\.WaitForCompletion\(\);\s+#endif"),
+            Is.True);
+    }
 }
