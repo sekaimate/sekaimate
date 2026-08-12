@@ -13,26 +13,45 @@ namespace Basis.Integration.Sso.FrameworkGate
     /// manual connects) until the user has signed in via <see cref="BasisSsoAuthController"/>. With
     /// no config it disables itself so non-SSO / dev builds are unaffected. Login is presented
     /// through the existing <see cref="BasisMainMenu"/> dialogue system so it renders and takes
-    /// input on both desktop and PCVR. This is a client-side gate only — the server/DID protocol is
-    /// unchanged (see docs/sso-spec.md §7).
+    /// input on both desktop and PCVR. When a server requires SSO, the gate also supplies its
+    /// encrypted, DID-bound admission envelope before the normal DID challenge.
     /// </summary>
     public static class BasisSsoGate
     {
         internal const string BlockedReason = "Please sign in before connecting.";
+        private static bool _activated;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Bootstrap()
         {
+            BasisSsoAuthController.RuntimeConfigurationApplied -= ActivateRuntimeConfiguration;
+            BasisSsoAuthController.RuntimeConfigurationApplied += ActivateRuntimeConfiguration;
             if (!BasisSsoAuthController.EnsureConfigLoaded())
             {
                 BasisDebug.Log("[SSO] No OIDC config found; launch gate disabled.");
                 return;
             }
 
+            ActivateConfiguredGate();
+        }
+
+        /// <summary>Enables the gate after a broker-issued runtime configuration arrives.</summary>
+        private static void ActivateRuntimeConfiguration()
+        {
+            if (!BasisSsoAuthController.IsConfigured) return;
+            ActivateConfiguredGate();
+        }
+
+        private static void ActivateConfiguredGate()
+        {
+            if (_activated) return;
+            _activated = true;
             // Block startup auto-connect and every manual/CLI connect until sign-in completes.
             BasisConnectionService.AutoConnectAttempted = true;
             BasisConnectionService.ConnectionBlockedReason = () =>
                 (BasisSsoAuthController.IsConfigured && !BasisSsoAuthController.IsSignedIn) ? BlockedReason : null;
+            BasisConnectionService.ConnectionAuthenticationPayloadProvider = password =>
+                BasisSsoAdmissionService.CreateConnectionPayloadAsync(password);
 
             BasisSsoAccountTab.Register();
             BasisSsoGateRunner.Begin();
@@ -72,6 +91,13 @@ namespace Basis.Integration.Sso.FrameworkGate
             _instance = go.AddComponent<BasisSsoGateRunner>();
         }
 
+        /// <summary>Starts an account-tab initiated sign-in with the selected provider.</summary>
+        internal static void RequestInteractiveSignIn(string providerId)
+        {
+            Begin();
+            _instance?.BeginInteractiveSignInFromAccount(providerId);
+        }
+
         private void Start()
         {
             BasisSsoAuthController.StateChanged += OnStateChanged;
@@ -102,6 +128,21 @@ namespace Basis.Integration.Sso.FrameworkGate
             _cts?.Dispose();
             _cts = new CancellationTokenSource();
             RunGateAsync();
+        }
+
+        private void BeginInteractiveSignInFromAccount(string providerId)
+        {
+            if (!string.IsNullOrWhiteSpace(providerId) && !BasisSsoAuthController.SelectProvider(providerId))
+            {
+                ShowDialog("Sign-in error", "The selected identity provider is no longer configured.", "OK", _ => { });
+                return;
+            }
+
+            _cts?.Cancel();
+            _cts?.Dispose();
+            _cts = new CancellationTokenSource();
+            _flowActive = true;
+            BeginInteractiveSignIn();
         }
 
         private async void RunGateAsync()
@@ -136,6 +177,31 @@ namespace Basis.Integration.Sso.FrameworkGate
 
         private void PresentSignInPrompt()
         {
+            if (BasisSsoAuthController.HasProviderChoice)
+            {
+                var providers = BasisSsoAuthController.Providers;
+                // The existing dialogue component has two actions. The supported deployment
+                // profile deliberately exposes Google and Okta; reject a larger list instead of
+                // silently choosing an identity provider for the user.
+                if (providers.Count == 2)
+                {
+                    ShowDialog(
+                        "Choose sign-in provider",
+                        "Choose the organization account you use for BasisVR.",
+                        ProviderLabel(providers[0]), ProviderLabel(providers[1]), chooseFirst =>
+                        {
+                            BasisSsoAuthController.SelectProvider(providers[chooseFirst ? 0 : 1].Id);
+                            BeginInteractiveSignIn();
+                        });
+                    return;
+                }
+
+                ShowDialog("SSO configuration error",
+                    "This client UI currently supports exactly two sign-in providers.",
+                    "Quit", _ => Quit());
+                return;
+            }
+
             ShowDialog(
                 "Sign in required",
                 "This BasisVR client requires you to sign in with your organization account to continue.",
@@ -147,6 +213,9 @@ namespace Basis.Integration.Sso.FrameworkGate
                     else Quit();
                 });
         }
+
+        private static string ProviderLabel(BasisOidcConfig.ProviderConfig provider) =>
+            !string.IsNullOrWhiteSpace(provider?.Label) ? provider.Label : provider?.Id ?? "Sign in";
 
         private async void BeginInteractiveSignIn()
         {

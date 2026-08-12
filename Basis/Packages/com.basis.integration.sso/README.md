@@ -3,8 +3,9 @@
 Client-side OpenID Connect single sign-on for the BasisVR **Desktop/PCVR** client, for
 closed-org deployments. The client is gated at launch behind an OIDC login (Authorization
 Code + PKCE, system browser, 127.0.0.1 loopback redirect). The session is persisted
-encrypted-at-rest and the local DID identity is bound to the signed-in user. **The server /
-DID network protocol is unchanged** — this is a client-side gate only.
+encrypted-at-rest and the local DID identity is bound to the signed-in user. With the included
+HTTPS broker and an SSO-enabled Basis server, the client also obtains a DID-bound ticket for
+server-side admission.
 
 Full design: `docs/sso-spec.md` at the repo root.
 
@@ -19,22 +20,27 @@ Implemented (this package):
 - `BasisOidcLoginService` — discovery, PKCE, loopback callback, token exchange + refresh, UserInfo merge.
 - `BasisSsoIdentityBinding` — namespaces the DID keypair per `sub`, seeds/persists per-account display name.
 - `BasisSsoAuthController` — orchestration brain used by the UI and the launch gate.
+- Google and Okta provider selection, HTTPS broker exchange, and a one-minute DID-bound ticket.
+- X25519 + ChaCha20-Poly1305 encryption of the UDP admission envelope to the pinned server key.
+- Server-side HMAC validation, one-time ticket IDs, and the existing DID challenge.
 
-Pending (integration): the launch-gate MonoBehaviour + login screen UI, the Settings sign-out /
-switch-account UI, and suppressing `BasisConnectionService` auto-connect until sign-in completes.
+See `SSO-OPERATIONS.md` and `Tools/BasisSsoBroker/README.md` for deployment and trust-boundary details.
 
 ## Configuration
 
 Ship `basis-sso.json` in `Assets/StreamingAssets/` (see `Samples~/basis-sso.sample.json`). A copy
 in `Application.persistentDataPath` overrides it per machine. Schema is documented in the spec §5.
 
-### Google (current target)
+### Google
 
 Create an OAuth client of type **Desktop app** in Google Cloud Console → *APIs & Services →
-Credentials*. Put its client ID and client secret in the config. Notes:
+Credentials*. Put its client ID in the config. If Google requires it, also set `clientSecret` for
+that native client. Notes:
 
-- Google Desktop-app clients require `client_secret` in the token exchange even with PKCE — it is
-  documented as non-confidential. Provide it via `clientSecret`.
+- This is a public/native OAuth client. If Google requires `clientSecret`, it is only included in
+  the direct HTTPS token exchange with Google; it is never sent to the Basis server or broker. Do
+  not put confidential server or broker keys in the build or
+  runtime config. PKCE binds authorization-code redemption to the client instance.
 - Google returns a refresh token only when the auth request carries `access_type=offline`; add
   `prompt=consent` to guarantee it on every interactive sign-in. Both go in `extraAuthParams`.
 - Desktop-app clients allow **any loopback port**, so `redirect.port` can stay `0` (ephemeral) and
@@ -45,7 +51,7 @@ Credentials*. Put its client ID and client secret in the config. Notes:
 ### Okta / generic OIDC
 
 Use issuer `https://<org>.okta.com/oauth2/default`, an **OIDC Native** app (Auth Code + PKCE,
-loopback redirect allowed), leave `clientSecret` empty, and request a refresh token via the
+loopback redirect allowed), and request a refresh token via the
 `offline_access` scope instead of `extraAuthParams`. For group rules, have the IdP emit `groups`.
 
 ## id_token signature verification

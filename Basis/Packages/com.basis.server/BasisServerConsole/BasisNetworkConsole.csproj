@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <StartupObject>Basis.Program</StartupObject>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <!-- Never emit a standalone-server DLL inside Packages/. Unity discovers DLLs
+         there as plugins, which would duplicate the source assemblies. -->
+    <BaseIntermediateOutputPath>../../../ServerBuild/obj/</BaseIntermediateOutputPath>
+    <BaseOutputPath>../../../ServerBuild/bin/</BaseOutputPath>
+  </PropertyGroup>
+
+  <!-- The Unity package is the source of truth. Compile the standalone server from the same
+       sources rather than relying on an untracked, separately generated project graph. -->
+  <ItemGroup>
+    <Compile Include="../BasisNetworkCore/**/*.cs" />
+    <Compile Include="../BasisNetworkServer/**/*.cs" />
+    <Compile Include="../BasisNetworkClient/**/*.cs" />
+    <Compile Include="../BasisPrometheus/**/*.cs" />
+    <Compile Include="../Contrib/**/*.cs"
+             Exclude="../Contrib/**/*.Tests/**/*.cs;../Contrib/**/*Tests.cs;../Contrib/Handles/Dns/**/*.cs" />
+    <Compile Include="../LiteNetLib/**/*.cs" />
+    <Compile Include="./*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Keep the standalone build self-contained: these are the same managed
+         assemblies that Unity resolves from the embedded packages. -->
+    <Reference Include="BouncyCastle.Cryptography">
+      <HintPath>../../org.basisvr.bouncycastle/BouncyCastle.Cryptography.dll</HintPath>
+    </Reference>
+    <Reference Include="Generator.Equals.Runtime">
+      <HintPath>../../org.basisvr.generator.equals/Generator.Equals.Runtime.dll</HintPath>
+    </Reference>
+    <Reference Include="K4os.Compression.LZ4">
+      <HintPath>../../org.basisvr.k4os.compression.lz4/K4os.Compression.LZ4.dll</HintPath>
+    </Reference>
+    <Reference Include="SimpleBase">
+      <HintPath>../../org.basisvr.simplebase/SimpleBase.dll</HintPath>
+    </Reference>
+    <Reference Include="Base128">
+      <HintPath>../../org.basisvr.base128/Base128.dll</HintPath>
+    </Reference>
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>../../org.basisvr.newtonsoft.json/Newtonsoft.Json.dll</HintPath>
+    </Reference>
+    <Analyzer Include="../../org.basisvr.generator.equals/Generator.Equals.dll" />
+  </ItemGroup>
+</Project>

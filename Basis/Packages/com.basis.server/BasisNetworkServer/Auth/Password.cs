@@ -1,6 +1,7 @@
 #nullable enable
 
 using Encoding = System.Text.Encoding;
+using Basis.Network.Core;
 using static Basis.Network.Core.Serializable.SerializableBasis;
 using System;
 
@@ -24,10 +25,17 @@ namespace Basis.Network.Server.Auth
     internal readonly struct Deserialized
     {
         public readonly UserPassword Password { get; }
+        public readonly string AdmissionTicket;
         public Deserialized(byte[] Bytesmsg)
         {
-            string password = Encoding.UTF8.GetString(Bytesmsg);
+            string password;
+            if (!SsoConnectionAuthPayload.TryDecode(Bytesmsg, out password, out string ticket))
+            {
+                password = Encoding.UTF8.GetString(Bytesmsg);
+                ticket = null;
+            }
             Password = new UserPassword(password);
+            AdmissionTicket = ticket;
         }
     }
 
@@ -70,6 +78,12 @@ namespace Basis.Network.Server.Auth
         {
             var deserialized = new Deserialized(Bytesmsg);
             return CheckPassword(serverPassword, deserialized.Password);
+        }
+
+        public static bool TryGetAdmissionTicket(byte[] bytes, out string ticket)
+        {
+            SsoConnectionAuthPayload.TryDecode(bytes, out _, out ticket);
+            return !string.IsNullOrWhiteSpace(ticket);
         }
     }
 }

@@ -1,0 +1,23 @@
+# Install after publishing the broker with:
+# dotnet publish -c Release -o /opt/basis-sso-broker
+# Copy appsettings.json and broker.env into /opt/basis-sso-broker, chmod broker.env 600.
+[Unit]
+Description=Basis SSO admission broker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/basis-sso-broker
+EnvironmentFile=/opt/basis-sso-broker/broker.env
+Environment=ASPNETCORE_URLS=http://127.0.0.1:5080
+ExecStart=/usr/bin/dotnet /opt/basis-sso-broker/BasisSsoBroker.dll
+Restart=on-failure
+RestartSec=5
+User=basis
+Group=basis
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -30,10 +30,16 @@ namespace Basis
             bool isFirstBoot = !File.Exists(configFilePath);
             Configuration config = Configuration.LoadFromXml(configFilePath);
             config.ProcessEnvironmentalOverrides();
+            // Environment-driven/Docker first boots enable RequireSso after LoadFromXml has
+            // created the default configuration. Generate and persist the needed stable keys
+            // before either the UDP server or a colocated broker starts.
+            if (config.RequireSso && Basis.Network.Core.BasisSsoTransportKeys.Ensure(config, out bool generatedSsoKeys) && generatedSsoKeys)
+            {
+                config.SaveToXml(configFilePath);
+            }
 
             string folderPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, Configuration.LogsFolderName);
             BasisServerSideLogging.Initialize(config, folderPath);
-
             // Brand-new server: walk the operator through core settings and force them to
             // designate an admin before anything boots.
             if (isFirstBoot)
@@ -47,6 +53,9 @@ namespace Basis
             if (config.ApiEnabled && !string.IsNullOrEmpty(config.ApiKey))
                 Api = new BasisRestApiHandler(config);
 #endif
+
+            var ssoBroker = new BasisSsoBrokerProcess();
+            ssoBroker.Start(config, baseDir);
 
             NetworkServer.StartServer(config);
             
@@ -90,6 +99,7 @@ namespace Basis
 #if !UNITY_2017_1_OR_NEWER
                 Api?.Dispose();
 #endif
+                ssoBroker.Dispose();
                 BasisPersistentDatabase.Shutdown();
                 BasisServerReductionSystemEvents.Shutdown();
                 if (config.EnableStatistics) BasisStatistics.StopWorkerThread();

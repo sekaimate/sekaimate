@@ -13,19 +13,26 @@ namespace Basis.Integration.Sso
     public static class BasisSsoAuthController
     {
         private static BasisOidcConfig _config;
+        private static BasisOidcConfig _activeProviderConfig;
         private static BasisOidcLoginService _service;
+        private static bool _runtimeConfigurationActive;
 
         public static BasisSsoSession Current { get; private set; }
         public static bool IsSignedIn => Current != null;
+        public static string SelectedProviderId { get; private set; }
+        public static bool HasProviderChoice => _config?.Providers != null && _config.Providers.Count > 1;
+        public static System.Collections.Generic.IReadOnlyList<BasisOidcConfig.ProviderConfig> Providers => _config?.Providers;
 
         /// <summary>True once config has loaded and validated. When false, SSO cannot proceed.</summary>
         public static bool IsConfigured => _config != null;
 
         public static string ActiveDisplayName =>
-            IsSignedIn ? BasisSsoIdentityBinding.ResolveDisplayNameFromClaims(_config, Current) : null;
+            IsSignedIn ? BasisSsoIdentityBinding.ResolveDisplayNameFromClaims(_activeProviderConfig ?? _config, Current) : null;
 
         /// <summary>Raised after any sign-in/sign-out/renew so the gate and settings UI can refresh.</summary>
         public static event Action StateChanged;
+        /// <summary>Raised after a broker-issued configuration has been accepted for this process.</summary>
+        public static event Action RuntimeConfigurationApplied;
 
         /// <summary>
         /// One-shot OIDC <c>prompt</c> consumed by the next <see cref="SignInAsync"/>. Setting this
@@ -40,7 +47,52 @@ namespace Basis.Integration.Sso
             if (_config != null) return true;
             _config = BasisOidcConfig.Load();
             if (_config == null) return false;
-            _service = new BasisOidcLoginService(_config);
+            SelectedProviderId = !string.IsNullOrEmpty(_config.DefaultProviderId)
+                ? _config.DefaultProviderId
+                : (_config.Providers != null && _config.Providers.Count > 0 ? _config.Providers[0].Id : null);
+            ConfigureService(SelectedProviderId);
+            return true;
+        }
+
+        /// <summary>
+        /// Activates a broker-issued configuration for this process only. It deliberately does
+        /// not write <c>basis-sso.json</c> to persistent storage: setup links are ephemeral.
+        /// </summary>
+        public static bool ApplyRuntimeConfiguration(string json, out string error)
+        {
+            if (!BasisOidcConfig.TryParse(json, out BasisOidcConfig config, out error)) return false;
+            BasisOidcConfig.ProviderConfig nextProvider = config.FindProvider(
+                !string.IsNullOrEmpty(config.DefaultProviderId) ? config.DefaultProviderId : Current?.ProviderId);
+            bool keepSession = Current != null && nextProvider != null && _activeProviderConfig != null
+                && string.Equals(Current.ProviderId, nextProvider.Id, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(_activeProviderConfig.Issuer, nextProvider.Issuer, StringComparison.Ordinal)
+                && string.Equals(_activeProviderConfig.ClientId, nextProvider.ClientId, StringComparison.Ordinal);
+            if (!keepSession)
+            {
+                Current = null;
+                BasisSsoSessionStore.Clear();
+                BasisSsoIdentityBinding.Unbind();
+            }
+            _config = config;
+            _runtimeConfigurationActive = true;
+            SelectedProviderId = !string.IsNullOrEmpty(config.DefaultProviderId)
+                ? config.DefaultProviderId
+                : (config.Providers != null && config.Providers.Count > 0 ? config.Providers[0].Id : null);
+            ConfigureService(SelectedProviderId);
+            if (keepSession) BasisSsoIdentityBinding.Bind(_activeProviderConfig ?? _config, Current);
+            StateChanged?.Invoke();
+            RuntimeConfigurationApplied?.Invoke();
+            return true;
+        }
+
+        /// <summary>Selects the provider for the next interactive sign-in. A stored session always selects its own provider.</summary>
+        public static bool SelectProvider(string providerId)
+        {
+            if (!EnsureConfigLoaded()) return false;
+            if (_config.Providers == null || _config.Providers.Count == 0) return string.IsNullOrEmpty(providerId);
+            if (_config.FindProvider(providerId) == null) return false;
+            SelectedProviderId = providerId;
+            ConfigureService(providerId);
             return true;
         }
 
@@ -55,6 +107,12 @@ namespace Basis.Integration.Sso
 
             BasisSsoSession stored = BasisSsoSessionStore.Load();
             if (stored == null) return SsoAuthResult.Fail("No stored session.");
+
+            if (_config.Providers != null && _config.Providers.Count > 0)
+            {
+                if (!SelectProvider(stored.ProviderId))
+                    return SsoAuthResult.Fail("Stored session belongs to a provider no longer configured.");
+            }
 
             SsoAuthResult result = await _service.TrySilentAsync(stored, ct);
             return await FinalizeAsync(result, persist: true);
@@ -97,6 +155,27 @@ namespace Basis.Integration.Sso
             return await _service.GetEndSessionEndpointAsync(ct);
         }
 
+        internal static bool TryGetAdmissionRequest(out string endpoint, out string idToken, out string serverPublicKey,
+            out bool allowUntrustedLoopbackCertificate)
+        {
+            // The admission transport key can be rotated independently of an existing OIDC
+            // session. Reload it here so an Editor session with domain reload disabled cannot
+            // keep encrypting tickets to a stale server key.
+            BasisOidcConfig freshConfig = _runtimeConfigurationActive ? null : BasisOidcConfig.Load();
+            if (_config != null && freshConfig?.ServerTransport != null
+                && !string.IsNullOrWhiteSpace(freshConfig.ServerTransport.AdmissionEndpoint)
+                && !string.IsNullOrWhiteSpace(freshConfig.ServerTransport.ServerPublicKey))
+            {
+                _config.ServerTransport = freshConfig.ServerTransport;
+            }
+            endpoint = _config?.ServerTransport?.AdmissionEndpoint;
+            idToken = Current?.IdToken;
+            serverPublicKey = _config?.ServerTransport?.ServerPublicKey;
+            allowUntrustedLoopbackCertificate = _config?.ServerTransport?.AllowUntrustedLoopbackCertificate == true;
+            return IsSignedIn && !string.IsNullOrWhiteSpace(endpoint) && !string.IsNullOrWhiteSpace(idToken)
+                && !string.IsNullOrWhiteSpace(serverPublicKey);
+        }
+
         // ── shared post-processing ─────────────────────────────────────────
 
         private static Task<SsoAuthResult> FinalizeAsync(SsoAuthResult result, bool persist)
@@ -104,7 +183,7 @@ namespace Basis.Integration.Sso
             if (result == null || !result.Success || result.Session == null)
                 return Task.FromResult(result ?? SsoAuthResult.Fail("Unknown sign-in failure."));
 
-            SsoAccessDecision decision = BasisSsoAccessControl.Evaluate(_config, result.Session);
+            SsoAccessDecision decision = BasisSsoAccessControl.Evaluate(_activeProviderConfig ?? _config, result.Session);
             if (!decision.Allowed)
             {
                 // Never persist or activate a denied session.
@@ -115,11 +194,18 @@ namespace Basis.Integration.Sso
                 return Task.FromResult(SsoAuthResult.Deny(decision.Reason));
             }
 
+            result.Session.ProviderId = SelectedProviderId ?? string.Empty;
             Current = result.Session;
             if (persist) BasisSsoSessionStore.Save(result.Session);
-            BasisSsoIdentityBinding.Bind(_config, result.Session);
+            BasisSsoIdentityBinding.Bind(_activeProviderConfig ?? _config, result.Session);
             StateChanged?.Invoke();
             return Task.FromResult(SsoAuthResult.Ok(result.Session));
+        }
+
+        private static void ConfigureService(string providerId)
+        {
+            _activeProviderConfig = _config.ForProvider(providerId) ?? _config;
+            _service = new BasisOidcLoginService(_activeProviderConfig);
         }
     }
 }

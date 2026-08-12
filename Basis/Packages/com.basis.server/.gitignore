@@ -56,3 +56,8 @@ Docker/*
 !Docker/Dockerfile.meta
 !Docker/docker-compose.yml
 !Docker/docker-compose.yml.meta
+!Docker/.env.example
+!Docker/Caddyfile
+!Docker/Caddyfile.local
+Docker/sso/broker/control-plane.json
+!BasisServerConsole/BasisNetworkConsole.csproj

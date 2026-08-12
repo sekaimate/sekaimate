@@ -4,6 +4,7 @@
     "references": [
         "BasisDebug",
         "BasisCommon",
+        "Basis Framework",
         "BasisNetworkClient",
         "BasisNetworkCore"
     ],
