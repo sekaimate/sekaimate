@@ -17,6 +17,17 @@ public sealed class WebSocketEventBridge : IWebSocketServerConnectionHandler
         _maximumPayloadLength = maximumPayloadLength;
     }
 
+    public int ConnectedPeersCount
+    {
+        get
+        {
+            lock (_peersLock)
+            {
+                return _peers.Count;
+            }
+        }
+    }
+
     public ValueTask<WebSocketConnectionDecision> OnConnectionRequestedAsync(
         WebSocketServerSession session,
         ReadOnlyMemory<byte> helloPayload,

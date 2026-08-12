@@ -13,6 +13,21 @@ public sealed class WebSocketServerTransportOptions
     public TimeSpan KeepAliveInterval { get; set; } = TimeSpan.FromSeconds(30);
     public List<string> AllowedOrigins { get; } = new();
 
+    public static WebSocketServerTransportOptions FromConfiguration(Configuration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        WebSocketServerTransportOptions options = new()
+        {
+            Port = configuration.WebSocketPort,
+            Path = configuration.WebSocketPath,
+            MaximumPayloadLength = configuration.WebSocketMaximumPayloadLength,
+            PendingSendCapacity = configuration.WebSocketPendingSendCapacity,
+        };
+        options.AllowedOrigins.AddRange(configuration.WebSocketAllowedOrigins ?? Array.Empty<string>());
+        options.Validate();
+        return options;
+    }
+
     public void Validate()
     {
         if (Port is < 1 or > ushort.MaxValue)
