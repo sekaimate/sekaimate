@@ -91,6 +91,7 @@ public class BasisWebUiAssetCacheTests
     }
 
     [TestCase("Packages/com.basis.sdk/Prefabs/UI/Loading Bar.prefab")]
+    [TestCase("OnScreenControls")]
     [TestCase("DesktopReticle")]
     [TestCase("Packages/com.basis.sdk/Prefabs/AvatarOrb.prefab")]
     [TestCase("Packages/com.basis.sdk/Prefabs/PropOrb.prefab")]
