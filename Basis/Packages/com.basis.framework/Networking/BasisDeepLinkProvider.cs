@@ -121,7 +121,13 @@ namespace Basis.Scripts.Networking
             if (string.IsNullOrEmpty(addr)) return string.Empty;
             string portStr = entry.Target?.Get(ConnectionTarget.Keys.Port) ?? string.Empty;
             ushort port = ushort.TryParse(portStr, out ushort p) ? p : LNLConnectionTargetParser.DefaultPort;
-            return FormatDeepLink(addr, port, !string.IsNullOrEmpty(entry.Password) ? entry.Password : null);
+            string link = FormatDeepLink(addr, port, !string.IsNullOrEmpty(entry.Password) ? entry.Password : null);
+            if (!string.IsNullOrEmpty(entry.WebSocketUri))
+            {
+                link += link.IndexOf('?') >= 0 ? "&" : "?";
+                link += "websocketUri=" + Uri.EscapeDataString(entry.WebSocketUri);
+            }
+            return link;
         }
 
         /// <summary>
@@ -237,12 +243,15 @@ namespace Basis.Scripts.Networking
 
             string connectionPart = rest;
             string password = string.Empty;
+            string webSocketUri = string.Empty;
 
             int queryIdx = rest.IndexOf('?');
             if (queryIdx >= 0)
             {
                 connectionPart = rest.Substring(0, queryIdx).TrimEnd('/');
-                password = ParsePasswordFromQuery(rest.Substring(queryIdx + 1));
+                string query = rest.Substring(queryIdx + 1);
+                password = ParseQueryValue(query, "password");
+                webSocketUri = ParseQueryValue(query, "websocketUri");
             }
 
             if (!LNLConnectionTargetParser.TryParseConnectionString(
@@ -259,6 +268,7 @@ namespace Basis.Scripts.Networking
                 SourceId = SavedServersDirectorySource.Id,
                 DisplayName = string.Empty,
                 Target = target,
+                WebSocketUri = webSocketUri,
                 HasPassword = !string.IsNullOrEmpty(password),
                 Password = password,
                 CanEdit = false,
@@ -267,13 +277,13 @@ namespace Basis.Scripts.Networking
             return true;
         }
 
-        private static string ParsePasswordFromQuery(string query)
+        private static string ParseQueryValue(string query, string key)
         {
             foreach (string param in query.Split('&'))
             {
                 int eqIdx = param.IndexOf('=');
                 if (eqIdx < 0) continue;
-                if (string.Equals(param.Substring(0, eqIdx).Trim(), "password", StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(param.Substring(0, eqIdx).Trim(), key, StringComparison.OrdinalIgnoreCase))
                 {
                     string val = param.Substring(eqIdx + 1);
                     try { return Uri.UnescapeDataString(val); }
