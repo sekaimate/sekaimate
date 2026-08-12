@@ -428,7 +428,6 @@ public static class BasisAudioClipPlayer
             List<float> monoSamples = new List<float>();
             int remainingPreSkip = preSkipSamples;
 #if (UNITY_IOS || UNITY_WEBGL) && !UNITY_EDITOR
-            // iOS requires statically linked Opus library
             decoder = new OpusSharp.Core.Static.OpusDecoder(SampleRate, channels);
 #else
             decoder = new OpusSharp.Core.Dynamic.OpusDecoder(SampleRate, channels);

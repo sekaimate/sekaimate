@@ -900,7 +900,6 @@ namespace Basis.Scripts.Networking.Receivers
             LogOutputRateOnce();
 
 #if (UNITY_IOS || UNITY_WEBGL) && !UNITY_EDITOR
-            // iOS requires statically linked Opus library
             decoder = new OpusSharp.Core.Static.OpusDecoder(RemoteOpusSettings.NetworkSampleRate, RemoteOpusSettings.Channels);
 #else
             decoder = new OpusSharp.Core.Dynamic.OpusDecoder(RemoteOpusSettings.NetworkSampleRate, RemoteOpusSettings.Channels);
