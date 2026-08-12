@@ -24,7 +24,13 @@ public sealed class BasisWebSocketServerTransport : IAsyncDisposable
         _peerIdAllocator = peerIdAllocator ?? new WebSocketPeerIdAllocator();
 
         WebApplicationBuilder builder = WebApplication.CreateSlimBuilder();
-        builder.WebHost.ConfigureKestrel(serverOptions => serverOptions.ListenAnyIP(options.Port));
+        builder.WebHost.ConfigureKestrel(serverOptions => serverOptions.ListenAnyIP(options.Port, listenOptions =>
+        {
+            if (options.UseTls)
+            {
+                listenOptions.UseHttps(options.CertificatePath, options.CertificatePassword);
+            }
+        }));
         WebApplication application = builder.Build();
         application.UseWebSockets(new WebSocketOptions
         {

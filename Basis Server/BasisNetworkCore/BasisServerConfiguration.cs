@@ -59,6 +59,9 @@ public class Configuration
     public int WebSocketMaximumPayloadLength = 1024 * 1024;
     public int WebSocketPendingSendCapacity = 64;
     public string[] WebSocketAllowedOrigins = Array.Empty<string>();
+    public bool WebSocketUseTls = true;
+    public string WebSocketCertificatePath = "";
+    public string WebSocketCertificatePassword = "";
     public BasisUserRestrictionMode BasisUserRestrictionMode;
     public int HowManyDuplicateAuthCanExist = 2;
     public int AuthValidationTimeOutMiliseconds = 9000;
