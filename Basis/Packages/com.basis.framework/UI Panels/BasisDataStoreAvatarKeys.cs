@@ -86,7 +86,11 @@ namespace Basis.Scripts.UI.UI_Panels
 
             try
             {
+#if UNITY_WEBGL && !UNITY_EDITOR
+                byte[] byteData = File.ReadAllBytes(FilePath);
+#else
                 byte[] byteData = await File.ReadAllBytesAsync(FilePath);
+#endif
 
                 // If you actually serialized AvatarKeys before, use this:
                 keys = BasisSerialization.DeserializeValue<AvatarKeys>(byteData);
@@ -115,7 +119,12 @@ namespace Basis.Scripts.UI.UI_Panels
             {
                 // Serialize the container (which contains an AvatarKey[]).
                 byte[] byteData = BasisSerialization.SerializeValue(keys);
+#if UNITY_WEBGL && !UNITY_EDITOR
+                File.WriteAllBytes(FilePath, byteData);
+                await BasisWebPersistence.FlushAsync();
+#else
                 await File.WriteAllBytesAsync(FilePath, byteData);
+#endif
 
                 BasisDebug.Log($"Keys saved to file at: {FilePath}");
             }
