@@ -9,10 +9,11 @@ public class BasisWebPersistenceTests
         string plugin = File.ReadAllText("Packages/com.basis.sdk/Plugins/WebGL/BasisWebPersistence.jslib");
         string bridge = File.ReadAllText("Packages/com.basis.sdk/Scripts/Platform/BasisWebPersistence.cs");
 
-        StringAssert.Contains("FS.syncfs(true", plugin);
-        StringAssert.Contains("FS.syncfs(false", plugin);
+        StringAssert.Contains("FS.syncfs(operation.populate", plugin);
         StringAssert.Contains("public static Task EnsureInitializedAsync()", bridge);
         StringAssert.Contains("public static Task FlushAsync()", bridge);
+        StringAssert.Contains("BeginSync(populate: true)", bridge);
+        StringAssert.Contains("BeginSync(populate: false)", bridge);
         StringAssert.Contains("[DllImport(\"__Internal\")]", bridge);
     }
 
