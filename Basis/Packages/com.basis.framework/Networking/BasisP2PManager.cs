@@ -187,6 +187,10 @@ namespace Basis.Scripts.Networking
 
         public static string SendRequest(ushort targetPlayerId)
         {
+            if (!BasisNetworkPlatformCapabilities.SupportsDirectPeerConnections)
+            {
+                return null;
+            }
             if (BasisNetworkConnection.LocalPlayerPeer == null)
             {
                 BasisDebug.LogError("[P2P] Not connected to server.");
@@ -240,6 +244,11 @@ namespace Basis.Scripts.Networking
 
         public static void AcceptIncoming(ushort senderPlayerId, string token)
         {
+            if (!BasisNetworkPlatformCapabilities.SupportsDirectPeerConnections)
+            {
+                DeclineIncoming(senderPlayerId, token);
+                return;
+            }
             if (!_sessionsByToken.TryGetValue(token, out Session s))
             {
                 BasisDebug.LogError($"[P2P] AcceptIncoming for unknown token {Preview(token)}.");
@@ -356,6 +365,12 @@ namespace Basis.Scripts.Networking
             directIds = new System.Collections.Generic.List<ushort>();
             relayIds = new System.Collections.Generic.List<ushort>();
 
+            if (!BasisNetworkPlatformCapabilities.SupportsDirectPeerConnections)
+            {
+                PopulateRelayRecipients(recipients, relayIds);
+                return;
+            }
+
             if (recipients == null)
             {
                 foreach (var kvp in _sessionsByOtherId)
@@ -390,6 +405,27 @@ namespace Basis.Scripts.Networking
                     {
                         relayIds.Add(id);
                     }
+                }
+            }
+        }
+
+        private static void PopulateRelayRecipients(ushort[] recipients, System.Collections.Generic.List<ushort> relayIds)
+        {
+            if (recipients != null)
+            {
+                relayIds.AddRange(recipients);
+                return;
+            }
+
+            if (!BasisNetworkConnection.TryGetLocalPlayerID(out ushort localId))
+            {
+                localId = ushort.MaxValue;
+            }
+            foreach (var kvp in BasisNetworkPlayers.Players)
+            {
+                if (kvp.Key != localId)
+                {
+                    relayIds.Add(kvp.Key);
                 }
             }
         }
@@ -561,6 +597,11 @@ namespace Basis.Scripts.Networking
         private static void OnInboundRequest(BasisP2PSignalMessage msg)
         {
             BasisDebug.Log($"[P2P] Server forwarded a direct-connection Request from player {msg.otherPlayerId} (token {msg.sessionToken}).");
+            if (!BasisNetworkPlatformCapabilities.SupportsDirectPeerConnections)
+            {
+                SendSubToServer(BasisNetworkCommons.P2PSub_Decline, msg.otherPlayerId, msg.sessionToken);
+                return;
+            }
             if (_sessionsByOtherId.ContainsKey(msg.otherPlayerId))
             {
                 BasisDebug.LogWarning($"[P2P] Auto-declining: already have a session with player {msg.otherPlayerId}.");

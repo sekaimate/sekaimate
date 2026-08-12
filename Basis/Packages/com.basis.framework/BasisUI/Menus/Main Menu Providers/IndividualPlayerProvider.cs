@@ -857,6 +857,8 @@ namespace Basis.BasisUI
             root = networkPage.Descriptor.ContentParent;
 
             // ---- Direct Connection (P2P) controls ----
+            if (BasisNetworkPlatformCapabilities.SupportsDirectPeerConnections)
+            {
             var p2pGroup = PanelElementDescriptor.CreateNew(PanelElementDescriptor.ElementStyles.Group, root);
             p2pGroup.SetTitle(BasisLocalization.Get("menu.individualPlayer.directConnection"));
             p2pGroup.SetDescription(BasisLocalization.Get("menu.individualPlayer.directConnection.description"));
@@ -1044,6 +1046,7 @@ namespace Basis.BasisUI
                     if (idx < 0) idx = 0;
                     BasisTrustedConnections.SetPolicy(remotePlayer.UUID, (BasisDirectConnectionPolicy)idx);
                 };
+            }
             }
 
             // The live per-player network readouts that used to sit here now live on the Debug

@@ -755,6 +755,11 @@ namespace Basis.BasisUI
 
         private static void BuildNetworkingSection(RectTransform container, PanelElementDescriptor tabDescriptor = null)
         {
+            if (!BasisNetworkPlatformCapabilities.SupportsDirectPeerConnections)
+            {
+                return;
+            }
+
             // Open by default when at least one direct (P2P) connection is live.
             bool directConnected = BasisP2PManager.HasAnyConnectedSession();
 
