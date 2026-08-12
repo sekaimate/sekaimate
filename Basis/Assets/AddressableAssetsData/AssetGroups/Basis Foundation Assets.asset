@@ -477,7 +477,8 @@ MonoBehaviour:
   - m_GUID: df4c5b7b152475f48adb88ead5775eb0
     m_Address: Packages/com.basis.sdk/Textures/Runtime/microphone-solid.png
     m_ReadOnly: 0
-    m_SerializedLabels: []
+    m_SerializedLabels:
+    - basis-ui
     FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: e148d80a0e5dc8042824b56262b99ce4
     m_Address: Packages/com.basis.sdk/Fonts/Inter_24pt-ExtraLight.ttf
@@ -492,7 +493,8 @@ MonoBehaviour:
   - m_GUID: e6ba79fcf10841e0b84a6eab1d7c0d8f
     m_Address: Packages/com.basis.sdk/Textures/Runtime/people-outline.png
     m_ReadOnly: 0
-    m_SerializedLabels: []
+    m_SerializedLabels:
+    - basis-ui
     FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: eb1f76131081c464798b0bfa5ecfc761
     m_Address: Packages/com.basis.sdk/Fonts/Inter_24pt-Medium.ttf
@@ -512,7 +514,8 @@ MonoBehaviour:
   - m_GUID: f184b79ab72cc224e94720390fb038c2
     m_Address: Packages/com.basis.sdk/Textures/Runtime/microphone-mute-solid.png
     m_ReadOnly: 0
-    m_SerializedLabels: []
+    m_SerializedLabels:
+    - basis-ui
     FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: f3e0631a93d0ade4d8aa6c53111ddf5e
     m_Address: Packages/com.basis.sdk/Prefabs/Panel Elements/Platform Panel - Linux.prefab
