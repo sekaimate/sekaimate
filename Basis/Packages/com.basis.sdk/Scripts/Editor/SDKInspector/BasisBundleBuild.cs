@@ -501,6 +501,12 @@ public static class BasisBundleBuild
                 Debug.Log($"{Length} Pre BuildBundle Event(s)...");
             }
 
+            if (!BasisWebBeeCompatibilityValidator.TryValidate(basisContentBase, targets, out string compatibilityError))
+            {
+                BasisDebug.LogError(compatibilityError);
+                return (false, compatibilityError);
+            }
+
             Debug.Log("Starting BuildBundle...");
             EditorUtility.DisplayProgressBar(BasisEditorLocalization.Get("sdk.bundleBuild.progress.start"), BasisEditorLocalization.Get("sdk.bundleBuild.progress.start"), 0);
 
