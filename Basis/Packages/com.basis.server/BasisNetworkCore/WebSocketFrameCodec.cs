@@ -5,10 +5,10 @@ namespace Basis.Network.Core
     public enum WebSocketFrameKind : byte
     {
         Hello = 1,
-        Accept = 2,
-        Data = 3,
-        Reject = 4,
-        Disconnect = 5,
+        Data = 2,
+        Reject = 3,
+        Disconnect = 4,
+        Accept = 5,
     }
 
     public enum WebSocketFrameDecodeError
