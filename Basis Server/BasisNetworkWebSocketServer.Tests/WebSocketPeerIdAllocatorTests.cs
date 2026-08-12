@@ -30,7 +30,7 @@ public sealed class WebSocketPeerIdAllocatorTests
         int first = allocator.Allocate();
         int second = allocator.Allocate();
 
-        Assert.Throws<InvalidOperationException>(allocator.Allocate);
+        Assert.Throws<InvalidOperationException>(() => { allocator.Allocate(); });
 
         allocator.Release(first);
 

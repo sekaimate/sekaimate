@@ -9,6 +9,7 @@ public sealed class WebSocketServerTransportOptions
     public int Port { get; set; }
     public string Path { get; set; } = string.Empty;
     public int MaximumPayloadLength { get; set; }
+    public int PendingSendCapacity { get; set; } = 64;
     public TimeSpan KeepAliveInterval { get; set; } = TimeSpan.FromSeconds(30);
     public List<string> AllowedOrigins { get; } = new();
 
@@ -33,6 +34,10 @@ public sealed class WebSocketServerTransportOptions
         if (KeepAliveInterval <= TimeSpan.Zero)
         {
             throw new ArgumentOutOfRangeException(nameof(KeepAliveInterval));
+        }
+        if (PendingSendCapacity <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(PendingSendCapacity));
         }
         if (AllowedOrigins.Count == 0)
         {

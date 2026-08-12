@@ -1,14 +1,68 @@
 namespace Basis.Network.WebSocketServer;
 
-internal sealed class WebSocketPeerIdAllocator
+public sealed class WebSocketPeerIdAllocator
 {
-    private int _lastPeerId = -1;
+    private readonly int _minimumId;
+    private readonly int _maximumId;
+    private readonly bool _descending;
+    private readonly Func<int, bool> _isUnavailable;
+    private readonly HashSet<int> _leasedIds = new();
+    private readonly object _sync = new();
+    private int _nextId;
+
+    public WebSocketPeerIdAllocator()
+        : this(0, int.MaxValue, false)
+    {
+    }
+
+    public WebSocketPeerIdAllocator(
+        int minimumId,
+        int maximumId,
+        bool descending,
+        Func<int, bool>? isUnavailable = null)
+    {
+        if (minimumId < 0) throw new ArgumentOutOfRangeException(nameof(minimumId));
+        if (maximumId < minimumId) throw new ArgumentOutOfRangeException(nameof(maximumId));
+        _minimumId = minimumId;
+        _maximumId = maximumId;
+        _descending = descending;
+        _isUnavailable = isUnavailable ?? (_ => false);
+        _nextId = descending ? maximumId : minimumId;
+    }
 
     public int Allocate()
     {
-        int peerId = Interlocked.Increment(ref _lastPeerId);
-        return peerId >= 0
-            ? peerId
-            : throw new InvalidOperationException("WebSocket peer ID space is exhausted.");
+        lock (_sync)
+        {
+            long rangeLength = (long)_maximumId - _minimumId + 1;
+            for (long attempt = 0; attempt < rangeLength; attempt++)
+            {
+                int candidate = _nextId;
+                _nextId = Next(candidate);
+                if (!_leasedIds.Contains(candidate) && !_isUnavailable(candidate))
+                {
+                    _leasedIds.Add(candidate);
+                    return candidate;
+                }
+            }
+        }
+        throw new InvalidOperationException("WebSocket peer ID space is exhausted.");
+    }
+
+    public void Release(int peerId)
+    {
+        lock (_sync)
+        {
+            _leasedIds.Remove(peerId);
+        }
+    }
+
+    private int Next(int current)
+    {
+        if (_descending)
+        {
+            return current == _minimumId ? _maximumId : current - 1;
+        }
+        return current == _maximumId ? _minimumId : current + 1;
     }
 }

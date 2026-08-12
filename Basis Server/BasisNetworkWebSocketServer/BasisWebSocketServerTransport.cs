@@ -10,16 +10,18 @@ namespace Basis.Network.WebSocketServer;
 public sealed class BasisWebSocketServerTransport : IAsyncDisposable
 {
     private readonly WebApplication _application;
-    private readonly WebSocketPeerIdAllocator _peerIdAllocator = new();
+    private readonly WebSocketPeerIdAllocator _peerIdAllocator;
     private int _started;
 
     public BasisWebSocketServerTransport(
         WebSocketServerTransportOptions options,
-        IWebSocketServerConnectionHandler connectionHandler)
+        IWebSocketServerConnectionHandler connectionHandler,
+        WebSocketPeerIdAllocator? peerIdAllocator = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(connectionHandler);
         options.Validate();
+        _peerIdAllocator = peerIdAllocator ?? new WebSocketPeerIdAllocator();
 
         WebApplicationBuilder builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.ConfigureKestrel(serverOptions => serverOptions.ListenAnyIP(options.Port));
@@ -77,13 +79,22 @@ public sealed class BasisWebSocketServerTransport : IAsyncDisposable
         IPAddress remoteAddress = context.Connection.RemoteIpAddress
             ?? throw new InvalidOperationException("Kestrel did not provide a remote IP address.");
         IPEndPoint remoteEndPoint = new(remoteAddress, context.Connection.RemotePort);
-        await using WebSocketServerSession session = new(
-            socket,
-            connectionHandler,
-            options.MaximumPayloadLength,
-            remoteEndPoint,
-            peerIdAllocator.Allocate());
-        await session.RunAsync(cancellationToken).ConfigureAwait(false);
+        int peerId = peerIdAllocator.Allocate();
+        try
+        {
+            await using WebSocketServerSession session = new(
+                socket,
+                connectionHandler,
+                options.MaximumPayloadLength,
+                remoteEndPoint,
+                peerId,
+                options.PendingSendCapacity);
+            await session.RunAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            peerIdAllocator.Release(peerId);
+        }
     }
 
     public async ValueTask DisposeAsync()

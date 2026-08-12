@@ -53,6 +53,12 @@ public class Configuration
     public bool UseAuth = true;
     public bool UseAuthIdentity = true;
     public string NetworkStackId = "";
+    public bool WebSocketEnabled = false;
+    public ushort WebSocketPort = 4297;
+    public string WebSocketPath = "/basis";
+    public int WebSocketMaximumPayloadLength = 1024 * 1024;
+    public int WebSocketPendingSendCapacity = 64;
+    public string[] WebSocketAllowedOrigins = Array.Empty<string>();
     public BasisUserRestrictionMode BasisUserRestrictionMode;
     public int HowManyDuplicateAuthCanExist = 2;
     public int AuthValidationTimeOutMiliseconds = 9000;
