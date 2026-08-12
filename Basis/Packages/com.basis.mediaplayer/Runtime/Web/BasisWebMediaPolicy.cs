@@ -42,4 +42,12 @@ public static class BasisWebMediaPolicy
 
         return true;
     }
+
+    public static bool TryValidateAudioOutput(bool usesAudioMixer, out string reason)
+    {
+        reason = usesAudioMixer
+            ? "AudioMixer routing is not supported by the Web media backend."
+            : null;
+        return reason == null;
+    }
 }

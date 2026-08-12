@@ -114,6 +114,14 @@ public class BasisBeeWebCompatibilityTests
     }
 
     [Test]
+    public void WebMediaRejectsAudioMixerRouting()
+    {
+        Assert.That(BasisWebMediaPolicy.TryValidateAudioOutput(false, out _), Is.True);
+        Assert.That(BasisWebMediaPolicy.TryValidateAudioOutput(true, out string reason), Is.False);
+        StringAssert.Contains("AudioMixer", reason);
+    }
+
+    [Test]
     public void HierarchyValidationReturnsExplicitWebGlBuildError()
     {
         GameObject root = new GameObject("Web BEE test avatar");
