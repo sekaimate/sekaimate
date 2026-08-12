@@ -38,7 +38,7 @@ public sealed class WebSocketClientTransportTests
         WebSocketClientTransport transport = new(bridge, 1024);
         List<string> sequence = new();
         bridge.BeforeSend = () => sequence.Add("hello");
-        transport.Connected += () => sequence.Add("connected");
+        transport.Connected += _ => sequence.Add("connected");
         transport.Connect("ws://127.0.0.1:4297/basis", new byte[] { 4, 2 });
 
         bridge.Open();
@@ -57,12 +57,42 @@ public sealed class WebSocketClientTransportTests
         FakeBrowserBridge bridge = new();
         WebSocketClientTransport transport = ConnectingTransport(bridge);
         int connectedCount = 0;
-        transport.Connected += () => connectedCount++;
+        int? remotePeerId = null;
+        transport.Connected += peerId =>
+        {
+            connectedCount++;
+            remotePeerId = peerId;
+        };
 
-        bridge.Message(ControlFrame(WebSocketFrameKind.Accept));
+        bridge.Message(AcceptFrame(42));
 
         Assert.Equal(WebSocketClientState.Connected, transport.State);
         Assert.Equal(1, connectedCount);
+        Assert.Equal(42, remotePeerId);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("00")]
+    [InlineData("000000")]
+    [InlineData("0000000000")]
+    [InlineData("80000000")]
+    public void AcceptFrame_WithMissingOrInvalidPeerId_ClosesAsProtocolError(string payloadHex)
+    {
+        byte[] payload = Convert.FromHexString(payloadHex);
+        FakeBrowserBridge bridge = new();
+        WebSocketClientTransport transport = ConnectingTransport(bridge);
+        int connectedCount = 0;
+        string? error = null;
+        transport.Connected += _ => connectedCount++;
+        transport.Error += message => error = message;
+
+        bridge.Message(ControlFrame(WebSocketFrameKind.Accept, payload));
+
+        Assert.Equal(WebSocketClientState.Closed, transport.State);
+        Assert.Equal((ushort)1002, bridge.CloseCode);
+        Assert.Equal(0, connectedCount);
+        Assert.Contains("peer ID", error);
     }
 
     [Fact]
@@ -79,7 +109,7 @@ public sealed class WebSocketClientTransportTests
         Assert.Throws<InvalidOperationException>(() => transport.Send(
             new byte[] { 1 }, 7, DeliveryMethod.Sequenced));
 
-        bridge.Message(ControlFrame(WebSocketFrameKind.Accept));
+        bridge.Message(AcceptFrame(0));
         transport.Send(new byte[] { 1, 3, 5 }, 7, DeliveryMethod.Sequenced);
 
         Assert.True(WebSocketFrameCodec.TryDecode(
@@ -191,7 +221,7 @@ public sealed class WebSocketClientTransportTests
         string? error = null;
         transport.Error += message => error = message;
 
-        bridge.Message(ControlFrame(WebSocketFrameKind.Accept));
+        bridge.Message(AcceptFrame(0));
 
         Assert.Equal(WebSocketClientState.Closed, transport.State);
         Assert.Equal((ushort)1002, bridge.CloseCode);
@@ -239,7 +269,7 @@ public sealed class WebSocketClientTransportTests
     private static WebSocketClientTransport ConnectedTransport(FakeBrowserBridge bridge)
     {
         WebSocketClientTransport transport = ConnectingTransport(bridge);
-        bridge.Message(ControlFrame(WebSocketFrameKind.Accept));
+        bridge.Message(AcceptFrame(0));
         return transport;
     }
 
@@ -251,13 +281,18 @@ public sealed class WebSocketClientTransportTests
         return transport;
     }
 
-    private static byte[] ControlFrame(WebSocketFrameKind kind)
+    private static byte[] AcceptFrame(int peerId)
+    {
+        return ControlFrame(WebSocketFrameKind.Accept, WebSocketAcceptPayloadCodec.Encode(peerId));
+    }
+
+    private static byte[] ControlFrame(WebSocketFrameKind kind, byte[]? payload = null)
     {
         return WebSocketFrameCodec.Encode(
             kind,
             0,
             DeliveryMethod.ReliableOrdered,
-            Array.Empty<byte>(),
+            payload ?? Array.Empty<byte>(),
             1024);
     }
 

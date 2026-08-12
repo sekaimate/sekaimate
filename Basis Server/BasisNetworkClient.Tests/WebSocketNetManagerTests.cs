@@ -23,14 +23,15 @@ public sealed class WebSocketNetManagerTests
         listener.PeerConnectedEvent += _ => sequence.Add("connected");
         WebSocketNetManager manager = StartedManager(listener, bridge, pendingSendCapacity: 2);
 
-        manager.Connect("ws://127.0.0.1:4297/basis", 4297, Writer(1));
+        NetPeer peer = manager.Connect("ws://127.0.0.1:4297/basis", 4297, Writer(1));
         bridge.Open();
 
         Assert.Empty(sequence);
 
-        bridge.Accept();
+        bridge.Accept(73);
 
         Assert.Equal(new[] { "connected" }, sequence);
+        Assert.Equal(73, peer.RemoteId);
     }
 
     [Fact]
@@ -48,7 +49,7 @@ public sealed class WebSocketNetManagerTests
             peer.Send(new byte[] { 30 }, 4, DeliveryMethod.Unreliable));
         Assert.Single(bridge.SentFrames);
 
-        bridge.Accept();
+        bridge.Accept(1);
 
         Assert.Equal(3, bridge.SentFrames.Count);
         AssertFrame(bridge.SentFrames[1], 2, DeliveryMethod.ReliableOrdered, 10);
@@ -70,7 +71,7 @@ public sealed class WebSocketNetManagerTests
         WebSocketNetManager manager = StartedManager(listener, bridge, pendingSendCapacity: 2);
         manager.Connect("ws://127.0.0.1:4297/basis", 4297, Writer(1));
         bridge.Open();
-        bridge.Accept();
+        bridge.Accept(1);
 
         bridge.Data(7, DeliveryMethod.ReliableSequenced, new byte[] { 4, 5, 6 });
 
@@ -125,11 +126,11 @@ public sealed class WebSocketNetManagerTests
 
         public void Open() => _sink!.OnBrowserOpen();
 
-        public void Accept() => _sink!.OnBrowserMessage(WebSocketFrameCodec.Encode(
+        public void Accept(int peerId) => _sink!.OnBrowserMessage(WebSocketFrameCodec.Encode(
             WebSocketFrameKind.Accept,
             0,
             DeliveryMethod.ReliableOrdered,
-            Array.Empty<byte>(),
+            WebSocketAcceptPayloadCodec.Encode(peerId),
             1024));
 
         public void Data(byte channel, DeliveryMethod deliveryMethod, byte[] payload) =>

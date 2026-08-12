@@ -68,9 +68,9 @@ namespace Basis.Network.WebSocketClient
                 _statistics);
             _peer = peer;
 
-            transport.Connected += () =>
+            transport.Connected += remotePeerId =>
             {
-                peer.Accept();
+                peer.Accept(remotePeerId);
                 _listener.RaisePeerConnected(peer);
             };
             transport.DataReceived += data =>
@@ -127,6 +127,7 @@ namespace Basis.Network.WebSocketClient
         private readonly int _maximumPayloadLength;
         private readonly NetStatistics _statistics;
         private bool _disconnected;
+        private int _remoteId;
 
         internal WebSocketNetPeer(
             WebSocketClientTransport transport,
@@ -155,16 +156,18 @@ namespace Basis.Network.WebSocketClient
         public bool IsConnected { get; private set; }
         public int Id => 0;
         public IPAddress Address { get; }
-        public int RemoteId => 0;
+        public int RemoteId => _remoteId;
         public int RoundTripTime => 0;
         public float TimeSinceLastPacket => 0;
         public long RemoteTimeDelta => 0;
         public int Mtu { get; }
         public object Tag { get; set; }
 
-        internal void Accept()
+        internal void Accept(int remoteId)
         {
             if (_disconnected) return;
+            if (remoteId < 0) throw new ArgumentOutOfRangeException(nameof(remoteId));
+            _remoteId = remoteId;
             IsConnected = true;
             while (_pendingSends.Count > 0)
             {

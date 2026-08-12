@@ -81,7 +81,7 @@ namespace Basis.Network.WebSocketClient
 
         public WebSocketClientState State { get; private set; }
 
-        public event Action Connected;
+        public event Action<int> Connected;
         public event Action<WebSocketClientData> DataReceived;
         public event Action<byte[]> Rejected;
         public event Action<WebSocketBrowserClose> Disconnected;
@@ -227,8 +227,13 @@ namespace Basis.Network.WebSocketClient
         {
             if (frame.Kind == WebSocketFrameKind.Accept)
             {
+                if (!WebSocketAcceptPayloadCodec.TryDecode(frame.Payload, out int remotePeerId))
+                {
+                    Fail("Accept frame does not contain a valid server peer ID.", ProtocolError);
+                    return;
+                }
                 State = WebSocketClientState.Connected;
-                Connected?.Invoke();
+                Connected?.Invoke(remotePeerId);
                 return;
             }
             if (frame.Kind == WebSocketFrameKind.Reject)
