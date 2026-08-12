@@ -33,12 +33,22 @@ public sealed class WebSocketConnectionTargetParserTests
     [InlineData("ftp://example.com/basis")]
     [InlineData("wss:///basis")]
     [InlineData("wss://user@example.com/basis")]
-    [InlineData("ws://example.com/basis")]
     public void Parse_RejectsInvalidOrUnsupportedTarget(string raw)
     {
         ConnectionTarget target = new("websocket", raw);
 
         Assert.Throws<FormatException>(() => _parser.Parse(target));
+    }
+
+    [Fact]
+    public void Parse_RequiresSecureWebSocketOutsideLoopback()
+    {
+        ConnectionTarget target = new("websocket", "ws://example.com/basis");
+
+        FormatException exception = Assert.Throws<FormatException>(() => _parser.Parse(target));
+
+        Assert.Contains("wss", exception.Message);
+        Assert.Contains("loopback", exception.Message);
     }
 
     [Theory]
