@@ -163,6 +163,14 @@ namespace Basis.Scripts.Networking
         private static float _timer;
         public static bool HasRequested;
 
+        // Indices of receivers that owe a main-thread AudioSource apply this tick. Filled
+        // during compute so the apply scales with state changes, not total player count.
+        static int[] s_decodedIndices = Array.Empty<int>();
+        static int s_decodedCount;
+        static BasisNetworkReceiver[] s_finishSnapshot;
+        static bool s_computePending;
+
+#if !UNITY_WEBGL || UNITY_EDITOR
         // Shared state for Parallel.For to avoid closure allocation per frame.
         // Written on main thread before Parallel.For, read by worker threads.
         static BasisNetworkReceiver[] s_parallelSnapshot;
@@ -173,16 +181,10 @@ namespace Basis.Scripts.Networking
         {
             MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 2)
         };
-        // Indices of receivers that owe a main-thread AudioSource apply this tick. Filled
-        // during compute so the apply scales with state changes, not total player count.
-        static int[] s_decodedIndices = Array.Empty<int>();
-        static int s_decodedCount;
         // Pipelined compute: Phase 2 runs as a background task started at the tail of the frame
         // and joined at the top of the next Update (overlaps jiggle CompletePose + the render gap).
         static Task s_computeTask;
-        static BasisNetworkReceiver[] s_finishSnapshot;
         static int s_parallelCount;
-        static bool s_computePending;
         static readonly Action s_runParallelCompute = RunParallelCompute;
         static void RunParallelCompute() => Parallel.For(0, s_parallelCount, s_parallelOptions, s_parallelComputeBody);
         static void ParallelComputeBody(int i)
@@ -194,6 +196,19 @@ namespace Basis.Scripts.Networking
                 s_decodedIndices[Interlocked.Increment(ref s_decodedCount) - 1] = i;
             }
         }
+#endif
+
+        static void RunSequentialCompute(BasisNetworkReceiver[] snapshot, int receiverCount, double unscaledDeltaTime)
+        {
+            for (int i = 0; i < receiverCount; i++)
+            {
+                snapshot[i].ComputeData(unscaledDeltaTime);
+                if (snapshot[i].AudioReceiverModule.NeedsAudioStateApply)
+                {
+                    s_decodedIndices[s_decodedCount++] = i;
+                }
+            }
+        }
 
         // Parameters for Euro filter (defaults; overridden at runtime by settings bindings)
         public static float MinCutoff = 0.05f;
@@ -201,10 +216,9 @@ namespace Basis.Scripts.Networking
         public static float DerivativeCutoff = 2;
 
         /// <summary>
-        /// Phase 1 (main thread) then kicks off the parallel per-receiver compute (Phase 2) on a
-        /// background task. Pair with <see cref="CompleteNetworkCompute"/> at the very top of the
-        /// next Update — before any receiver mutation (main-thread action drain, join/leave,
-        /// avatar calibration) — so the async pass can never race those writes.
+        /// Runs Phase 1 on the main thread, then computes each receiver. Native players with more
+        /// than four receivers use a background task; WebGL computes sequentially on the main
+        /// thread. Pair with <see cref="CompleteNetworkCompute"/> at the top of the next Update.
         /// </summary>
         /// <param name="UnscaledDeltaTime">Delta time since last tick (unscaled).</param>
         public static void BeginNetworkCompute(double UnscaledDeltaTime)
@@ -245,18 +259,19 @@ namespace Basis.Scripts.Networking
 
             BasisRemoteNetworkDriver.BeginWrite();
 
-            // Phase 2 (parallel): per-receiver audio decode + packet processing + interpolation +
-            // SoA writes. All per-receiver state, no shared-state conflicts. Kicked off here and
-            // joined in CompleteNetworkCompute so it overlaps jiggle CompletePose + the render gap.
+            // Phase 2: per-receiver audio decode + packet processing + interpolation + SoA writes.
             s_decodedCount = 0;
             if (s_decodedIndices.Length < receiverCount)
             {
                 s_decodedIndices = new int[receiverCount];
             }
             s_finishSnapshot = snapshot;
-            s_parallelCount = receiverCount;
             s_computePending = true;
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+            RunSequentialCompute(snapshot, receiverCount, UnscaledDeltaTime);
+#else
+            s_parallelCount = receiverCount;
             if (receiverCount > 4)
             {
                 s_parallelSnapshot = snapshot;
@@ -265,23 +280,16 @@ namespace Basis.Scripts.Networking
             }
             else
             {
-                for (int i = 0; i < receiverCount; i++)
-                {
-                    var rec = snapshot[i];
-                    rec.ComputeData(UnscaledDeltaTime);
-                    if (rec.AudioReceiverModule.NeedsAudioStateApply)
-                    {
-                        s_decodedIndices[s_decodedCount++] = i;
-                    }
-                }
+                RunSequentialCompute(snapshot, receiverCount, UnscaledDeltaTime);
                 s_computeTask = null;
             }
+#endif
         }
 
         /// <summary>
-        /// Joins the background compute from <see cref="BeginNetworkCompute"/>, then runs the
-        /// main-thread finish: Phase 3 AudioSource apply, interpolation job schedule, shout drain,
-        /// and profiler update. Must run before any receiver state is mutated this frame.
+        /// Completes compute from <see cref="BeginNetworkCompute"/>, then runs the main-thread
+        /// finish: Phase 3 AudioSource apply, interpolation job schedule, shout drain, and profiler
+        /// update. Must run before any receiver state is mutated this frame.
         /// </summary>
         public static void CompleteNetworkCompute(float DeltaTime)
         {
@@ -320,11 +328,12 @@ namespace Basis.Scripts.Networking
         }
 
         /// <summary>
-        /// Joins any in-flight background compute without running the main-thread finish. Call at
-        /// teardown before native buffers are disposed so the async pass can't use-after-free.
+        /// Joins any native in-flight background compute without running the main-thread finish.
+        /// Call at teardown before native buffers are disposed.
         /// </summary>
         public static void JoinPendingCompute()
         {
+#if !UNITY_WEBGL || UNITY_EDITOR
             if (s_computeTask != null)
             {
                 try
@@ -337,6 +346,7 @@ namespace Basis.Scripts.Networking
                 }
                 s_computeTask = null;
             }
+#endif
             s_computePending = false;
         }
         /// <summary>
