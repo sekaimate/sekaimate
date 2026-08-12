@@ -23,6 +23,17 @@ public class BasisWebUiAssetCacheTests
     }
 
     [Test]
+    public void LibraryInitializationAwaitsUiAssetCacheBeforeMetadata()
+    {
+        string source = File.ReadAllText("Packages/com.basis.framework/BasisUI/Menus/Library/LibraryProvider.cs");
+        int assetInitialization = source.IndexOf("await AddressableAssets.InitializeAsync()", System.StringComparison.Ordinal);
+        int keyInitialization = source.IndexOf("await BasisDataStoreItemKeys.LoadKeys()", System.StringComparison.Ordinal);
+
+        Assert.That(assetInitialization, Is.GreaterThanOrEqualTo(0));
+        Assert.That(keyInitialization, Is.GreaterThan(assetInitialization));
+    }
+
+    [Test]
     public void UiAddressableGroupUsesRuntimePreloadLabel()
     {
         string source = File.ReadAllText("Assets/AddressableAssetsData/AssetGroups/Basis UI Assets.asset");
