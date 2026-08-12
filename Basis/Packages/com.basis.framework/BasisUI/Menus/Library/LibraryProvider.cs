@@ -39,7 +39,17 @@ namespace Basis.BasisUI
             var data = BasisDataStoreItemKeys.DisplayKeys()
                 .ToList();
 
-#if !UNITY_WEBGL || UNITY_EDITOR
+#if UNITY_WEBGL && !UNITY_EDITOR
+            try
+            {
+                await CachedMetaData.PreloadMetaForItems(
+                    data.Where(item => item.EmbeddedSettings.IsEmbedded && item.EmbeddedSettings.SourceType == BasisDataStoreItemKeys.EmbeddedSource.Addressable));
+            }
+            catch (Exception ex)
+            {
+                BasisDebug.LogError(ex);
+            }
+#else
             try
             {
                 await CachedMetaData.PreloadMetaForItems(data);

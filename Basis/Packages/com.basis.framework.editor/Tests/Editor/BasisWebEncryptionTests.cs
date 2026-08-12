@@ -99,12 +99,15 @@ public class BasisWebEncryptionTests
     }
 
     [Test]
-    public void WebGlLibraryDefersMetadataUntilTabSelection()
+    public void WebGlLibraryPreloadsOnlyEmbeddedAddressableMetadataAtStartup()
     {
         string source = File.ReadAllText("Packages/com.basis.framework/BasisUI/Menus/Library/LibraryProvider.cs");
 
-        StringAssert.Contains("#if !UNITY_WEBGL || UNITY_EDITOR", source);
-        StringAssert.Contains("#endif\n\n            // once we have the cache", source);
+        StringAssert.Contains("#if UNITY_WEBGL && !UNITY_EDITOR", source);
+        StringAssert.Contains(
+            "data.Where(item => item.EmbeddedSettings.IsEmbedded && item.EmbeddedSettings.SourceType == BasisDataStoreItemKeys.EmbeddedSource.Addressable)",
+            source);
+        StringAssert.Contains("#else", source);
         StringAssert.Contains("await CachedMetaData.PreloadMetaForItems(data);", source);
     }
 
