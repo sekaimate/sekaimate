@@ -179,14 +179,12 @@ namespace Basis.Network.WebSocketClient
                 Fail("Browser WebSocket could not send the hello frame.", InternalError);
                 return;
             }
-
-            State = WebSocketClientState.Connected;
-            Connected?.Invoke();
         }
 
         void IWebSocketBrowserEventSink.OnBrowserMessage(byte[] payload)
         {
-            if (State != WebSocketClientState.Connected || payload == null)
+            if ((State != WebSocketClientState.Connecting && State != WebSocketClientState.Connected)
+                || payload == null)
             {
                 return;
             }
@@ -200,19 +198,18 @@ namespace Basis.Network.WebSocketClient
                 return;
             }
 
+            if (State == WebSocketClientState.Connecting)
+            {
+                ProcessHandshakeFrame(frame);
+                return;
+            }
+
             if (frame.Kind == WebSocketFrameKind.Data)
             {
                 DataReceived?.Invoke(new WebSocketClientData(
                     frame.Channel,
                     frame.DeliveryMethod,
                     frame.Payload));
-                return;
-            }
-            if (frame.Kind == WebSocketFrameKind.Reject)
-            {
-                State = WebSocketClientState.Closed;
-                Rejected?.Invoke(frame.Payload);
-                _connection.Close(PolicyViolation, "Connection rejected");
                 return;
             }
             if (frame.Kind == WebSocketFrameKind.Disconnect)
@@ -224,6 +221,24 @@ namespace Basis.Network.WebSocketClient
             }
 
             Fail($"Frame kind '{frame.Kind}' is invalid after connection.", ProtocolError);
+        }
+
+        private void ProcessHandshakeFrame(WebSocketFrame frame)
+        {
+            if (frame.Kind == WebSocketFrameKind.Accept)
+            {
+                State = WebSocketClientState.Connected;
+                Connected?.Invoke();
+                return;
+            }
+            if (frame.Kind == WebSocketFrameKind.Reject)
+            {
+                State = WebSocketClientState.Closed;
+                Rejected?.Invoke(frame.Payload);
+                _connection.Close(PolicyViolation, "Connection rejected");
+                return;
+            }
+            Fail($"Frame kind '{frame.Kind}' is invalid before acceptance.", ProtocolError);
         }
 
         void IWebSocketBrowserEventSink.OnBrowserError(string message)
