@@ -28,4 +28,14 @@ public class BasisWebUiAssetCacheTests
 
         StringAssert.Contains("m_SerializedLabels:\n    - basis-ui", source);
     }
+
+    [Test]
+    public void UiAssetCacheLoadsPrefabsAndSpritesByTheirRuntimeTypes()
+    {
+        string source = File.ReadAllText("Packages/com.basis.framework/BasisUI/Addressables/AddressableAsset.cs");
+
+        StringAssert.Contains("LoadResourceLocationsAsync(UiLabel, typeof(GameObject))", source);
+        StringAssert.Contains("LoadResourceLocationsAsync(UiLabel, typeof(Sprite))", source);
+        StringAssert.DoesNotContain("LoadResourceLocationsAsync(UiLabel, typeof(UnityEngine.Object))", source);
+    }
 }
