@@ -30,7 +30,7 @@ namespace HVR.LicenseReview
             }
             catch (Exception exception)
             {
-                BasisDebug.LogError($"Failed to load the third-party license manifest: {exception}");
+                Debug.LogError($"Failed to load the third-party license manifest: {exception}");
             }
         }
 #else
@@ -47,7 +47,7 @@ namespace HVR.LicenseReview
         {
             if (licenseManifest == null)
             {
-                BasisDebug.LogError("Could not load the third-party license manifest.");
+                Debug.LogError("Could not load the third-party license manifest.");
                 return;
             }
 
