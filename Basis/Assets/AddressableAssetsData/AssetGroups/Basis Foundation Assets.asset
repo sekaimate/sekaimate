@@ -236,7 +236,8 @@ MonoBehaviour:
   - m_GUID: 5dac596566264434bb51fc9fb566b888
     m_Address: Assets/UI/Prefabs/NamePlate.prefab
     m_ReadOnly: 0
-    m_SerializedLabels: []
+    m_SerializedLabels:
+    - basis-ui
     FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 5e2ec7eac89e4fc4f8ba40326c3e4f75
     m_Address: Packages/com.basis.sdk/Fonts/Inter_24pt-ExtraBold.ttf
