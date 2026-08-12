@@ -158,7 +158,11 @@ public static class BasisPreloadContentStore
         string text;
         try
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            text = File.ReadAllText(FilePath);
+#else
             text = await File.ReadAllTextAsync(FilePath);
+#endif
         }
         catch (Exception e)
         {
@@ -238,6 +242,18 @@ public static class BasisPreloadContentStore
         XDocument doc = new XDocument(
             new XElement("PreloadContent", _entries.Select(BuildItemElement)));
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+        try
+        {
+            File.WriteAllText(FilePath, doc.ToString());
+            await BasisWebPersistence.FlushAsync();
+            BasisDebug.Log($"Preload content saved to {FilePath}");
+        }
+        catch (Exception e)
+        {
+            BasisDebug.LogError($"Failed to write preload content file: {e}");
+        }
+#else
         string tempPath = FilePath + ".tmp";
         try
         {
@@ -262,5 +278,6 @@ public static class BasisPreloadContentStore
             BasisDebug.LogError($"Failed to replace preload content file: {e}");
             try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
         }
+#endif
     }
 }
