@@ -11,6 +11,8 @@ mergeInto(LibraryManager.library, {
     onPcm: null,
     initialized: false,
     initializing: null,
+    captureRequested: false,
+    captureRequesting: false,
     nextSinkId: 1,
     hiddenState: 0,
     State: {
@@ -140,6 +142,8 @@ mergeInto(LibraryManager.library, {
       return BasisWebAudio.initializing;
     },
     stopCapture: function() {
+      BasisWebAudio.captureRequested = false;
+      BasisWebAudio.captureRequesting = false;
       if (BasisWebAudio.source) {
         BasisWebAudio.source.disconnect();
         BasisWebAudio.source = null;
@@ -151,10 +155,14 @@ mergeInto(LibraryManager.library, {
       BasisWebAudio.notifyState(BasisWebAudio.State.Idle);
     },
     requestCapture: async function() {
+      if (!BasisWebAudio.captureRequested || BasisWebAudio.captureRequesting) {
+        return;
+      }
       if (!navigator.userActivation || !navigator.userActivation.isActive) {
         BasisWebAudio.notifyState(BasisWebAudio.State.AwaitingUserGesture);
         return;
       }
+      BasisWebAudio.captureRequesting = true;
       BasisWebAudio.notifyState(BasisWebAudio.State.RequestingPermission);
       try {
         await BasisWebAudio.ensureInitialized();
@@ -179,14 +187,21 @@ mergeInto(LibraryManager.library, {
         BasisWebAudio.source.connect(BasisWebAudio.captureNode);
         BasisWebAudio.notifyState(BasisWebAudio.State.Running);
       } catch (error) {
+        BasisWebAudio.captureRequested = false;
         if (error && error.name === 'NotAllowedError') {
           BasisWebAudio.notifyState(BasisWebAudio.State.PermissionDenied);
         } else {
           BasisWebAudio.notifyState(BasisWebAudio.State.Unavailable);
         }
+      } finally {
+        BasisWebAudio.captureRequesting = false;
       }
     },
     resumeFromGesture: function() {
+      if (BasisWebAudio.captureRequested) {
+        BasisWebAudio.requestCapture();
+        return;
+      }
       BasisWebAudio.ensureInitialized().then(function() {
         return BasisWebAudio.context.resume();
       }).catch(function() {
@@ -237,6 +252,7 @@ mergeInto(LibraryManager.library, {
 
   BasisWebAudioCaptureRequestFromUserGesture__deps: ['$BasisWebAudio'],
   BasisWebAudioCaptureRequestFromUserGesture: function() {
+    BasisWebAudio.captureRequested = true;
     if (!navigator.userActivation || !navigator.userActivation.isActive) {
       BasisWebAudio.notifyState(BasisWebAudio.State.AwaitingUserGesture);
       return 0;
