@@ -16,6 +16,12 @@ public class BasisBeeWebPlatformTests
     }
 
     [Test]
+    public void AssetBundleBuildRejectsMissingManifest()
+    {
+        Assert.Throws<InvalidOperationException>(() => AssetBundleBuilder.RequireSuccessfulManifest(null));
+    }
+
+    [Test]
     public void SdkBuildTargetsAppendWebGlWithoutChangingExistingTargets()
     {
         BuildTarget[] expectedTargets =
