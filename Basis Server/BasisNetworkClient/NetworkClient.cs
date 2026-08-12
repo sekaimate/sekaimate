@@ -1,4 +1,6 @@
 using Basis.Network.Core;
+using Basis.Network.WebSocketClient;
+using System;
 
 using static Basis.Network.Core.Serializable.SerializableBasis;
 using static SerializableBasis;
@@ -16,9 +18,25 @@ public class NetworkClient
     /// <param name="ReadyMessage"></param>
     public NetPeer StartClient(string IP, int port, ReadyMessage ReadyMessage, byte[] AuthenticationMessage, Configuration Configuration, bool manualMode = false)
     {
+        return StartClient(IP, port, ReadyMessage, AuthenticationMessage, Configuration, null, manualMode);
+    }
+    public NetPeer StartClient(
+        string IP,
+        int port,
+        ReadyMessage ReadyMessage,
+        byte[] AuthenticationMessage,
+        Configuration Configuration,
+        Action<EventBasedNetListener> configureListener,
+        bool manualMode = false)
+    {
         if (IsInUse == false)
         {
             listener = new EventBasedNetListener();
+            configureListener?.Invoke(listener);
+            Configuration.NetworkStackId = NetworkStackSelection.ResolveClientStackId(Configuration.NetworkStackId);
+#if UNITY_WEBGL && !UNITY_EDITOR
+            RegisterWebSocketStack();
+#endif
             client = BasisNetworkStackRegistry.Create(Configuration.NetworkStackId, listener, Configuration);
             if (manualMode)
                 client.StartManual();
@@ -40,6 +58,24 @@ public class NetworkClient
             return null;
         }
     }
+#if UNITY_WEBGL && !UNITY_EDITOR
+    private static void RegisterWebSocketStack()
+    {
+        if (BasisNetworkStackRegistry.IsRegistered(BasisNetworkStackRegistry.WebSocketId)) return;
+        BasisNetworkStackRegistry.Register(
+            BasisNetworkStackRegistry.WebSocketId,
+            "WebSocket",
+            (listener, configuration) => new WebSocketNetManager(
+                listener,
+                configuration,
+                new WebSocketBrowserBridge(),
+                1024 * 1024,
+                256));
+        BasisNetworkStackRegistry.RegisterParser(
+            BasisNetworkStackRegistry.WebSocketId,
+            new WebSocketConnectionTargetParser());
+    }
+#endif
     public void Poll()
     {
         client?.PollEvents();

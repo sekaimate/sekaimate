@@ -113,7 +113,7 @@ namespace Basis.Scripts.Networking
 
             BasisDebug.Log("Network Starting Client");
 
-            _ = Task.Run(() =>
+            void StartNetworkClient()
             {
                 try
                 {
@@ -130,15 +130,8 @@ namespace Basis.Scripts.Networking
                     // Pass the token into anything that supports cancellation
                     LocalPlayerPeer = NetworkClient.StartClient(
                         ipString, port, readyMessage,
-                        authenticationPayload, serverConfig);
-
-                    NetworkClient.listener.PeerConnectedEvent -= PeerConnectedEvent;
-                    NetworkClient.listener.PeerConnectedEvent += PeerConnectedEvent;
-                    NetworkClient.listener.PeerDisconnectedEvent -= BasisNetworkConnection.HandleDisconnection;
-                    NetworkClient.listener.PeerDisconnectedEvent += BasisNetworkConnection.HandleDisconnection;
-                    BasisNetworkEvents.EnsureInitialized();
-                    NetworkClient.listener.NetworkReceiveEvent -= BasisNetworkEvents.NetworkReceiveEvent;
-                    NetworkClient.listener.NetworkReceiveEvent += BasisNetworkEvents.NetworkReceiveEvent;
+                        authenticationPayload, serverConfig,
+                        ConfigureNetworkListener);
 
                     if (LocalPlayerPeer != null)
                     {
@@ -161,7 +154,23 @@ namespace Basis.Scripts.Networking
                         Reason = DisconnectReason.UnknownHost
                     });
                 }
-            });
+            }
+#if UNITY_WEBGL && !UNITY_EDITOR
+            StartNetworkClient();
+#else
+            _ = Task.Run(StartNetworkClient);
+#endif
+        }
+
+        private static void ConfigureNetworkListener(EventBasedNetListener listener)
+        {
+            listener.PeerConnectedEvent -= PeerConnectedEvent;
+            listener.PeerConnectedEvent += PeerConnectedEvent;
+            listener.PeerDisconnectedEvent -= HandleDisconnection;
+            listener.PeerDisconnectedEvent += HandleDisconnection;
+            BasisNetworkEvents.EnsureInitialized();
+            listener.NetworkReceiveEvent -= BasisNetworkEvents.NetworkReceiveEvent;
+            listener.NetworkReceiveEvent += BasisNetworkEvents.NetworkReceiveEvent;
         }
         public static void OnDestroy()
         {
