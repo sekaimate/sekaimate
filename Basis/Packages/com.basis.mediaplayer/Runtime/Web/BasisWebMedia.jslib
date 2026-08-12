@@ -154,7 +154,7 @@ mergeInto(LibraryManager.library, {
   BasisWebMediaSetPlaybackSettings__deps: ['$BasisWebMedia'],
   BasisWebMediaSetPlaybackSettings: function(mediaId, volume, mute, playbackRate, loop) {
     var player = BasisWebMedia.players[mediaId];
-    if (!player) return;
+    if (!player || player.error !== 0) return;
     player.gain.gain.value = mute ? 0 : Math.max(0, Math.min(1, volume));
     player.video.playbackRate = Math.max(0.25, Math.min(4, playbackRate));
     player.video.loop = loop !== 0;
