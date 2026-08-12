@@ -28,7 +28,7 @@ mergeInto(LibraryManager.library, {
     }
   },
 
-  BasisWebPersistenceSync__deps: ['$BasisPersistenceSync'],
+  BasisWebPersistenceSync__deps: ['$BasisPersistenceSync', '$FS'],
   BasisWebPersistenceSync: function(requestId, populate, callback) {
     BasisPersistenceSync.enqueue(populate !== 0, requestId, callback);
   }
