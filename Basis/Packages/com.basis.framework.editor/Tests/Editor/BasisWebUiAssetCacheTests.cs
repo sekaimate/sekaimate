@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.RegularExpressions;
 using NUnit.Framework;
+using UnityEditor;
 
 public class BasisWebUiAssetCacheTests
 {
@@ -94,18 +95,32 @@ public class BasisWebUiAssetCacheTests
     [TestCase("Packages/com.basis.sdk/Prefabs/AvatarOrb.prefab")]
     [TestCase("Packages/com.basis.sdk/Prefabs/PropOrb.prefab")]
     [TestCase("Packages/com.basis.sdk/Prefabs/WorldOrb.prefab")]
+    [TestCase("Packages/com.basis.sdk/Prefabs/Panel Elements/Button Yes Variant.prefab")]
+    [TestCase("Packages/com.basis.sdk/Prefabs/Panel Elements/Cancel Button Variant.prefab")]
+    [TestCase("Packages/com.basis.sdk/Prefabs/Panel Elements/Close Button - Modal.prefab")]
+    [TestCase("Packages/com.basis.sdk/Prefabs/Panel Elements/Close Button.prefab")]
+    [TestCase("Packages/com.basis.sdk/Prefabs/Panel Elements/PE Dropdown - Entry Variant - Overlay.prefab")]
+    [TestCase("Packages/com.basis.sdk/Prefabs/Panel Elements/PE Image.prefab")]
+    [TestCase("Packages/com.basis.sdk/Prefabs/Panel Elements/PE Large Text Field.prefab")]
+    [TestCase("Packages/com.basis.sdk/Prefabs/Panel Elements/PE Password Field - Entry Variant - Long.prefab")]
+    [TestCase("Packages/com.basis.sdk/Prefabs/Panel Elements/Panel Element Base - Overlay.prefab")]
+    [TestCase("Packages/com.basis.sdk/Prefabs/Panel Elements/Panel Element Base Icon.prefab")]
+    [TestCase("Packages/com.basis.sdk/Prefabs/Panel Elements/Tab Group Horizontal - No Background.prefab")]
+    [TestCase("Packages/com.basis.sdk/Prefabs/Panel Elements/Tab Group Vertical - No Background.prefab")]
     public void WebRuntimeUiPrefabsUseRuntimePreloadLabel(string address)
     {
         string uiAssets = File.ReadAllText("Assets/AddressableAssetsData/AssetGroups/Basis UI Assets.asset");
         string foundationAssets = File.ReadAllText("Assets/AddressableAssetsData/AssetGroups/Basis Foundation Assets.asset");
         string source = uiAssets + foundationAssets;
-        int addressIndex = source.IndexOf($"m_Address: {address}", System.StringComparison.Ordinal);
+        string guid = AssetDatabase.AssetPathToGUID(address);
+        string entryMarker = string.IsNullOrEmpty(guid) ? $"m_Address: {address}" : $"m_GUID: {guid}";
+        int addressIndex = source.IndexOf(entryMarker, System.StringComparison.Ordinal);
 
         Assert.That(addressIndex, Is.GreaterThanOrEqualTo(0));
-        int nextEntryIndex = source.IndexOf("  - m_GUID:", addressIndex, System.StringComparison.Ordinal);
-        string entry = nextEntryIndex < 0
+        int entryEndIndex = source.IndexOf("  - m_GUID:", addressIndex + 1, System.StringComparison.Ordinal);
+        string entry = entryEndIndex < 0
             ? source.Substring(addressIndex)
-            : source.Substring(addressIndex, nextEntryIndex - addressIndex);
+            : source.Substring(addressIndex, entryEndIndex - addressIndex);
         StringAssert.Contains("- basis-ui", entry);
     }
 
