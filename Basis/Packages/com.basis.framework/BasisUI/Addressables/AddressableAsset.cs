@@ -90,6 +90,10 @@ namespace Basis.BasisUI
             {
                 await LoadAssetsAsync(prefabLocationsHandle, Prefabs, PrefabHandles);
                 await LoadAssetsAsync(spriteLocationsHandle, SpriteAssets, SpriteHandles);
+#if UNITY_WEBGL && !UNITY_EDITOR
+                await LoadSpriteAsync(Sprites.Camera);
+                await LoadSpriteAsync(Sprites.Mirror);
+#endif
             }
             catch
             {
@@ -122,6 +126,20 @@ namespace Basis.BasisUI
                 assets.Add(locations[index].PrimaryKey, asset);
             }
         }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+        private static async Task LoadSpriteAsync(string address)
+        {
+            if (SpriteAssets.ContainsKey(address))
+            {
+                return;
+            }
+
+            AsyncOperationHandle<Sprite> handle = Addressables.LoadAssetAsync<Sprite>(address);
+            SpriteHandles.Add(handle);
+            SpriteAssets.Add(address, await handle.Task);
+        }
+#endif
 
         public static GameObject GetPrefab(string path)
         {
