@@ -57,6 +57,9 @@ public class BasisWebUiAssetCacheTests
 
     [TestCase("Packages/com.basis.sdk/Prefabs/UI/Loading Bar.prefab")]
     [TestCase("DesktopReticle")]
+    [TestCase("Packages/com.basis.sdk/Prefabs/AvatarOrb.prefab")]
+    [TestCase("Packages/com.basis.sdk/Prefabs/PropOrb.prefab")]
+    [TestCase("Packages/com.basis.sdk/Prefabs/WorldOrb.prefab")]
     public void WebRuntimeUiPrefabsUseRuntimePreloadLabel(string address)
     {
         string uiAssets = File.ReadAllText("Assets/AddressableAssetsData/AssetGroups/Basis UI Assets.asset");
@@ -70,6 +73,20 @@ public class BasisWebUiAssetCacheTests
             ? source.Substring(addressIndex)
             : source.Substring(addressIndex, nextEntryIndex - addressIndex);
         StringAssert.Contains("- basis-ui", entry);
+    }
+
+    [Test]
+    public void WebContentShareOrbsUsePreloadedPrefabsWhileNativeKeepsAddressablesInstances()
+    {
+        string source = File.ReadAllText("Packages/com.basis.framework/Networking/ContentShare/BasisContentShareManager.cs");
+
+        StringAssert.Contains("#if UNITY_WEBGL && !UNITY_EDITOR", source);
+        StringAssert.Contains("Object.Instantiate(AddressableAssets.GetPrefab(orbKey)", source);
+        StringAssert.Contains("Object.Destroy(sphere.gameObject)", source);
+        StringAssert.Contains("#else", source);
+        StringAssert.Contains("Addressables.InstantiateAsync(orbKey", source);
+        StringAssert.Contains("WaitForCompletion", source);
+        StringAssert.Contains("Addressables.ReleaseInstance(sphere.gameObject)", source);
     }
 
     [TestCase("Packages/com.basis.framework/UI Panels/Base/BasisUIBase.cs")]
