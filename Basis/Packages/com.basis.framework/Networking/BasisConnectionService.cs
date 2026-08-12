@@ -129,14 +129,24 @@ namespace Basis.Scripts.Networking
                 BasisDataStore.SaveString(BasisLocalPlayer.Instance.DisplayName, UsernameFileName);
                 BasisDataStore.SaveString(entry.Id, LastConnectedServerIdFile);
 
-                string address = entry.Target?.Get(ConnectionTarget.Keys.Address) ?? string.Empty;
-                string portString = entry.Target?.Get(ConnectionTarget.Keys.Port) ?? string.Empty;
+                ConnectionTarget connectionTarget = ClientConnectionTargetSelector.Select(
+                    entry.Target,
+                    entry.WebSocketUri,
+                    IsWebGlPlayer());
+                string address = connectionTarget?.Get(ConnectionTarget.Keys.Address) ?? string.Empty;
+                string portString = connectionTarget?.Get(ConnectionTarget.Keys.Port) ?? string.Empty;
                 ushort port;
                 if (!ushort.TryParse(portString, out port)) port = LNLConnectionTargetParser.DefaultPort;
-                string stackId = entry.Target?.StackId ?? BasisNetworkStackRegistry.DefaultId;
+                string stackId = connectionTarget?.StackId ?? BasisNetworkStackRegistry.DefaultId;
+                string connectionAddress = string.Equals(
+                    stackId,
+                    BasisNetworkStackRegistry.WebSocketId,
+                    StringComparison.OrdinalIgnoreCase)
+                    ? connectionTarget.Raw
+                    : address;
 
                 BasisNetworkManagement.Port = port;
-                BasisNetworkManagement.Ip = address;
+                BasisNetworkManagement.Ip = connectionAddress;
                 BasisNetworkManagement.Password = entry.HasPassword ? entry.Password : string.Empty;
                 BasisNetworkManagement.IsHostMode = isHostMode;
                 BasisNetworkManagement.NetworkStackId = stackId;
@@ -158,11 +168,12 @@ namespace Basis.Scripts.Networking
                 // is actually reachable. Skipped in host-mode: the local server may not be
                 // listening yet. Non-fatal: if the probe fails we fall back to the hostname.
                 Task<string> resolveTask = isHostMode
-                    ? Task.FromResult(address)
-                    : ResolveConnectionAddressAsync(entry.Target, address);
+                    || !string.Equals(stackId, BasisNetworkStackRegistry.LiteNetLibId, StringComparison.OrdinalIgnoreCase)
+                    ? Task.FromResult(connectionAddress)
+                    : ResolveConnectionAddressAsync(connectionTarget, address);
                 await LoadDefaultAssetBundleAsync();
                 string resolvedIp = await resolveTask;
-                if (!string.IsNullOrEmpty(resolvedIp) && resolvedIp != address)
+                if (!string.IsNullOrEmpty(resolvedIp) && resolvedIp != connectionAddress)
                 {
                     BasisDebug.Log($"Resolved {address} → {resolvedIp}", BasisDebug.LogTag.Networking);
                     BasisNetworkManagement.Ip = resolvedIp;
@@ -181,12 +192,31 @@ namespace Basis.Scripts.Networking
                 ReportConnectionError(BasisLocalization.Get("menu.servers.error.timeout"));
                 BasisDebug.LogError(tex.ToString());
             }
+            catch (InvalidOperationException ex)
+            {
+                ReportConnectionError(ex.Message);
+                BasisDebug.LogError(ex.ToString());
+            }
+            catch (FormatException ex)
+            {
+                ReportConnectionError(ex.Message);
+                BasisDebug.LogError(ex.ToString());
+            }
             catch (Exception ex)
             {
                 ReportConnectionError(BasisLocalization.Get("menu.servers.error.connectFailed"));
                 BasisDebug.LogError(ex.ToString());
             }
             finally { _connectInProgress = false; }
+        }
+
+        private static bool IsWebGlPlayer()
+        {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            return true;
+#else
+            return false;
+#endif
         }
 
         /// <summary>
