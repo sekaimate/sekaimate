@@ -7,6 +7,23 @@ using UnityEngine.Rendering;
 
 public class BasisWebPlatformSettingsTests
 {
+    private static readonly string[] OpenVrWindowsLibraryPaths =
+    {
+        "Packages/com.valvesoftware.unity.openvr/Runtime/x86/openvr_api.lib",
+        "Packages/com.valvesoftware.unity.openvr/Runtime/x86/XRSDKOpenVR.lib",
+        "Packages/com.valvesoftware.unity.openvr/Runtime/x64/openvr_api.lib",
+        "Packages/com.valvesoftware.unity.openvr/Runtime/x64/XRSDKOpenVR.lib",
+    };
+
+    [TestCaseSource(nameof(OpenVrWindowsLibraryPaths))]
+    public void WindowsOpenVrLibrariesAreExcludedFromWebGl(string pluginPath)
+    {
+        PluginImporter importer = AssetImporter.GetAtPath(pluginPath) as PluginImporter;
+
+        Assert.That(importer, Is.Not.Null, pluginPath);
+        Assert.That(importer.GetCompatibleWithPlatform(BuildTarget.WebGL), Is.False, pluginPath);
+    }
+
     [TestCase("Packages/com.steam.steamvr/SteamVR/SteamVR.asmdef")]
     [TestCase("Packages/com.steam.steamvr/SteamVR_Input/SteamVR_Actions.asmdef")]
     [TestCase("Packages/com.basis.openvr/BasisOpenVR.asmdef")]
