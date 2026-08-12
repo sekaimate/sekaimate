@@ -94,7 +94,8 @@ MonoBehaviour:
   - m_GUID: 2a27b24eacd47d84ba39d6ee782dd1e8
     m_Address: Packages/com.basis.sdk/Prefabs/UI/Loading Bar.prefab
     m_ReadOnly: 0
-    m_SerializedLabels: []
+    m_SerializedLabels:
+    - basis-ui
     FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 2b6f55dc280ba544cad0d271f3fc96aa
     m_Address: Packages/com.basis.sdk/Fonts/Inter_24pt-ExtraBoldItalic SDF.asset

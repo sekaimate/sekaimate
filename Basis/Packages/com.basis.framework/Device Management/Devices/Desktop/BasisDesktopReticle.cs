@@ -1,3 +1,4 @@
+using Basis.BasisUI;
 using Basis.Scripts.Drivers;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
@@ -33,7 +34,11 @@ namespace Basis.Scripts.Device_Management.Devices.Desktop
             if (_quadGO != null) return; // idempotent
 
             Transform camTransform = BasisLocalCameraDriver.Instance.transform;
+#if UNITY_WEBGL && !UNITY_EDITOR
+            _quadGO = Object.Instantiate(AddressableAssets.GetPrefab(PrefabAddress), camTransform, false);
+#else
             _quadGO = Addressables.InstantiateAsync(PrefabAddress, camTransform, false).WaitForCompletion();
+#endif
             _quadGO.transform.SetLocalPositionAndRotation(Vector3.forward * DistanceFromCamera, Quaternion.identity);
             _quadGO.transform.localScale = Vector3.one * SizeMeters;
         }
@@ -42,7 +47,11 @@ namespace Basis.Scripts.Device_Management.Devices.Desktop
         {
             if (_quadGO != null)
             {
+#if UNITY_WEBGL && !UNITY_EDITOR
+                Object.Destroy(_quadGO);
+#else
                 Addressables.ReleaseInstance(_quadGO);
+#endif
                 _quadGO = null;
             }
         }
