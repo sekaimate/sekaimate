@@ -46,6 +46,7 @@ public sealed class WebSocketEventBridge : IWebSocketServerConnectionHandler
         {
             _peers.Add(session, peer);
         }
+        _listener.RaisePeerConnected(peer);
         return ValueTask.FromResult(WebSocketConnectionDecision.Accept());
     }
 
