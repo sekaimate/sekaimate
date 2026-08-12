@@ -41,7 +41,7 @@ public class BasisWebEncryptionTests
 
         StringAssert.Contains("CreateCacheReadStream", ioSource);
         StringAssert.Contains("CreateCacheWriteStream", ioSource);
-        StringAssert.Contains("int n = s.Read(buf, read, size - read);", ioSource);
+        StringAssert.Contains("stream.Read(buffer, offset, count)", ioSource);
         StringAssert.Contains("fs.Write(sizeLE, 0, sizeLE.Length);", ioSource);
         StringAssert.Contains("File.WriteAllBytes(filePath, serializedData);", metadataSource);
     }

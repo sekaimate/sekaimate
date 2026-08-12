@@ -667,7 +667,11 @@ public static class BasisLoadHandler
                 }
             }
             string tempPath = filePath + ".tmp";
+#if UNITY_WEBGL && !UNITY_EDITOR
+            File.WriteAllBytes(tempPath, serializedData);
+#else
             await File.WriteAllBytesAsync(tempPath, serializedData);
+#endif
             if (File.Exists(filePath))
             {
                 File.Replace(tempPath, filePath, null);

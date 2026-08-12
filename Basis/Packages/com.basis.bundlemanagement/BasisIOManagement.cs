@@ -482,7 +482,7 @@ public static class BasisIOManagement
             return BeeResult<BeeReadResult>.Fail("ReadBEEFileEx: VP is null or empty.");
         }
 
-        using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 96 * 1024, useAsync: true);
+        using var fs = CreateCacheReadStream(filePath);
 
         if (fs.Length < BasisBeeConstants.DiskHeaderSize)
         {
@@ -549,7 +549,7 @@ public static class BasisIOManagement
         if (string.IsNullOrWhiteSpace(vp))
             return BeeResult<BeeReadResult>.Fail("ReadBEEFileEx: VP is null or empty.");
 
-        using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 96 * 1024, useAsync: true);
+        using var fs = CreateCacheReadStream(filePath);
 
         if (fs.Length < BasisBeeConstants.DiskHeaderSize)
             return BeeResult<BeeReadResult>.Fail($"ReadBEEFileEx: File too small to contain header. Size={fs.Length} bytes.");
@@ -594,7 +594,7 @@ public static class BasisIOManagement
         if (string.IsNullOrWhiteSpace(vp))
             return BeeResult<BeeReadResult>.Fail("ReadRemoteBeeFromDiskEx: VP is null or empty.");
 
-        using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 96 * 1024, useAsync: true);
+        using var fs = CreateCacheReadStream(filePath);
 
         if (fs.Length < BasisBeeConstants.RemoteHeaderSize)
             return BeeResult<BeeReadResult>.Fail($"ReadRemoteBeeFromDiskEx: File too small to contain remote header. Size={fs.Length} bytes.");
@@ -966,8 +966,17 @@ public static class BasisIOManagement
         string tempPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            using (var fs = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None, buffer, useAsync: true))
+            using (var fs = CreateCacheWriteStream(tempPath, buffer))
             {
+#if UNITY_WEBGL && !UNITY_EDITOR
+                fs.Write(sizeLE, 0, sizeLE.Length);
+                fs.Write(connectorBytes, 0, connectorBytes.Length);
+
+                if (writeSection)
+                {
+                    fs.Write(sectionBytes, 0, sectionBytes.Length);
+                }
+#else
                 await fs.WriteAsync(sizeLE, 0, sizeLE.Length).ConfigureAwait(false);
                 await fs.WriteAsync(connectorBytes, 0, connectorBytes.Length).ConfigureAwait(false);
 
@@ -975,6 +984,7 @@ public static class BasisIOManagement
                 {
                     await fs.WriteAsync(sectionBytes, 0, sectionBytes.Length).ConfigureAwait(false);
                 }
+#endif
             }
 
             long actual = new FileInfo(tempPath).Length;
@@ -1157,7 +1167,7 @@ public static class BasisIOManagement
 
         while (read < size)
         {
-            int n = await s.ReadAsync(buf, read, size - read, ct);
+            int n = await ReadFromCacheAsync(s, buf, read, size - read, ct);
             if (n <= 0) break;
             read += n;
         }
@@ -1177,6 +1187,40 @@ public static class BasisIOManagement
         }
 
         return buf;
+    }
+
+    private static FileStream CreateCacheReadStream(string filePath)
+    {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        return new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 96 * 1024, useAsync: false);
+#else
+        return new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 96 * 1024, useAsync: true);
+#endif
+    }
+
+    private static FileStream CreateCacheWriteStream(string filePath, int bufferSize)
+    {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        return new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize, useAsync: false);
+#else
+        return new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize, useAsync: true);
+#endif
+    }
+
+    private static ValueTask<int> ReadFromCacheAsync(
+        Stream stream,
+        byte[] buffer,
+        int offset,
+        int count,
+        CancellationToken cancellationToken)
+    {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        cancellationToken.ThrowIfCancellationRequested();
+        int n = stream.Read(buffer, offset, count);
+        return new ValueTask<int>(n);
+#else
+        return new ValueTask<int>(stream.ReadAsync(buffer, offset, count, cancellationToken));
+#endif
     }
 
     private static byte[] GetBytesInt32LE(int value)
