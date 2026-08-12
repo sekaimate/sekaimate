@@ -150,7 +150,11 @@ public static partial class BasisEncryptionWrapper
         BasisProgressReport reportProgress,
         CancellationToken ct = default)
     {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        return DecryptFromBytesInternalAsync(UniqueID, password, encryptedData, reportProgress, ct);
+#else
         return Task.Run(() => DecryptFromBytesInternalAsync(UniqueID, password, encryptedData, reportProgress, ct), ct);
+#endif
     }
 
     private static async Task<BasisDecryptResult> DecryptFromBytesInternalAsync(
