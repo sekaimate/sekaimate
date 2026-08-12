@@ -39,7 +39,7 @@ namespace Basis.BasisUI
             var data = BasisDataStoreItemKeys.DisplayKeys()
                 .ToList();
 
-            // Preload metadata for all items
+#if !UNITY_WEBGL || UNITY_EDITOR
             try
             {
                 await CachedMetaData.PreloadMetaForItems(data);
@@ -48,6 +48,7 @@ namespace Basis.BasisUI
             {
                 BasisDebug.LogError(ex);
             }
+#endif
 
             // once we have the cache now invoke the task to build pinned providers
             PinnedItemProvider.RefreshPinnedProviders();
