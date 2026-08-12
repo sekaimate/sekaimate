@@ -23,13 +23,15 @@ public class BasisWebEncryptionTests
     }
 
     [Test]
-    public void WebGlDecryptionRunsWithoutThreadPoolDispatch()
+    public void WebGlEncryptionOperationsRunWithoutThreadPoolDispatch()
     {
         string source = File.ReadAllText("Packages/com.basis.sdk/Scripts/BasisEncryptionWrapper.cs");
 
-        StringAssert.Contains("#if UNITY_WEBGL && !UNITY_EDITOR", source);
         StringAssert.Contains(
-            "return DecryptFromBytesInternalAsync(UniqueID, password, encryptedData, reportProgress, ct);",
+            "#if UNITY_WEBGL && !UNITY_EDITOR\n        return EncryptFileInternalAsync(UniqueID, password, inputPath, outputPath, reportProgress);",
+            source);
+        StringAssert.Contains(
+            "#if UNITY_WEBGL && !UNITY_EDITOR\n        return DecryptFromBytesInternalAsync(UniqueID, password, encryptedData, reportProgress, ct);",
             source);
     }
 
