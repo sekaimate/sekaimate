@@ -55,6 +55,7 @@ public sealed class WebSocketServerProtocolTests
     }
 
     [Theory]
+    [InlineData(WebSocketFrameKind.Accept)]
     [InlineData(WebSocketFrameKind.Data)]
     [InlineData(WebSocketFrameKind.Reject)]
     [InlineData(WebSocketFrameKind.Disconnect)]
@@ -88,6 +89,20 @@ public sealed class WebSocketServerProtocolTests
         WebSocketServerProtocol protocol = AcceptedProtocol();
 
         Assert.Throws<WebSocketProtocolException>(() => protocol.Process(Frame(WebSocketFrameKind.Reject)));
+    }
+
+    [Fact]
+    public void Process_RejectsClientAcceptFrameInEveryState()
+    {
+        WebSocketServerProtocol awaitingHello = new(MaximumPayloadLength);
+        Assert.Throws<WebSocketProtocolException>(() => awaitingHello.Process(Frame(WebSocketFrameKind.Accept)));
+
+        WebSocketServerProtocol awaitingAcceptance = new(MaximumPayloadLength);
+        awaitingAcceptance.Process(Frame(WebSocketFrameKind.Hello));
+        Assert.Throws<WebSocketProtocolException>(() => awaitingAcceptance.Process(Frame(WebSocketFrameKind.Accept)));
+
+        WebSocketServerProtocol connected = AcceptedProtocol();
+        Assert.Throws<WebSocketProtocolException>(() => connected.Process(Frame(WebSocketFrameKind.Accept)));
     }
 
     [Fact]

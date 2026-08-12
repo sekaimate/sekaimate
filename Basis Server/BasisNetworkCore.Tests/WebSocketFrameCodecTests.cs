@@ -8,6 +8,7 @@ public sealed class WebSocketFrameCodecTests
     public static TheoryData<WebSocketFrameKind> FrameKinds => new()
     {
         WebSocketFrameKind.Hello,
+        WebSocketFrameKind.Accept,
         WebSocketFrameKind.Data,
         WebSocketFrameKind.Reject,
         WebSocketFrameKind.Disconnect,
