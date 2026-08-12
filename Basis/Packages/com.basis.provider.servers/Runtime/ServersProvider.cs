@@ -66,6 +66,7 @@ namespace Basis.BasisUI
         private PanelElementDescriptor _emptyState;
         private PanelTextField _editAddress;
         private PanelTextField _editPort;
+        private PanelTextField _editWebSocketUri;
         private PanelPasswordField _editPassword;
         private PanelDropdown _editNetworkStack;
         private List<string> _stackIds;
@@ -430,6 +431,11 @@ namespace Basis.BasisUI
             _editPort = PanelTextField.CreateNewEntry(editorContent);
             _editPort.Descriptor.SetTitle(BasisLocalization.Get("menu.servers.port"));
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+            _editWebSocketUri = PanelTextField.CreateNewEntry(editorContent);
+            _editWebSocketUri.Descriptor.SetTitle(BasisLocalization.Get("menu.servers.webSocketUri"));
+#endif
+
             _editPassword = PanelPasswordField.CreateNewEntry(editorContent);
             _editPassword.Descriptor.SetTitle(BasisLocalization.Get("menu.servers.password"));
 
@@ -491,6 +497,9 @@ namespace Basis.BasisUI
             string portString = existing?.Target?.Get(ConnectionTarget.Keys.Port) ?? "4296";
             _editAddress.SetValueWithoutNotify(address);
             _editPort.SetValueWithoutNotify(portString);
+#if UNITY_WEBGL && !UNITY_EDITOR
+            _editWebSocketUri.SetValueWithoutNotify(existing?.WebSocketUri ?? string.Empty);
+#endif
             _editPassword.SetPassword(existing?.Password ?? "default_password");
             SetStackDropdownToId(existing?.Target?.StackId);
             if (_editShareButton != null)
@@ -601,6 +610,19 @@ namespace Basis.BasisUI
                 return;
             }
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+            string webSocketUri;
+            try
+            {
+                webSocketUri = SavedServerWebSocketUriValidator.Validate(_editWebSocketUri.Value, true);
+            }
+            catch (Exception exception) when (exception is InvalidOperationException || exception is FormatException)
+            {
+                BasisConnectionService.ReportConnectionError(exception.Message);
+                return;
+            }
+#endif
+
             List<SavedServerEntry> saved = SavedServerStore.Load();
             SavedServerEntry entry;
             if (string.IsNullOrEmpty(_editingId))
@@ -625,6 +647,9 @@ namespace Basis.BasisUI
             entry.Password = finalPassword;
             entry.HasPassword = !string.IsNullOrEmpty(finalPassword);
             entry.NetworkStackId = ReadStackDropdownId();
+#if UNITY_WEBGL && !UNITY_EDITOR
+            entry.WebSocketUri = webSocketUri;
+#endif
 
             SavedServerStore.Save(saved);
 
@@ -950,6 +975,17 @@ namespace Basis.BasisUI
             {
                 return;
             }
+#if UNITY_WEBGL && !UNITY_EDITOR
+            try
+            {
+                SavedServerWebSocketUriValidator.Validate(entry?.WebSocketUri, true);
+            }
+            catch (Exception exception) when (exception is InvalidOperationException || exception is FormatException)
+            {
+                BasisConnectionService.ReportConnectionError(exception.Message);
+                return;
+            }
+#endif
 
             if (isHostMode)
             {
