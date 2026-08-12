@@ -29,24 +29,26 @@ public static class AssetBundleBuilder
         };
 
         AssetBundleManifest manifest = BuildPipeline.BuildAssetBundles(BABP);
+        RequireSuccessfulManifest(manifest);
 
-        if (manifest != null)
-        {
-            Hash = await ProcessAssetBundles(targetDirectory, settings, manifest, password, isEncrypted);
-            string[] graphicsAPIs = ResolveGraphicsAPIs(buildTarget);
-            BasisBundleGenerated = new BasisBundleGenerated(Hash.bundleHash.ToString(), mode, assetBundleName, Hash.CRC, true, password, buildTarget.ToString(), Hash.Length, graphicsAPIs);
-            DeleteManifestFiles(targetDirectory, buildTarget.ToString());
+        Hash = await ProcessAssetBundles(targetDirectory, settings, manifest, password, isEncrypted);
+        string[] graphicsAPIs = ResolveGraphicsAPIs(buildTarget);
+        BasisBundleGenerated = new BasisBundleGenerated(Hash.bundleHash.ToString(), mode, assetBundleName, Hash.CRC, true, password, buildTarget.ToString(), Hash.Length, graphicsAPIs);
+        DeleteManifestFiles(targetDirectory, buildTarget.ToString());
 #if UNITY_6000_0_OR_NEWER
-            BuildReport Reports = BuildReport.GetLatestReport();
-            OnPostprocessBuild(Reports);
+        BuildReport Reports = BuildReport.GetLatestReport();
+        OnPostprocessBuild(Reports);
 #endif
-        }
-        else
-        {
-            BasisDebug.LogError("AssetBundle build failed.");
-        }
         EditorUtility.ClearProgressBar();
         return new(BasisBundleGenerated, Hash);
+    }
+
+    public static void RequireSuccessfulManifest(AssetBundleManifest manifest)
+    {
+        if (manifest == null)
+        {
+            throw new InvalidOperationException("AssetBundle build failed without producing a manifest.");
+        }
     }
 
     public static BuildAssetBundleOptions ResolveBuildOptions(BuildTarget buildTarget, BuildAssetBundleOptions configuredOptions)
