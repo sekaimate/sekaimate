@@ -28,6 +28,7 @@ namespace Basis.BasisUI
         public static async void AddToMenu()
         {
             BasisMenuBase<BasisMainMenu>.AddProvider(new LibraryProvider());
+            await AddressableAssets.InitializeAsync();
 
             // begin meta data caching here
             // load all the keys
