@@ -76,7 +76,6 @@ if [[ "$1" == "full" ]]; then
               Assets/AddressableAssetsData:
               Assets/Basis:
               Assets/Plugins:
-              Assets/Resources:
               Assets/StreamingAssets:
               Assets/XR"
 
@@ -219,4 +218,3 @@ tar czf ../Basis.$1.unitypackage .
 cd ..
 
 rm generate_unitypackage -rf
-
