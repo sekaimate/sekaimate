@@ -47,6 +47,16 @@ public class BasisWebEncryptionTests
     }
 
     [Test]
+    public void ConnectorDecryptionReturnsToTheUnityContext()
+    {
+        string source = File.ReadAllText("Packages/com.basis.bundlemanagement/BasisEncryptionToData.cs");
+
+        StringAssert.DoesNotContain(
+            "DecryptFromBytesAsync(uniqueID, basisPassword, encryptedBytes, progressCallback).ConfigureAwait(false)",
+            source);
+    }
+
+    [Test]
     public void WebGlBeeCacheUsesSynchronousFileOperations()
     {
         string ioSource = File.ReadAllText("Packages/com.basis.bundlemanagement/BasisIOManagement.cs");
