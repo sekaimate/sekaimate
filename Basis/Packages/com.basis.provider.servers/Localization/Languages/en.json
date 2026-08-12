@@ -43,6 +43,10 @@
       "value": "WebSocket URI"
     },
     {
+      "key": "menu.servers.serverInfoUri",
+      "value": "Server Info URI"
+    },
+    {
       "key": "menu.servers.hostStack",
       "value": "Host Networking Stack"
     },

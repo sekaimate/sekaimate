@@ -23,6 +23,7 @@ namespace Basis.Scripts.Networking
         public bool HasPassword;
         public string NetworkStackId;
         public string WebSocketUri;
+        public string ServerInfoUri;
 
         public SavedServerEntry()
         {
@@ -34,6 +35,7 @@ namespace Basis.Scripts.Networking
             HasPassword = true;
             NetworkStackId = string.Empty;
             WebSocketUri = string.Empty;
+            ServerInfoUri = string.Empty;
         }
     }
 

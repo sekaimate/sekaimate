@@ -67,6 +67,7 @@ namespace Basis.BasisUI
         private PanelTextField _editAddress;
         private PanelTextField _editPort;
         private PanelTextField _editWebSocketUri;
+        private PanelTextField _editServerInfoUri;
         private PanelPasswordField _editPassword;
         private PanelDropdown _editNetworkStack;
         private List<string> _stackIds;
@@ -434,6 +435,9 @@ namespace Basis.BasisUI
 #if UNITY_WEBGL && !UNITY_EDITOR
             _editWebSocketUri = PanelTextField.CreateNewEntry(editorContent);
             _editWebSocketUri.Descriptor.SetTitle(BasisLocalization.Get("menu.servers.webSocketUri"));
+
+            _editServerInfoUri = PanelTextField.CreateNewEntry(editorContent);
+            _editServerInfoUri.Descriptor.SetTitle(BasisLocalization.Get("menu.servers.serverInfoUri"));
 #endif
 
             _editPassword = PanelPasswordField.CreateNewEntry(editorContent);
@@ -499,6 +503,7 @@ namespace Basis.BasisUI
             _editPort.SetValueWithoutNotify(portString);
 #if UNITY_WEBGL && !UNITY_EDITOR
             _editWebSocketUri.SetValueWithoutNotify(existing?.WebSocketUri ?? string.Empty);
+            _editServerInfoUri.SetValueWithoutNotify(existing?.ServerInfoUri ?? string.Empty);
 #endif
             _editPassword.SetPassword(existing?.Password ?? "default_password");
             SetStackDropdownToId(existing?.Target?.StackId);
@@ -612,9 +617,11 @@ namespace Basis.BasisUI
 
 #if UNITY_WEBGL && !UNITY_EDITOR
             string webSocketUri;
+            string serverInfoUri;
             try
             {
                 webSocketUri = SavedServerWebSocketUriValidator.Validate(_editWebSocketUri.Value, true);
+                serverInfoUri = SavedServerInfoUriValidator.Validate(_editServerInfoUri.Value, true);
             }
             catch (Exception exception) when (exception is InvalidOperationException || exception is FormatException)
             {
@@ -649,6 +656,7 @@ namespace Basis.BasisUI
             entry.NetworkStackId = ReadStackDropdownId();
 #if UNITY_WEBGL && !UNITY_EDITOR
             entry.WebSocketUri = webSocketUri;
+            entry.ServerInfoUri = serverInfoUri;
 #endif
 
             SavedServerStore.Save(saved);
@@ -853,7 +861,11 @@ namespace Basis.BasisUI
             ServerProbeResult result;
             try
             {
+#if UNITY_WEBGL && !UNITY_EDITOR
+                result = await BasisWebServerInfoClient.ProbeAsync(entry.ServerInfoUri, 3000, ct);
+#else
                 result = await BasisNetworkStackRegistry.ProbeAsync(entry.Target, 3000, ct);
+#endif
             }
             catch (OperationCanceledException) { return; }
 
