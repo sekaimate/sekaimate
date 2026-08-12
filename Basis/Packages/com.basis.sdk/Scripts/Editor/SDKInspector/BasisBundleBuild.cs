@@ -147,8 +147,13 @@ public static class BasisBundleBuild
     }
     public static bool CheckTarget(BuildTarget target)
     {
-        bool isSupported = BuildPipeline.IsBuildTargetSupported(BuildTargetGroup.Standalone, target) ||
-                           BuildPipeline.IsBuildTargetSupported(BuildTargetGroup.Android, target);
+        return CheckTarget(target, BuildPipeline.IsBuildTargetSupported);
+    }
+
+    public static bool CheckTarget(BuildTarget target, Func<BuildTargetGroup, BuildTarget, bool> isBuildTargetSupported)
+    {
+        BuildTargetGroup targetGroup = BuildPipeline.GetBuildTargetGroup(target);
+        bool isSupported = isBuildTargetSupported(targetGroup, target);
 
         Debug.Log($"{target.ToString()} Build Target Installed: {isSupported}");
         return isSupported;

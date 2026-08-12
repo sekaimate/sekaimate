@@ -25,7 +25,7 @@ public static class AssetBundleBuilder
 #if UNITY_6000_0_OR_NEWER
             extraScriptingDefines = null,
 #endif
-            options = settings.BuildAssetBundleOptions
+            options = ResolveBuildOptions(buildTarget, settings.BuildAssetBundleOptions)
         };
 
         AssetBundleManifest manifest = BuildPipeline.BuildAssetBundles(BABP);
@@ -47,6 +47,21 @@ public static class AssetBundleBuilder
         }
         EditorUtility.ClearProgressBar();
         return new(BasisBundleGenerated, Hash);
+    }
+
+    public static BuildAssetBundleOptions ResolveBuildOptions(BuildTarget buildTarget, BuildAssetBundleOptions configuredOptions)
+    {
+        if (buildTarget != BuildTarget.WebGL)
+        {
+            return configuredOptions;
+        }
+
+        if (configuredOptions.HasFlag(BuildAssetBundleOptions.UncompressedAssetBundle))
+        {
+            throw new InvalidOperationException("WebGL BEE AssetBundles must use LZ4 compression.");
+        }
+
+        return configuredOptions | BuildAssetBundleOptions.ChunkBasedCompression;
     }
 
     // Returns the graphics APIs PlayerSettings will compile shaders for on the given
