@@ -63,6 +63,22 @@ public class BasisWebPersistenceTests
     }
 
     [Test]
+    public void WebKeyStoresReadFilesSynchronously()
+    {
+        string itemKeys = File.ReadAllText(
+            "Packages/com.basis.framework/UI Panels/BasisDataStoreItemKeys.cs");
+        string avatarKeys = File.ReadAllText(
+            "Packages/com.basis.framework/UI Panels/BasisDataStoreAvatarKeys.cs");
+
+        StringAssert.Contains(
+            "#if UNITY_WEBGL && !UNITY_EDITOR\n                byteData = File.ReadAllBytes(FilePath);",
+            itemKeys);
+        StringAssert.Contains(
+            "#if UNITY_WEBGL && !UNITY_EDITOR\n                byte[] byteData = File.ReadAllBytes(FilePath);",
+            avatarKeys);
+    }
+
+    [Test]
     public void NativeItemKeyStoreRetainsAtomicAsyncWrite()
     {
         string itemKeys = File.ReadAllText(
