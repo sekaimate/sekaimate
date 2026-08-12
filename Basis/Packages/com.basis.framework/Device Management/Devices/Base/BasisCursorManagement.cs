@@ -151,16 +151,13 @@ public static class BasisCursorManagement
         {
             cursorUnlockRequests.Add(requestName);
         }
-        if (ActiveLockState() == CursorLockMode.None)
-        {
-#if UNITY_WEBGL && !UNITY_EDITOR
-            BasisWebPointerLockBridge.EnsureInitialized();
-#endif
-            return;
-        }
 #if UNITY_WEBGL && !UNITY_EDITOR
         BasisWebPointerLockBridge.Exit();
 #else
+        if (ActiveLockState() == CursorLockMode.None)
+        {
+            return;
+        }
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
         if (FireCursorStateChange)
