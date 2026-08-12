@@ -168,6 +168,10 @@
       "value": "WebSocket URI"
     },
     {
+      "key": "menu.servers.serverInfoUri",
+      "value": "Server Info URI"
+    },
+    {
       "key": "menu.servers.hostPeerLimit",
       "value": "Limite peer"
     },
