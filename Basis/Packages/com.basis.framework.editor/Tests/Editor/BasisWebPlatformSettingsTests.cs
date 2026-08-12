@@ -7,21 +7,24 @@ using UnityEngine.Rendering;
 
 public class BasisWebPlatformSettingsTests
 {
-    private static readonly string[] OpenVrWindowsLibraryPaths =
-    {
-        "Packages/com.valvesoftware.unity.openvr/Runtime/x86/openvr_api.lib",
-        "Packages/com.valvesoftware.unity.openvr/Runtime/x86/XRSDKOpenVR.lib",
-        "Packages/com.valvesoftware.unity.openvr/Runtime/x64/openvr_api.lib",
-        "Packages/com.valvesoftware.unity.openvr/Runtime/x64/XRSDKOpenVR.lib",
-    };
-
-    [TestCaseSource(nameof(OpenVrWindowsLibraryPaths))]
-    public void WindowsOpenVrLibrariesAreExcludedFromWebGl(string pluginPath)
+    [TestCase("Packages/com.valvesoftware.unity.openvr/Runtime/x86/openvr_api.lib", BuildTarget.StandaloneWindows, BuildTarget.StandaloneWindows64, "x86")]
+    [TestCase("Packages/com.valvesoftware.unity.openvr/Runtime/x86/XRSDKOpenVR.lib", BuildTarget.StandaloneWindows, BuildTarget.StandaloneWindows64, "x86")]
+    [TestCase("Packages/com.valvesoftware.unity.openvr/Runtime/x64/openvr_api.lib", BuildTarget.StandaloneWindows64, BuildTarget.StandaloneWindows, "x86_64")]
+    [TestCase("Packages/com.valvesoftware.unity.openvr/Runtime/x64/XRSDKOpenVR.lib", BuildTarget.StandaloneWindows64, BuildTarget.StandaloneWindows, "x86_64")]
+    public void WindowsOpenVrLibrariesAreScopedToTheirNativeArchitecture(
+        string pluginPath,
+        BuildTarget nativeTarget,
+        BuildTarget otherWindowsTarget,
+        string cpu)
     {
         PluginImporter importer = AssetImporter.GetAtPath(pluginPath) as PluginImporter;
 
         Assert.That(importer, Is.Not.Null, pluginPath);
+        Assert.That(importer.GetCompatibleWithAnyPlatform(), Is.False, pluginPath);
         Assert.That(importer.GetCompatibleWithPlatform(BuildTarget.WebGL), Is.False, pluginPath);
+        Assert.That(importer.GetCompatibleWithPlatform(nativeTarget), Is.True, pluginPath);
+        Assert.That(importer.GetCompatibleWithPlatform(otherWindowsTarget), Is.False, pluginPath);
+        Assert.That(importer.GetPlatformData(nativeTarget, "CPU"), Is.EqualTo(cpu), pluginPath);
     }
 
     [TestCase("Packages/com.steam.steamvr/SteamVR/SteamVR.asmdef")]
