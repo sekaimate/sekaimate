@@ -49,4 +49,22 @@ public class BasisWebStartupAddressablesTests
 
         StringAssert.Contains("if (group.Label != JaJpLabel)", source);
     }
+
+    [Test]
+    public void WebDiscCacheDoesNotScheduleThreadPoolWork()
+    {
+        string source = File.ReadAllText("Packages/com.basis.bundlemanagement/BasisLoadhandler.cs");
+
+        StringAssert.Contains("#if UNITY_WEBGL && !UNITY_EDITOR", source);
+        StringAssert.Contains("return Task.FromResult((false, new BasisBEEExtensionMeta()))", source);
+    }
+
+    [Test]
+    public void WebBootDoesNotInitializeUnityAnalytics()
+    {
+        string source = File.ReadAllText("Packages/com.basis.framework/Device Management/Boot Sequence/BasisBootSequence.cs");
+
+        StringAssert.Contains("#if !UNITY_WEBGL || UNITY_EDITOR", source);
+        StringAssert.Contains("await UnityServices.InitializeAsync()", source);
+    }
 }

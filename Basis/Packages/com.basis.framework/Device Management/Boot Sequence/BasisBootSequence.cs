@@ -89,6 +89,7 @@ namespace Basis.Scripts.Boot_Sequence
             }
 
             // Unity Services / Analytics (optional).
+#if !UNITY_WEBGL || UNITY_EDITOR
             if (GrabUnityAnalytics)
             {
                 try
@@ -103,6 +104,7 @@ namespace Basis.Scripts.Boot_Sequence
                     Debug.LogWarning($"[BootSequence] Unity Services init/analytics failed: {e.Message}");
                 }
             }
+#endif
         }
 
         /// <summary>

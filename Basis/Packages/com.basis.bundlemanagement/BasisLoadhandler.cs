@@ -629,6 +629,14 @@ public static class BasisLoadHandler
             return Task.FromResult((true, inMemory));
         }
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+        string currentPlatform = BasisIOManagement.GetCurrentCachePlatform();
+        if (TryLazyLoadDiscInfo(MetaURL, currentPlatform, out BasisBEEExtensionMeta lazyInfo))
+        {
+            return Task.FromResult((true, lazyInfo));
+        }
+        return Task.FromResult((false, new BasisBEEExtensionMeta()));
+#else
         return Task.Run<(bool, BasisBEEExtensionMeta)>(() =>
         {
             string currentPlatform = BasisIOManagement.GetCurrentCachePlatform();
@@ -638,6 +646,7 @@ public static class BasisLoadHandler
             }
             return (false, new BasisBEEExtensionMeta());
         });
+#endif
     }
 
     public static async Task AddDiscInfo(BasisBEEExtensionMeta discInfo)
@@ -710,6 +719,19 @@ public static class BasisLoadHandler
 
         foreach (string file in files)
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            try
+            {
+                byte[] fileData = File.ReadAllBytes(file);
+                BasisBEEExtensionMeta discInfo = BasisSerialization.DeserializeValue<BasisBEEExtensionMeta>(fileData);
+                OnDiscData[GetDiscInfoKey(discInfo.StoredRemote.RemoteBeeFileLocation, discInfo.DownloadedPlatform)] = discInfo;
+            }
+            catch (Exception ex)
+            {
+                BasisDebug.LogError($"Failed to load disc info from {file}: {ex.Message}", BasisDebug.LogTag.Event);
+                File.Delete(file);
+            }
+#else
             loadTasks.Add(Task.Run(async () =>
             {
                // BasisDebug.Log($"Loading file: {file}");
@@ -725,6 +747,7 @@ public static class BasisLoadHandler
                     File.Delete(file);
                 }
             }));
+#endif
         }
 
         await Task.WhenAll(loadTasks);
