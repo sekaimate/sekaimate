@@ -127,6 +127,7 @@ namespace Basis
             }
 
             WebSocketServerTransportOptions options = WebSocketServerTransportOptions.FromConfiguration(config);
+            ServerInfoHttpEndpointOptions serverInfoOptions = ServerInfoHttpEndpointOptions.FromConfiguration(config);
             WebSocketEventBridge bridge = new(NetworkServer.Listener, options.MaximumPayloadLength);
             int maximumPeerId = Math.Min(config.PeerLimit, ushort.MaxValue) - 1;
             WebSocketPeerIdAllocator peerIdAllocator = new(
@@ -136,9 +137,17 @@ namespace Basis
                 id => udpServer.manager.GetPeerById(id) != null);
             udpServer.manager.PeerIdUnavailable = peerIdAllocator.IsLeased;
             NetworkServer.AdditionalConnectedPeersCountProvider = () => peerIdAllocator.LeasedCount;
-            WebSocketTransport = new BasisWebSocketServerTransport(options, bridge, peerIdAllocator);
+            WebSocketTransport = new BasisWebSocketServerTransport(
+                options,
+                bridge,
+                serverInfoOptions,
+                () => ServerInfoSnapshot.FromConfiguration(
+                    NetworkServer.Configuration,
+                    NetworkServer.AuthenticatedPeers.Count),
+                peerIdAllocator);
             WebSocketTransport.StartAsync().GetAwaiter().GetResult();
             BNL.Log($"Listening for WebSocket upgrades on port {options.Port} at {options.Path}");
+            BNL.Log($"Serving browser server info at {serverInfoOptions.Path}");
         }
 
         private static void StopNetworkTransports()

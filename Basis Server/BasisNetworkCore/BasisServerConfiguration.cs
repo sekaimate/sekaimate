@@ -56,6 +56,7 @@ public class Configuration
     public bool WebSocketEnabled = false;
     public ushort WebSocketPort = 4297;
     public string WebSocketPath = "/basis";
+    public string WebSocketServerInfoPath = "/server-info";
     public int WebSocketMaximumPayloadLength = 1024 * 1024;
     public int WebSocketPendingSendCapacity = 64;
     public string[] WebSocketAllowedOrigins = Array.Empty<string>();

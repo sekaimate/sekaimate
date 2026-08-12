@@ -7,6 +7,18 @@ public sealed class ServerInfoHttpEndpointOptions
     public string Path { get; set; } = string.Empty;
     public List<string> AllowedOrigins { get; } = new();
 
+    public static ServerInfoHttpEndpointOptions FromConfiguration(Configuration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        ServerInfoHttpEndpointOptions options = new()
+        {
+            Path = configuration.WebSocketServerInfoPath,
+        };
+        options.AllowedOrigins.AddRange(configuration.WebSocketAllowedOrigins ?? Array.Empty<string>());
+        options.Validate();
+        return options;
+    }
+
     public void Validate()
     {
         if (string.IsNullOrEmpty(Path)

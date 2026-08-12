@@ -56,6 +56,40 @@ public sealed class ServerInfoHttpEndpointTests
         Assert.Throws<ArgumentException>(options.Validate);
     }
 
+    [Fact]
+    public void FromConfiguration_MapsExplicitPathAndOrigins()
+    {
+        Configuration configuration = new()
+        {
+            WebSocketServerInfoPath = "/status/server-info",
+            WebSocketAllowedOrigins = new[] { "https://app.example" },
+        };
+
+        ServerInfoHttpEndpointOptions options = ServerInfoHttpEndpointOptions.FromConfiguration(configuration);
+
+        Assert.Equal("/status/server-info", options.Path);
+        Assert.True(options.IsOriginAllowed("https://app.example"));
+    }
+
+    [Fact]
+    public void Snapshot_UsesCurrentServerConfigurationAndAuthenticatedCount()
+    {
+        Configuration configuration = new()
+        {
+            PeerLimit = 16,
+            ServerName = "Basis",
+            ServerMotd = "Hello",
+        };
+
+        ServerInfoSnapshot snapshot = ServerInfoSnapshot.FromConfiguration(configuration, 3);
+
+        Assert.Equal((ushort)3, snapshot.Online);
+        Assert.Equal((ushort)16, snapshot.Max);
+        Assert.Equal(Basis.Network.Core.BasisNetworkCommons.ServerInfoProtocolVersion, snapshot.ProtocolVersion);
+        Assert.Equal("Basis", snapshot.Name);
+        Assert.Equal("Hello", snapshot.Motd);
+    }
+
     private static ServerInfoHttpEndpointOptions ValidOptions()
     {
         ServerInfoHttpEndpointOptions options = new() { Path = "/basis/server-info" };

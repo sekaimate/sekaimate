@@ -16,11 +16,16 @@ public sealed class BasisWebSocketServerTransport : IAsyncDisposable
     public BasisWebSocketServerTransport(
         WebSocketServerTransportOptions options,
         IWebSocketServerConnectionHandler connectionHandler,
+        ServerInfoHttpEndpointOptions serverInfoOptions,
+        Func<ServerInfoSnapshot> serverInfoSnapshotProvider,
         WebSocketPeerIdAllocator? peerIdAllocator = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(connectionHandler);
+        ArgumentNullException.ThrowIfNull(serverInfoOptions);
+        ArgumentNullException.ThrowIfNull(serverInfoSnapshotProvider);
         options.Validate();
+        serverInfoOptions.Validate();
         _peerIdAllocator = peerIdAllocator ?? new WebSocketPeerIdAllocator();
 
         WebApplicationBuilder builder = WebApplication.CreateSlimBuilder();
@@ -36,6 +41,7 @@ public sealed class BasisWebSocketServerTransport : IAsyncDisposable
         {
             KeepAliveInterval = options.KeepAliveInterval,
         });
+        ServerInfoHttpEndpoint.Map(application, serverInfoOptions, serverInfoSnapshotProvider);
         application.Map(options.Path, branch => branch.Run(context => HandleRequestAsync(
             context,
             options,
