@@ -27,6 +27,11 @@ public static class BasisHeadlessBuild
     public static void BuildWeb()
     {
         string buildPath = RequireArgument("customBuildPath");
+        if (Directory.Exists(buildPath) && Directory.EnumerateFileSystemEntries(buildPath).Any())
+        {
+            throw new BuildFailedException($"Web build output directory must be empty: {buildPath}");
+        }
+
         EnsureActiveBuildTarget(BuildTarget.WebGL);
         BuildPlayer(BuildTarget.WebGL, CreateWebBuildPlayerOptions(buildPath));
     }
@@ -122,6 +127,11 @@ public static class BasisHeadlessBuild
             {
                 throw new BuildFailedException($"Player build failed: {report.summary.result}");
             }
+
+            if (target == BuildTarget.WebGL)
+            {
+                ValidateWebBuildOutput(options.locationPathName);
+            }
         }
         finally
         {
@@ -130,6 +140,49 @@ public static class BasisHeadlessBuild
                 addressableSettings.BuildAddressablesWithPlayerBuild = originalBuildAddressablesWithPlayerBuild;
                 Debug.Log($"[BasisHeadlessBuild] Restored BuildAddressablesWithPlayerBuild={addressableSettings.BuildAddressablesWithPlayerBuild}");
             }
+        }
+    }
+
+    public static string[] FindMissingWebBuildArtifacts(IEnumerable<string> relativeFilePaths)
+    {
+        string[] paths = relativeFilePaths
+            .Select(path => path.Replace('\\', '/'))
+            .ToArray();
+        var missing = new List<string>();
+
+        RequireArtifact(paths, missing, "index.html", path => path == "index.html");
+        RequireArtifact(paths, missing, "TemplateData", path => path.StartsWith("TemplateData/", StringComparison.Ordinal));
+        RequireArtifact(paths, missing, "loader.js", path => path.StartsWith("Build/", StringComparison.Ordinal) && path.EndsWith(".loader.js", StringComparison.Ordinal));
+        RequireArtifact(paths, missing, "framework.js", path => path.StartsWith("Build/", StringComparison.Ordinal) && (path.EndsWith(".framework.js", StringComparison.Ordinal) || path.EndsWith(".framework.js.gz", StringComparison.Ordinal) || path.EndsWith(".framework.js.br", StringComparison.Ordinal)));
+        RequireArtifact(paths, missing, "wasm", path => path.StartsWith("Build/", StringComparison.Ordinal) && (path.EndsWith(".wasm", StringComparison.Ordinal) || path.EndsWith(".wasm.gz", StringComparison.Ordinal) || path.EndsWith(".wasm.br", StringComparison.Ordinal)));
+        RequireArtifact(paths, missing, "data", path => path.StartsWith("Build/", StringComparison.Ordinal) && (path.EndsWith(".data", StringComparison.Ordinal) || path.EndsWith(".data.gz", StringComparison.Ordinal) || path.EndsWith(".data.br", StringComparison.Ordinal)));
+        RequireArtifact(paths, missing, "Addressables settings", path => path == "StreamingAssets/aa/settings.json");
+        RequireArtifact(paths, missing, "Addressables catalog", path => path == "StreamingAssets/aa/catalog.bin");
+        RequireArtifact(paths, missing, "Addressables bundle", path => path.StartsWith("StreamingAssets/aa/", StringComparison.Ordinal) && path.EndsWith(".bundle", StringComparison.Ordinal));
+
+        return missing.ToArray();
+    }
+
+    private static void ValidateWebBuildOutput(string buildPath)
+    {
+        string[] relativeFilePaths = Directory
+            .EnumerateFiles(buildPath, "*", SearchOption.AllDirectories)
+            .Where(path => new FileInfo(path).Length > 0)
+            .Select(path => Path.GetRelativePath(buildPath, path))
+            .ToArray();
+        string[] missing = FindMissingWebBuildArtifacts(relativeFilePaths);
+
+        if (missing.Length > 0)
+        {
+            throw new BuildFailedException($"Web build output is incomplete. Missing: {string.Join(", ", missing)}");
+        }
+    }
+
+    private static void RequireArtifact(string[] paths, List<string> missing, string name, Func<string, bool> predicate)
+    {
+        if (!paths.Any(predicate))
+        {
+            missing.Add(name);
         }
     }
 
