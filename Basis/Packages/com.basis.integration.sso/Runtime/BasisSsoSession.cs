@@ -20,6 +20,9 @@ namespace Basis.Integration.Sso
         /// <summary>The issuer this session was minted against; a config issuer change invalidates it.</summary>
         [JsonProperty("issuer")] public string Issuer = string.Empty;
 
+        /// <summary>Stable local identifier of the configured provider that created this session.</summary>
+        [JsonProperty("providerId")] public string ProviderId = string.Empty;
+
         /// <summary>OIDC subject — the stable per-user id used to namespace the DID binding.</summary>
         [JsonProperty("sub")] public string Sub = string.Empty;
 
@@ -28,6 +31,8 @@ namespace Basis.Integration.Sso
         [JsonProperty("refreshToken")] public string RefreshToken = string.Empty;
 
         [JsonProperty("accessTokenExpiresAtUtc")] public DateTime AccessTokenExpiresAtUtc = DateTime.MinValue;
+        /// <summary>Expiry of the ID token presented to Basis servers at connection time.</summary>
+        [JsonProperty("idTokenExpiresAtUtc")] public DateTime IdTokenExpiresAtUtc = DateTime.MinValue;
 
         /// <summary>Null when the IdP did not advertise a refresh-token lifetime.</summary>
         [JsonProperty("refreshTokenExpiresAtUtc")] public DateTime? RefreshTokenExpiresAtUtc;
@@ -40,6 +45,9 @@ namespace Basis.Integration.Sso
 
         [JsonIgnore]
         public bool AccessTokenValid => DateTime.UtcNow < AccessTokenExpiresAtUtc;
+
+        [JsonIgnore]
+        public bool IdTokenValid => DateTime.UtcNow < IdTokenExpiresAtUtc;
 
         [JsonIgnore]
         public bool RefreshTokenValid =>

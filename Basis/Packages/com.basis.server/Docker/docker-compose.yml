@@ -1,23 +1,37 @@
 services:
   basis-server:
     build:
-      context: ../
-      dockerfile: Docker/Dockerfile
+      # The standalone project references managed DLLs in sibling Packages/.
+      # Use the repository root as the context so those references are present.
+      context: ../../../
+      dockerfile: Packages/com.basis.server/Docker/Dockerfile
     image: basis-server:latest
     container_name: basis-server
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      SetPort: 4296
-      HealthCheckPort: 10666
-      PromethusPort: 1234
-      Password: default_password
-      PeerLimit: 1024
-      EnableStatistics: true
-      EnableConsole: false
+      SetPort: ${SetPort:-4296}
+      HealthCheckPort: ${HealthCheckPort:-10666}
+      PromethusPort: ${PromethusPort:-1234}
+      Password: ${Password:-change-me-before-public-use}
+      PeerLimit: ${PeerLimit:-1024}
+      EnableStatistics: ${EnableStatistics:-true}
+      EnableConsole: ${EnableConsole:-false}
+      BasisFirstAdmin: ${BasisFirstAdmin:-}
+      # The SSO stack is intentionally a separate Compose project in ./sso.
+      RequireSso: ${RequireSso:-false}
+      AutoStartSsoBroker: false
     ports:
-      - "4296:4296/udp"
-      - "10666:10666/tcp"
-      - "1234:1234/tcp"
+      - "${SetPort:-4296}:${SetPort:-4296}/udp"
+      - "${HealthCheckPort:-10666}:${HealthCheckPort:-10666}/tcp"
+      - "${PromethusPort:-1234}:${PromethusPort:-1234}/tcp"
     volumes:
       - ./initialresources:/app/initialresources:ro
       - ./config:/app/config
+    networks:
+      - basis-sso
+
+networks:
+  basis-sso:
+    name: basis-sso

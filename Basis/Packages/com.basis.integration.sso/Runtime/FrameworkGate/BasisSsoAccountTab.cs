@@ -1,3 +1,5 @@
+using System;
+using System.Collections;
 using Basis.BasisUI;
 using Basis.Integration.Sso;
 using UnityEngine;
@@ -32,14 +34,27 @@ namespace Basis.Integration.Sso.FrameworkGate
 
             RectTransform container = descriptor.ContentParent;
 
+            BasisSsoAccountTabLiveView liveView = tab.gameObject.AddComponent<BasisSsoAccountTabLiveView>();
+            liveView.Initialize(container, descriptor);
+
+            descriptor.ForceRebuild();
+            return tab;
+        }
+
+        internal static void BuildContents(RectTransform container, PanelElementDescriptor descriptor)
+        {
+            for (int index = container.childCount - 1; index >= 0; index--)
+                UnityEngine.Object.Destroy(container.GetChild(index).gameObject);
+
             PanelElementDescriptor group = PanelElementDescriptor.CreateNew(
                 PanelElementDescriptor.ElementStyles.Group, container);
 
             if (BasisSsoAuthController.IsSignedIn)
             {
                 string sub = BasisSsoAuthController.Current?.Sub ?? string.Empty;
+                string provider = ActiveProviderLabel();
                 group.SetTitle("Signed in");
-                group.SetDescription($"{BasisSsoAuthController.ActiveDisplayName}\n<size=85%>{sub}</size>");
+                group.SetDescription($"Provider: {provider}\n{BasisSsoAuthController.ActiveDisplayName}\n<size=85%>{sub}</size>");
 
                 PanelButton switchButton = PanelButton.CreateNew(container);
                 switchButton.Descriptor.SetTitle("Switch account");
@@ -70,11 +85,50 @@ namespace Basis.Integration.Sso.FrameworkGate
                 group.SetDescription(BasisSsoAuthController.IsConfigured
                     ? "Sign-in is required to connect."
                     : "SSO is not configured for this client.");
+
+                if (BasisSsoAuthController.IsConfigured)
+                {
+                    var providers = BasisSsoAuthController.Providers;
+                    if (providers != null && providers.Count > 0)
+                    {
+                        foreach (BasisOidcConfig.ProviderConfig provider in providers)
+                        {
+                            if (provider == null || string.IsNullOrWhiteSpace(provider.Id)) continue;
+                            string providerId = provider.Id;
+                            PanelButton signInButton = PanelButton.CreateNew(container);
+                            signInButton.Descriptor.SetTitle($"Sign in with {ProviderLabel(provider)}");
+                            signInButton.OnClicked += () => BasisSsoGateRunner.RequestInteractiveSignIn(providerId);
+                        }
+                    }
+                    else
+                    {
+                        PanelButton signInButton = PanelButton.CreateNew(container);
+                        signInButton.Descriptor.SetTitle("Sign in");
+                        signInButton.OnClicked += () => BasisSsoGateRunner.RequestInteractiveSignIn(null);
+                    }
+                }
             }
 
             descriptor.ForceRebuild();
-            return tab;
         }
+
+        private static string ActiveProviderLabel()
+        {
+            string id = BasisSsoAuthController.SelectedProviderId;
+            var providers = BasisSsoAuthController.Providers;
+            if (providers != null)
+            {
+                foreach (BasisOidcConfig.ProviderConfig provider in providers)
+                {
+                    if (provider != null && string.Equals(provider.Id, id, StringComparison.OrdinalIgnoreCase))
+                        return string.IsNullOrWhiteSpace(provider.Label) ? provider.Id : provider.Label;
+                }
+            }
+            return string.IsNullOrWhiteSpace(id) ? "Unknown" : id;
+        }
+
+        private static string ProviderLabel(BasisOidcConfig.ProviderConfig provider) =>
+            !string.IsNullOrWhiteSpace(provider?.Label) ? provider.Label : provider?.Id ?? "provider";
 
         private static void Confirm(string title, string body, System.Action onConfirmed)
         {
@@ -93,6 +147,42 @@ namespace Basis.Integration.Sso.FrameworkGate
         {
             // Drop the settings panel so the gate's sign-in dialog owns the screen.
             BasisMainMenu.Close();
+        }
+    }
+
+    internal sealed class BasisSsoAccountTabLiveView : MonoBehaviour
+    {
+        private RectTransform _container;
+        private PanelElementDescriptor _descriptor;
+        private bool _rebuildQueued;
+
+        internal void Initialize(RectTransform container, PanelElementDescriptor descriptor)
+        {
+            _container = container;
+            _descriptor = descriptor;
+            BasisSsoAuthController.StateChanged += QueueRebuild;
+            BasisSsoAuthController.RuntimeConfigurationApplied += QueueRebuild;
+            BasisSsoAccountTab.BuildContents(_container, _descriptor);
+        }
+
+        private void OnDestroy()
+        {
+            BasisSsoAuthController.StateChanged -= QueueRebuild;
+            BasisSsoAuthController.RuntimeConfigurationApplied -= QueueRebuild;
+        }
+
+        private void QueueRebuild()
+        {
+            if (_rebuildQueued || !this) return;
+            _rebuildQueued = true;
+            StartCoroutine(RebuildNextFrame());
+        }
+
+        private IEnumerator RebuildNextFrame()
+        {
+            yield return null;
+            _rebuildQueued = false;
+            if (_container && _descriptor) BasisSsoAccountTab.BuildContents(_container, _descriptor);
         }
     }
 }

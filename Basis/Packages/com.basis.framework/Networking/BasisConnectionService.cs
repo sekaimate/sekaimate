@@ -34,33 +34,12 @@ namespace Basis.Scripts.Networking
         /// allow it. Kept as a delegate so the framework stays decoupled from the SSO package.
         /// </summary>
         public static Func<string> ConnectionBlockedReason;
+        /// <summary>Optional integration hook that replaces the wire auth payload immediately before connecting.</summary>
+        public static Func<string, Task<byte[]>> ConnectionAuthenticationPayloadProvider;
 
         // Stable key the loading bar uses to merge updates for the same connection
         // attempt, distinct from the bundle-load key BasisSceneLoad reports under.
         private const string ConnectionProgressKey = "BasisServerConnection";
-
-        private static ServerDirectoryEntry _lastTarget;
-        private static string _lastUserName;
-
-        /// <summary>
-        /// True when a previous <see cref="ConnectAsync"/> left enough state behind to re-issue the
-        /// same connection. Host mode is excluded on purpose: the "server" there is this process's
-        /// own runner, so restarting it in a retry loop recovers nothing the user cannot do faster
-        /// by re-hosting.
-        /// </summary>
-        public static bool HasReconnectTarget => _lastTarget != null && !string.IsNullOrWhiteSpace(_lastUserName);
-
-        /// <summary>
-        /// Re-issues the last connection, used by <see cref="BasisNetworkConnectionWatchdog"/>.
-        /// </summary>
-        public static Task ReconnectAsync()
-        {
-            if (!HasReconnectTarget)
-            {
-                return Task.CompletedTask;
-            }
-            return ConnectAsync(_lastTarget, _lastUserName);
-        }
 
         public static void ReportConnectionProgress(float progress, string message) =>
             BasisSceneLoad.progressCallback.ReportProgress(ConnectionProgressKey, progress, message ?? string.Empty);
@@ -123,7 +102,6 @@ namespace Basis.Scripts.Networking
             _connectInProgress = true;
             try
             {
-                BasisNetworkConnectionWatchdog.NotifyConnectStarting();
                 ReportConnectionProgress(5f, BasisLocalization.Get("menu.servers.status.initializing"));
 
                 if (BasisNetworkConnection.LocalPlayerIsConnected)
@@ -163,6 +141,17 @@ namespace Basis.Scripts.Networking
                 BasisNetworkManagement.IsHostMode = isHostMode;
                 BasisNetworkManagement.NetworkStackId = stackId;
 
+                byte[] authenticationPayload = null;
+                if (ConnectionAuthenticationPayloadProvider != null)
+                {
+                    authenticationPayload = await ConnectionAuthenticationPayloadProvider(BasisNetworkManagement.Password);
+                    if (authenticationPayload == null)
+                    {
+                        ReportConnectionError("Could not obtain server admission ticket.");
+                        return;
+                    }
+                }
+
                 ReportConnectionProgress(60f, BasisLocalization.Get("menu.servers.status.loadingBundle"));
 
                 // Probe the server while the bundle loads to discover which address family
@@ -179,35 +168,25 @@ namespace Basis.Scripts.Networking
                     BasisNetworkManagement.Ip = resolvedIp;
                 }
 
-                _lastTarget = isHostMode ? null : entry;
-                _lastUserName = isHostMode ? null : BasisLocalPlayer.Instance.DisplayName;
-
                 ReportConnectionProgress(90f, BasisLocalization.Get("menu.servers.status.connecting"));
-                BasisNetworkManagement.Connect();
+                BasisNetworkManagement.Connect(authenticationPayload);
                 if (BasisDesktopEye.Instance != null)
                 {
                     BasisDesktopEye.Instance.LockEye();
                 }
-                // The loading bar stays up: the handshake is still in flight on the client task, and
-                // the watchdog closes the bar once the server answers (or times the attempt out).
-                BasisNetworkConnectionWatchdog.NotifyHandshakeStarted();
+                CompleteConnectionProgress();
             }
             catch (TimeoutException tex)
             {
-                BasisNetworkConnectionWatchdog.NotifyConnectAborted();
                 ReportConnectionError(BasisLocalization.Get("menu.servers.error.timeout"));
                 BasisDebug.LogError(tex.ToString());
             }
             catch (Exception ex)
             {
-                BasisNetworkConnectionWatchdog.NotifyConnectAborted();
                 ReportConnectionError(BasisLocalization.Get("menu.servers.error.connectFailed"));
                 BasisDebug.LogError(ex.ToString());
             }
-            finally
-            {
-                _connectInProgress = false;
-            }
+            finally { _connectInProgress = false; }
         }
 
         /// <summary>

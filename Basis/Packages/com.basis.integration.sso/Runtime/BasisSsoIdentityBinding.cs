@@ -1,5 +1,9 @@
 using Basis.Scripts.Common;
+using Basis.Scripts.BasisSdk.Players;
 using BasisNetworkClient;
+using System;
+using System.Security.Cryptography;
+using System.Text;
 using UnityEngine;
 
 namespace Basis.Integration.Sso
@@ -22,6 +26,7 @@ namespace Basis.Integration.Sso
         private const string GlobalUsernameFile = "CachedUserName.BAS";
         private const string PerSubjectNamePrefsPrefix = "SsoDisplayName::";
 
+        /// <summary>Opaque issuer-and-subject key; never use an IdP subject alone as a local key.</summary>
         public static string ActiveSubject { get; private set; }
 
         /// <summary>
@@ -32,12 +37,12 @@ namespace Basis.Integration.Sso
         {
             if (session == null || string.IsNullOrEmpty(session.Sub)) return;
 
-            ActiveSubject = session.Sub;
-            BasisDIDAuthIdentityClient.IdentityNamespace = session.Sub;
+            ActiveSubject = MakeSubjectKey(session.Issuer, session.Sub);
+            BasisDIDAuthIdentityClient.IdentityNamespace = ActiveSubject;
             // Force the keypair for this namespace to be created/loaded now.
             BasisDIDAuthIdentityClient.GetOrSaveDID();
 
-            string stored = PlayerPrefs.GetString(PerSubjectNamePrefsPrefix + session.Sub, string.Empty);
+            string stored = PlayerPrefs.GetString(PerSubjectNamePrefsPrefix + ActiveSubject, string.Empty);
             string displayName = !string.IsNullOrWhiteSpace(stored)
                 ? stored
                 : ResolveDisplayNameFromClaims(config, session);
@@ -81,6 +86,8 @@ namespace Basis.Integration.Sso
                 PlayerPrefs.Save();
             }
             BasisDataStore.SaveString(displayName, GlobalUsernameFile);
+            if (BasisLocalPlayer.Instance != null)
+                BasisLocalPlayer.Instance.DisplayName = displayName;
         }
 
         public static string ResolveDisplayNameFromClaims(BasisOidcConfig config, BasisSsoSession session)
@@ -94,6 +101,17 @@ namespace Basis.Integration.Sso
                 }
             }
             return string.IsNullOrEmpty(session.Sub) ? "User" : session.Sub;
+        }
+
+        private static string MakeSubjectKey(string issuer, string sub)
+        {
+            // PlayerPrefs keys should not contain raw provider subjects and must be stable across
+            // platforms. A SHA-256 namespace also prevents delimiter ambiguity.
+            using var sha = SHA256.Create();
+            byte[] hash = sha.ComputeHash(Encoding.UTF8.GetBytes((issuer ?? string.Empty) + "\n" + (sub ?? string.Empty)));
+            var sb = new StringBuilder(hash.Length * 2);
+            foreach (byte b in hash) sb.Append(b.ToString("x2"));
+            return "oidc-" + sb;
         }
     }
 }

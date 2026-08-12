@@ -20,13 +20,22 @@ namespace Basis.Integration.Sso
     {
         public const string FileName = "basis-sso.json";
 
+        /// <summary>
+        /// The supported identity providers.  A deployment normally uses this field rather than
+        /// the legacy top-level provider fields below.  Keeping the latter for one release makes
+        /// existing single-provider files continue to work while administrators migrate.
+        /// </summary>
+        [JsonProperty("providers")] public List<ProviderConfig> Providers = new List<ProviderConfig>();
+        [JsonProperty("defaultProviderId")] public string DefaultProviderId = string.Empty;
+        /// <summary>Public key pinned for the SSO server transport. It is never a private OAuth secret.</summary>
+        [JsonProperty("serverTransport")] public ServerTransportConfig ServerTransport = new ServerTransportConfig();
+
         [JsonProperty("issuer")] public string Issuer = string.Empty;
         [JsonProperty("clientId")] public string ClientId = string.Empty;
-
         /// <summary>
-        /// Optional. Some IdPs require it in the token exchange even for a PKCE "public" client:
-        /// notably Google "Desktop app" clients, whose secret is explicitly documented as
-        /// non-confidential but still mandatory. Leave empty for true public clients (e.g. Okta Native).
+        /// Optional credential required by some native OAuth client registrations. This value is
+        /// used only in the HTTPS token exchange with the identity provider; it is never sent to
+        /// the Basis server or SSO broker. Native-client secrets are not confidential secrets.
         /// </summary>
         [JsonProperty("clientSecret")] public string ClientSecret = string.Empty;
 
@@ -43,6 +52,34 @@ namespace Basis.Integration.Sso
         [JsonProperty("displayNameClaims")] public List<string> DisplayNameClaims = new List<string> { "name", "preferred_username", "email" };
         [JsonProperty("access")] public AccessConfig Access = new AccessConfig();
         [JsonProperty("enforcement")] public EnforcementConfig Enforcement = new EnforcementConfig();
+
+        [Serializable]
+        public sealed class ProviderConfig
+        {
+            [JsonProperty("id")] public string Id = string.Empty;
+            [JsonProperty("label")] public string Label = string.Empty;
+            [JsonProperty("issuer")] public string Issuer = string.Empty;
+            [JsonProperty("clientId")] public string ClientId = string.Empty;
+            [JsonProperty("clientSecret")] public string ClientSecret = string.Empty;
+            [JsonProperty("scopes")] public List<string> Scopes = new List<string> { "openid", "profile", "email" };
+            [JsonProperty("extraAuthParams")] public Dictionary<string, string> ExtraAuthParams = new Dictionary<string, string>();
+            [JsonProperty("displayNameClaims")] public List<string> DisplayNameClaims = new List<string> { "name", "preferred_username", "email" };
+            [JsonProperty("access")] public AccessConfig Access = new AccessConfig();
+        }
+
+        [Serializable]
+        public sealed class ServerTransportConfig
+        {
+            [JsonProperty("serverPublicKey")] public string ServerPublicKey = string.Empty;
+            [JsonProperty("admissionEndpoint")] public string AdmissionEndpoint = string.Empty;
+            /// <summary>
+            /// Development-only escape hatch for a broker running on the same machine with a
+            /// locally generated certificate. Validation only permits this for loopback HTTPS
+            /// endpoints, so a configuration can never opt out of certificate verification for
+            /// a remote broker.
+            /// </summary>
+            [JsonProperty("allowUntrustedLoopbackCertificate")] public bool AllowUntrustedLoopbackCertificate;
+        }
 
         [Serializable]
         public sealed class RedirectConfig
@@ -88,27 +125,59 @@ namespace Basis.Integration.Sso
         /// <summary>Structural validation of required fields. Does not contact the IdP.</summary>
         public bool TryValidate(out string error)
         {
-            if (string.IsNullOrWhiteSpace(Issuer))
+            if (Providers != null && Providers.Count > 0)
             {
-                error = "OIDC config: 'issuer' is required.";
-                return false;
+                var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (ProviderConfig provider in Providers)
+                {
+                    if (provider == null || string.IsNullOrWhiteSpace(provider.Id))
+                    {
+                        error = "OIDC config: every provider needs a non-empty 'id'.";
+                        return false;
+                    }
+                    if (!ids.Add(provider.Id))
+                    {
+                        error = $"OIDC config: duplicate provider id '{provider.Id}'.";
+                        return false;
+                    }
+                    if (!TryValidateProvider(provider.Issuer, provider.ClientId, provider.Scopes, out error))
+                    {
+                        error = $"OIDC config provider '{provider.Id}': {error}";
+                        return false;
+                    }
+                }
+                if (!string.IsNullOrWhiteSpace(DefaultProviderId) && FindProvider(DefaultProviderId) == null)
+                {
+                    error = $"OIDC config: defaultProviderId '{DefaultProviderId}' is not in providers.";
+                    return false;
+                }
+                if (!ValidateRedirect(out error)) return false;
+                if (ServerTransport == null || string.IsNullOrWhiteSpace(ServerTransport.ServerPublicKey))
+                {
+                    error = "OIDC config: serverTransport.serverPublicKey is required when SSO providers are configured.";
+                    return false;
+                }
+                if (!Uri.TryCreate(ServerTransport.AdmissionEndpoint, UriKind.Absolute, out Uri admissionUri)
+                    || admissionUri.Scheme != Uri.UriSchemeHttps)
+                {
+                    error = "OIDC config: serverTransport.admissionEndpoint must be an absolute HTTPS URL.";
+                    return false;
+                }
+                if (ServerTransport.AllowUntrustedLoopbackCertificate && !IsLoopbackHost(admissionUri.Host))
+                {
+                    error = "OIDC config: serverTransport.allowUntrustedLoopbackCertificate is allowed only for localhost or a loopback IP.";
+                    return false;
+                }
+                error = null;
+                return true;
             }
-            if (!Uri.TryCreate(Issuer, UriKind.Absolute, out Uri issuerUri)
-                || (issuerUri.Scheme != Uri.UriSchemeHttps && issuerUri.Scheme != Uri.UriSchemeHttp))
-            {
-                error = $"OIDC config: 'issuer' must be an absolute http(s) URL (got '{Issuer}').";
-                return false;
-            }
-            if (string.IsNullOrWhiteSpace(ClientId))
-            {
-                error = "OIDC config: 'clientId' is required.";
-                return false;
-            }
-            if (Scopes == null || Scopes.Count == 0 || !Scopes.Contains("openid"))
-            {
-                error = "OIDC config: 'scopes' must include 'openid'.";
-                return false;
-            }
+
+            if (!TryValidateProvider(Issuer, ClientId, Scopes, out error)) return false;
+            return ValidateRedirect(out error);
+        }
+
+        private bool ValidateRedirect(out string error)
+        {
             if (Redirect == null || !string.Equals(Redirect.Mode, "loopback", StringComparison.OrdinalIgnoreCase))
             {
                 error = "OIDC config: only redirect.mode 'loopback' is supported.";
@@ -116,6 +185,58 @@ namespace Basis.Integration.Sso
             }
             error = null;
             return true;
+        }
+
+        internal static bool IsLoopbackHost(string host)
+        {
+            if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase)) return true;
+            return System.Net.IPAddress.TryParse(host, out System.Net.IPAddress address)
+                && System.Net.IPAddress.IsLoopback(address);
+        }
+
+        private static bool TryValidateProvider(string issuer, string clientId, List<string> scopes, out string error)
+        {
+            if (string.IsNullOrWhiteSpace(issuer)) { error = "'issuer' is required."; return false; }
+            if (!Uri.TryCreate(issuer, UriKind.Absolute, out Uri issuerUri) || issuerUri.Scheme != Uri.UriSchemeHttps)
+            {
+                error = $"'issuer' must be an absolute HTTPS URL (got '{issuer}').";
+                return false;
+            }
+            if (string.IsNullOrWhiteSpace(clientId)) { error = "'clientId' is required."; return false; }
+            if (scopes == null || scopes.Count == 0 || !scopes.Contains("openid"))
+            {
+                error = "'scopes' must include 'openid'.";
+                return false;
+            }
+            error = null;
+            return true;
+        }
+
+        public ProviderConfig FindProvider(string id)
+        {
+            if (Providers == null) return null;
+            return Providers.Find(p => p != null && string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>Creates the single-provider view consumed by the OIDC protocol implementation.</summary>
+        public BasisOidcConfig ForProvider(string id)
+        {
+            ProviderConfig provider = FindProvider(id);
+            if (provider == null) return null;
+            return new BasisOidcConfig
+            {
+                Issuer = provider.Issuer,
+                ClientId = provider.ClientId,
+                ClientSecret = provider.ClientSecret,
+                Scopes = provider.Scopes,
+                ExtraAuthParams = provider.ExtraAuthParams,
+                Redirect = Redirect,
+                DisplayNameClaims = provider.DisplayNameClaims,
+                Access = provider.Access,
+                Enforcement = Enforcement,
+                ServerTransport = ServerTransport,
+                DefaultProviderId = provider.Id,
+            };
         }
 
         // ── Loading ──────────────────────────────────────────────────────────
@@ -143,6 +264,32 @@ namespace Basis.Integration.Sso
                 return null;
             }
             return config;
+        }
+
+        /// <summary>Parses an in-memory setup payload without writing it to disk.</summary>
+        public static bool TryParse(string json, out BasisOidcConfig config, out string error)
+        {
+            config = null;
+            try
+            {
+                config = JsonConvert.DeserializeObject<BasisOidcConfig>(json);
+                if (config == null)
+                {
+                    error = "OIDC config is empty.";
+                    return false;
+                }
+                if (!config.TryValidate(out error))
+                {
+                    config = null;
+                    return false;
+                }
+                return true;
+            }
+            catch (Exception e)
+            {
+                error = "Invalid OIDC config: " + e.Message;
+                return false;
+            }
         }
 
         private static BasisOidcConfig ReadFrom(string path)

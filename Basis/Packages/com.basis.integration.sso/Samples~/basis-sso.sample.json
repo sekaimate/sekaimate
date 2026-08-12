@@ -1,23 +1,37 @@
 {
-  "_comment": "Copy to Assets/StreamingAssets/basis-sso.json and fill in your IdP values. Google example shown; for Okta use issuer https://<org>.okta.com/oauth2/default, drop clientSecret, and remove extraAuthParams (use an 'offline_access' scope instead).",
-  "issuer": "https://accounts.google.com",
-  "clientId": "REPLACE_WITH_YOUR_CLIENT_ID.apps.googleusercontent.com",
-  "clientSecret": "REPLACE_WITH_YOUR_CLIENT_SECRET",
-  "scopes": ["openid", "email", "profile"],
-  "extraAuthParams": {
-    "access_type": "offline",
-    "prompt": "consent"
+  "_comment": "Copy to Assets/StreamingAssets/basis-sso.json. clientSecret is optional for a native client and is sent only to the IdP token endpoint; never add Basis server or broker keys here.",
+  "defaultProviderId": "google",
+  "serverTransport": {
+    "serverPublicKey": "REPLACE_WITH_SERVER_X25519_PUBLIC_KEY",
+    "admissionEndpoint": "https://YOUR_BASIS_AUTH_BROKER.example/admission/YOUR_SERVER_ID"
   },
+  "providers": [
+    {
+      "id": "google",
+      "label": "Google Workspace",
+      "issuer": "https://accounts.google.com",
+      "clientId": "REPLACE_WITH_GOOGLE_DESKTOP_CLIENT_ID",
+      "clientSecret": "OPTIONAL_GOOGLE_DESKTOP_CLIENT_SECRET",
+      "scopes": ["openid", "email", "profile"],
+      "extraAuthParams": { "access_type": "offline", "prompt": "consent" },
+      "displayNameClaims": ["name", "email"],
+      "access": { "allowedGroups": [], "allowedClaims": [] }
+    },
+    {
+      "id": "okta",
+      "label": "Okta",
+      "issuer": "https://YOUR_OKTA_DOMAIN/oauth2/YOUR_AUTHORIZATION_SERVER_ID",
+      "clientId": "REPLACE_WITH_OKTA_NATIVE_CLIENT_ID",
+      "scopes": ["openid", "email", "profile", "offline_access", "basis.connect"],
+      "displayNameClaims": ["name", "preferred_username", "email"],
+      "access": { "allowedGroups": [], "allowedClaims": [] }
+    }
+  ],
   "redirect": {
     "mode": "loopback",
     "host": "127.0.0.1",
-    "port": 0,
+    "port": 42800,
     "path": "/callback"
-  },
-  "displayNameClaims": ["name", "email"],
-  "access": {
-    "allowedGroups": [],
-    "allowedClaims": []
   },
   "enforcement": {
     "allowOfflineWithinTokenValidity": true

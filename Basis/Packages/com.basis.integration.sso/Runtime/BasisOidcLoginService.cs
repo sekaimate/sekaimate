@@ -141,8 +141,9 @@ namespace Basis.Integration.Sso
             if (!string.Equals(existing.Issuer, _config.Issuer, StringComparison.Ordinal))
                 return SsoAuthResult.Fail("Stored session was issued by a different provider.");
 
-            // Cached access token still valid → no network needed (covers offline launch).
-            if (existing.AccessTokenValid) return SsoAuthResult.Ok(existing);
+            // Cached tokens still valid → no network needed (covers offline launch). A session
+            // is not considered authenticated once its signed identity assertion has expired.
+            if (existing.AccessTokenValid && existing.IdTokenValid) return SsoAuthResult.Ok(existing);
 
             if (!existing.RefreshTokenValid) return SsoAuthResult.Fail("Session expired; sign-in required.");
 
@@ -173,8 +174,7 @@ namespace Basis.Integration.Sso
                 ["client_id"] = _config.ClientId,
                 ["code_verifier"] = codeVerifier,
             };
-            if (!string.IsNullOrEmpty(_config.ClientSecret))
-                form["client_secret"] = _config.ClientSecret;
+            AddClientSecretIfConfigured(form);
             return await PostFormAsync(tokenEndpoint, form, ct);
         }
 
@@ -186,9 +186,14 @@ namespace Basis.Integration.Sso
                 ["refresh_token"] = refreshToken,
                 ["client_id"] = _config.ClientId,
             };
-            if (!string.IsNullOrEmpty(_config.ClientSecret))
-                form["client_secret"] = _config.ClientSecret;
+            AddClientSecretIfConfigured(form);
             return await PostFormAsync(tokenEndpoint, form, ct);
+        }
+
+        private void AddClientSecretIfConfigured(Dictionary<string, string> form)
+        {
+            if (!string.IsNullOrWhiteSpace(_config.ClientSecret))
+                form["client_secret"] = _config.ClientSecret;
         }
 
         private static async Task<JObject> PostFormAsync(string endpoint, Dictionary<string, string> form, CancellationToken ct)
@@ -254,6 +259,14 @@ namespace Basis.Integration.Sso
             else
                 refreshExpiry = fallback?.RefreshTokenExpiresAtUtc;
 
+            DateTime idTokenExpiry = DateTime.MinValue;
+            if (claims.TryGetValue("exp", out List<string> expValues)
+                && expValues.Count > 0
+                && long.TryParse(expValues[0], out long expUnix))
+            {
+                idTokenExpiry = DateTimeOffset.FromUnixTimeSeconds(expUnix).UtcDateTime;
+            }
+
             var session = new BasisSsoSession
             {
                 Issuer = _config.Issuer,
@@ -262,6 +275,7 @@ namespace Basis.Integration.Sso
                 AccessToken = accessToken,
                 RefreshToken = refreshToken,
                 AccessTokenExpiresAtUtc = accessExpiry,
+                IdTokenExpiresAtUtc = idTokenExpiry,
                 RefreshTokenExpiresAtUtc = refreshExpiry,
                 Claims = claims,
             };
