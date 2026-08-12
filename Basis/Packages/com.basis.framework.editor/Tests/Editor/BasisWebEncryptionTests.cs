@@ -76,6 +76,18 @@ public class BasisWebEncryptionTests
     }
 
     [Test]
+    public void WebGlAssetBundlesLoadWithoutBackgroundThreadDispatch()
+    {
+        string source = File.ReadAllText("Packages/com.basis.bundlemanagement/BasisEncryptionToData.cs");
+
+        StringAssert.Contains("public static async Task<AssetBundle> GenerateBundleFromFile", source);
+        StringAssert.Contains(
+            "#if UNITY_WEBGL && !UNITY_EDITOR\n        AssetBundle assetBundle = AssetBundle.LoadFromMemory(decrypted.Data, CRC);\n#else",
+            source);
+        StringAssert.Contains("AssetBundle.LoadFromMemoryAsync(decrypted.Data, CRC)", source);
+    }
+
+    [Test]
     public void WebGlBeeCacheUsesSynchronousFileOperations()
     {
         string ioSource = File.ReadAllText("Packages/com.basis.bundlemanagement/BasisIOManagement.cs");
