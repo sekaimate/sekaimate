@@ -1,3 +1,5 @@
+using Basis.Network.Core;
+
 namespace Basis.Network.WebSocketServer;
 
 public sealed class WebSocketServerTransportOptions
@@ -24,7 +26,7 @@ public sealed class WebSocketServerTransportOptions
         {
             throw new ArgumentException("Path must be an absolute request path without a trailing slash, query, or fragment.", nameof(Path));
         }
-        if (MaximumPayloadLength <= 0)
+        if (MaximumPayloadLength < WebSocketAcceptPayloadCodec.PayloadLength)
         {
             throw new ArgumentOutOfRangeException(nameof(MaximumPayloadLength));
         }

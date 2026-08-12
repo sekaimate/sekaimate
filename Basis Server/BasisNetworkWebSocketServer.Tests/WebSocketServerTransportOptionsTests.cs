@@ -53,9 +53,11 @@ public sealed class WebSocketServerTransportOptionsTests
     }
 
     [Theory]
-    [InlineData(0)]
     [InlineData(-1)]
-    public void Validate_RejectsNonPositiveMaximumPayloadLength(int maximumPayloadLength)
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(3)]
+    public void Validate_RejectsMaximumPayloadShorterThanAcceptPayload(int maximumPayloadLength)
     {
         WebSocketServerTransportOptions options = ValidOptions();
         options.MaximumPayloadLength = maximumPayloadLength;
