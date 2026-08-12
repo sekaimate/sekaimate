@@ -504,9 +504,6 @@ public sealed class BasisMediaPlayer : MonoBehaviour
     private const int RestartMaxRechecks = 5;
     private const float RestartRecheckIntervalSeconds = 1f;
     private BasisMediaPlayerAudio audioComponent;
-#if UNITY_WEBGL && !UNITY_EDITOR
-    private AudioListener webAudioListener;
-#endif
     private long lastEnqueuedPtsUs;
     private BasisMediaSource activeMediaSource;
     private BasisMediaMetadata metadata;
@@ -769,10 +766,10 @@ public sealed class BasisMediaPlayer : MonoBehaviour
                 throw new NotSupportedException(webReason);
             AudioSource webAudioSource = GetWebAudioSource();
             bool usesAudioMixer = webAudioSource != null && webAudioSource.outputAudioMixerGroup != null;
-            if (!BasisWebMediaPolicy.TryValidateAudioOutput(usesAudioMixer, out string audioReason))
+            bool usesSpatialAudio = webAudioSource != null && webAudioSource.spatialBlend > 0;
+            bool usesMultipleOutputs = CountWebAudioOutputs() > 1;
+            if (!BasisWebMediaPolicy.TryValidateAudioOutput(usesAudioMixer, usesSpatialAudio, usesMultipleOutputs, out string audioReason))
                 throw new NotSupportedException(audioReason);
-            if (webAudioSource != null && webAudioSource.rolloffMode == AudioRolloffMode.Custom)
-                throw new NotSupportedException("Custom AudioSource rolloff is not supported by the Web media backend.");
 
             SetNativeEngine(new BasisPlatformMediaSource(media.Uri, null, media.Delivery));
             engineCreated = true;
@@ -1387,8 +1384,6 @@ public sealed class BasisMediaPlayer : MonoBehaviour
         {
 #if UNITY_WEBGL && !UNITY_EDITOR
             nativeEngine.SetPlaybackSettings(Volume, Mute, PlaybackRate, Loop);
-            if (webAudioListener == null) webAudioListener = FindAnyObjectByType<AudioListener>();
-            nativeEngine.SetSpatialSettings(GetWebAudioSource(), webAudioListener);
 #else
             // Feed the audio sink's measured output latency to the backend so it
             // paces video to match (low-latency A/V sync; desktop ignores it).
@@ -1563,6 +1558,17 @@ public sealed class BasisMediaPlayer : MonoBehaviour
             if (output != null) return output;
         }
         return null;
+    }
+
+    private int CountWebAudioOutputs()
+    {
+        if (audioComponent == null || audioComponent.Outputs == null) return 0;
+        int count = 0;
+        foreach (AudioSource output in audioComponent.Outputs)
+        {
+            if (output != null) count++;
+        }
+        return count;
     }
 #endif
 

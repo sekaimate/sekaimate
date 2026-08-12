@@ -20,17 +20,8 @@ mergeInto(LibraryManager.library, {
     var audioContext = new (window.AudioContext || window.webkitAudioContext)();
     var source = audioContext.createMediaElementSource(video);
     var gain = audioContext.createGain();
-    var sourceGain = audioContext.createGain();
-    var directGain = audioContext.createGain();
-    var spatialGain = audioContext.createGain();
-    var panner = audioContext.createPanner();
     source.connect(gain);
-    gain.connect(sourceGain);
-    sourceGain.connect(directGain);
-    sourceGain.connect(spatialGain);
-    directGain.connect(audioContext.destination);
-    spatialGain.connect(panner);
-    panner.connect(audioContext.destination);
+    gain.connect(audioContext.destination);
 
     var id = BasisWebMedia.nextId++;
     var player = {
@@ -38,10 +29,6 @@ mergeInto(LibraryManager.library, {
       audioContext: audioContext,
       source: source,
       gain: gain,
-      sourceGain: sourceGain,
-      directGain: directGain,
-      spatialGain: spatialGain,
-      panner: panner,
       error: 0,
       framePending: false,
       textureInitialized: false,
@@ -80,10 +67,6 @@ mergeInto(LibraryManager.library, {
     player.video.load();
     player.source.disconnect();
     player.gain.disconnect();
-    player.sourceGain.disconnect();
-    player.directGain.disconnect();
-    player.spatialGain.disconnect();
-    player.panner.disconnect();
     player.audioContext.close();
     delete BasisWebMedia.players[mediaId];
   },
@@ -93,9 +76,11 @@ mergeInto(LibraryManager.library, {
     var player = BasisWebMedia.players[mediaId];
     if (!player) return;
     player.error = 0;
-    var resumeRequest = player.audioContext.resume();
-    if (resumeRequest) {
-      resumeRequest.catch(function() { player.error = 1; });
+    if (!player.video.muted) {
+      var resumeRequest = player.audioContext.resume();
+      if (resumeRequest) {
+        resumeRequest.catch(function() { player.error = 1; });
+      }
     }
     var playRequest = player.video.play();
     if (playRequest) {
@@ -205,32 +190,5 @@ mergeInto(LibraryManager.library, {
     player.gain.gain.value = mute ? 0 : Math.max(0, Math.min(1, volume));
     player.video.playbackRate = Math.max(0.25, Math.min(4, playbackRate));
     player.video.loop = false;
-  },
-
-  BasisWebMediaSetSpatialSettings__deps: ['$BasisWebMedia'],
-  BasisWebMediaSetSpatialSettings: function(mediaId, spatialBlend, sourceVolume, sourceMuted, minDistance, maxDistance, rolloffMode, sourceX, sourceY, sourceZ, listenerX, listenerY, listenerZ, forwardX, forwardY, forwardZ, upX, upY, upZ) {
-    var player = BasisWebMedia.players[mediaId];
-    if (!player || player.error !== 0) return;
-    var blend = Math.max(0, Math.min(1, spatialBlend));
-    player.directGain.gain.value = 1 - blend;
-    player.spatialGain.gain.value = blend;
-    player.sourceGain.gain.value = sourceMuted ? 0 : Math.max(0, Math.min(1, sourceVolume));
-    player.panner.distanceModel = rolloffMode === 1 ? 'linear' : 'inverse';
-    player.panner.refDistance = Math.max(0.01, minDistance);
-    player.panner.maxDistance = Math.max(player.panner.refDistance, maxDistance);
-    player.panner.rolloffFactor = 1;
-    player.panner.positionX.value = sourceX;
-    player.panner.positionY.value = sourceY;
-    player.panner.positionZ.value = -sourceZ;
-    var listener = player.audioContext.listener;
-    listener.positionX.value = listenerX;
-    listener.positionY.value = listenerY;
-    listener.positionZ.value = -listenerZ;
-    listener.forwardX.value = forwardX;
-    listener.forwardY.value = forwardY;
-    listener.forwardZ.value = -forwardZ;
-    listener.upX.value = upX;
-    listener.upY.value = upY;
-    listener.upZ.value = -upZ;
   },
 });

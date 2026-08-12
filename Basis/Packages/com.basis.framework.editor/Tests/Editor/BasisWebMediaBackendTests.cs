@@ -37,12 +37,11 @@ public class BasisWebMediaBackendTests
     }
 
     [Test]
-    public void RoutesWebMediaThroughSpatialAudioGraph()
+    public void RoutesWebMediaDirectlyWithoutFakeSpatialAudio()
     {
         string source = File.ReadAllText(PluginPath);
 
-        StringAssert.Contains("createPanner", source);
-        StringAssert.Contains("spatialGain.connect(panner)", source);
-        StringAssert.Contains("listener.positionX.value", source);
+        StringAssert.DoesNotContain("createPanner", source);
+        StringAssert.Contains("gain.connect(audioContext.destination)", source);
     }
 }

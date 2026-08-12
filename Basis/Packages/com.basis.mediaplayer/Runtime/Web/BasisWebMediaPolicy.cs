@@ -43,11 +43,28 @@ public static class BasisWebMediaPolicy
         return true;
     }
 
-    public static bool TryValidateAudioOutput(bool usesAudioMixer, out string reason)
+    public static bool TryValidateAudioOutput(
+        bool usesAudioMixer,
+        bool usesSpatialAudio,
+        bool usesMultipleOutputs,
+        out string reason)
     {
-        reason = usesAudioMixer
-            ? "AudioMixer routing is not supported by the Web media backend."
-            : null;
+        if (usesAudioMixer)
+        {
+            reason = "AudioMixer routing is not supported by the Web media backend.";
+            return false;
+        }
+        if (usesSpatialAudio)
+        {
+            reason = "Spatial audio is not supported by the Web media backend.";
+            return false;
+        }
+        if (usesMultipleOutputs)
+        {
+            reason = "Multiple audio outputs are not supported by the Web media backend.";
+            return false;
+        }
+        reason = null;
         return reason == null;
     }
 }

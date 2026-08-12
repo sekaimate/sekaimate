@@ -116,9 +116,23 @@ public class BasisBeeWebCompatibilityTests
     [Test]
     public void WebMediaRejectsAudioMixerRouting()
     {
-        Assert.That(BasisWebMediaPolicy.TryValidateAudioOutput(false, out _), Is.True);
-        Assert.That(BasisWebMediaPolicy.TryValidateAudioOutput(true, out string reason), Is.False);
+        Assert.That(BasisWebMediaPolicy.TryValidateAudioOutput(false, false, false, out _), Is.True);
+        Assert.That(BasisWebMediaPolicy.TryValidateAudioOutput(true, false, false, out string reason), Is.False);
         StringAssert.Contains("AudioMixer", reason);
+    }
+
+    [Test]
+    public void WebMediaRejectsSpatialAudio()
+    {
+        Assert.That(BasisWebMediaPolicy.TryValidateAudioOutput(false, true, false, out string reason), Is.False);
+        StringAssert.Contains("Spatial audio", reason);
+    }
+
+    [Test]
+    public void WebMediaRejectsMultipleAudioOutputs()
+    {
+        Assert.That(BasisWebMediaPolicy.TryValidateAudioOutput(false, false, true, out string reason), Is.False);
+        StringAssert.Contains("Multiple audio outputs", reason);
     }
 
     [Test]

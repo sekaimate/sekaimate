@@ -123,37 +123,6 @@ public sealed class BasisWebMediaSource : IBasisPcmSource, IDisposable
         ApplyPlaybackSettings();
     }
 
-    public void SetSpatialSettings(AudioSource audioSource, AudioListener audioListener)
-    {
-        if (handle < 0) return;
-        Transform sourceTransform = audioSource != null ? audioSource.transform : null;
-        Transform listenerTransform = audioListener != null ? audioListener.transform : null;
-        Vector3 sourcePosition = sourceTransform != null ? sourceTransform.position : Vector3.zero;
-        Vector3 listenerPosition = listenerTransform != null ? listenerTransform.position : sourcePosition;
-        Vector3 listenerForward = listenerTransform != null ? listenerTransform.forward : Vector3.forward;
-        Vector3 listenerUp = listenerTransform != null ? listenerTransform.up : Vector3.up;
-        BasisWebMediaSetSpatialSettings(
-            handle,
-            audioSource != null ? audioSource.spatialBlend : 0,
-            audioSource != null ? audioSource.volume : 1,
-            audioSource != null && audioSource.mute ? 1 : 0,
-            audioSource != null ? audioSource.minDistance : 1,
-            audioSource != null ? audioSource.maxDistance : 500,
-            audioSource != null && audioSource.rolloffMode == AudioRolloffMode.Linear ? 1 : 0,
-            sourcePosition.x,
-            sourcePosition.y,
-            sourcePosition.z,
-            listenerPosition.x,
-            listenerPosition.y,
-            listenerPosition.z,
-            listenerForward.x,
-            listenerForward.y,
-            listenerForward.z,
-            listenerUp.x,
-            listenerUp.y,
-            listenerUp.z);
-    }
-
     public void SetBuffer(BasisVideoBufferMode mode, int milliseconds) { }
     public bool SelectBitrate(int index) => false;
     public bool SelectAudioTrack(int index) => false;
@@ -277,26 +246,5 @@ public sealed class BasisWebMediaSource : IBasisPcmSource, IDisposable
     private static extern int BasisWebMediaUpdateTexture(int mediaId, int textureId);
     [DllImport("__Internal")]
     private static extern void BasisWebMediaSetPlaybackSettings(int mediaId, float volume, int mute, float playbackRate, int loop);
-    [DllImport("__Internal")]
-    private static extern void BasisWebMediaSetSpatialSettings(
-        int mediaId,
-        float spatialBlend,
-        float sourceVolume,
-        int sourceMuted,
-        float minDistance,
-        float maxDistance,
-        int rolloffMode,
-        float sourceX,
-        float sourceY,
-        float sourceZ,
-        float listenerX,
-        float listenerY,
-        float listenerZ,
-        float forwardX,
-        float forwardY,
-        float forwardZ,
-        float upX,
-        float upY,
-        float upZ);
 }
 #endif
