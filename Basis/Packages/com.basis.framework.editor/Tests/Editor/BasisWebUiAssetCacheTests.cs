@@ -74,6 +74,7 @@ public class BasisWebUiAssetCacheTests
 
     [TestCase("Packages/com.basis.framework/UI Panels/Base/BasisUIBase.cs")]
     [TestCase("Packages/com.basis.framework/Device Management/Devices/Desktop/BasisDesktopReticle.cs")]
+    [TestCase("Packages/com.basis.framework/Players/Remote/BasisRemotePlayer.cs")]
     public void WebRuntimeUiInstantiationUsesPreloadedPrefabs(string sourcePath)
     {
         string source = File.ReadAllText(sourcePath);
@@ -82,5 +83,20 @@ public class BasisWebUiAssetCacheTests
         StringAssert.Contains("AddressableAssets.GetPrefab", source);
         StringAssert.Contains("#else", source);
         StringAssert.Contains("WaitForCompletion", source);
+    }
+
+    [Test]
+    public void WebRemoteNamePlateUsesRuntimePreloadLabel()
+    {
+        string source = File.ReadAllText("Assets/AddressableAssetsData/AssetGroups/Basis Foundation Assets.asset");
+        const string address = "Assets/UI/Prefabs/NamePlate.prefab";
+        int addressIndex = source.IndexOf($"m_Address: {address}", System.StringComparison.Ordinal);
+
+        Assert.That(addressIndex, Is.GreaterThanOrEqualTo(0));
+        int nextEntryIndex = source.IndexOf("  - m_GUID:", addressIndex, System.StringComparison.Ordinal);
+        string entry = nextEntryIndex < 0
+            ? source.Substring(addressIndex)
+            : source.Substring(addressIndex, nextEntryIndex - addressIndex);
+        StringAssert.Contains("- basis-ui", entry);
     }
 }
