@@ -81,8 +81,8 @@ public class BasisWebUiAssetCacheTests
         string source = File.ReadAllText("Packages/com.basis.framework/Networking/ContentShare/BasisContentShareManager.cs");
 
         StringAssert.Contains("#if UNITY_WEBGL && !UNITY_EDITOR", source);
-        StringAssert.Contains("Object.Instantiate(AddressableAssets.GetPrefab(orbKey)", source);
-        StringAssert.Contains("Object.Destroy(sphere.gameObject)", source);
+        StringAssert.Contains("UnityEngine.Object.Instantiate(AddressableAssets.GetPrefab(orbKey)", source);
+        StringAssert.Contains("UnityEngine.Object.Destroy(sphere.gameObject)", source);
         StringAssert.Contains("#else", source);
         StringAssert.Contains("Addressables.InstantiateAsync(orbKey", source);
         StringAssert.Contains("WaitForCompletion", source);

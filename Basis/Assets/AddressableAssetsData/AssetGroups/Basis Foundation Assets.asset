@@ -29,7 +29,8 @@ MonoBehaviour:
   - m_GUID: 02557e153ce417740995e1aa0b218555
     m_Address: Packages/com.basis.sdk/Prefabs/PropOrb.prefab
     m_ReadOnly: 0
-    m_SerializedLabels: []
+    m_SerializedLabels:
+    - basis-ui
     FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 040c70d334425ce409edf84dd387a824
     m_Address: Packages/com.basis.sdk/Prefabs/Panel Elements/PE Image.prefab
@@ -252,7 +253,8 @@ MonoBehaviour:
   - m_GUID: 686ea57ae89c1284e99d97afd5b30195
     m_Address: Packages/com.basis.sdk/Prefabs/AvatarOrb.prefab
     m_ReadOnly: 0
-    m_SerializedLabels: []
+    m_SerializedLabels:
+    - basis-ui
     FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 69830dfb9aced8f43b4ec3faecb299e9
     m_Address: Packages/com.basis.sdk/Materials/TransParentNamePlateMaterial.mat
@@ -267,7 +269,8 @@ MonoBehaviour:
   - m_GUID: 6d6028608171cc34aa0cd1ee986fd9d8
     m_Address: Packages/com.basis.sdk/Prefabs/WorldOrb.prefab
     m_ReadOnly: 0
-    m_SerializedLabels: []
+    m_SerializedLabels:
+    - basis-ui
     FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 71743328d0464434ab9d1dc6c5df4e46
     m_Address: Packages/com.basis.sdk/Materials/OpaqueNamePlateMaterial.mat

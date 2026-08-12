@@ -268,7 +268,11 @@ public static class BasisContentShareManager
         {
             return;
         }
-        GameObject InSceneOrb = Addressables.InstantiateAsync(orbKey, BasisDeviceManagement.Instance.transform, false).WaitForCompletion();
+#if UNITY_WEBGL && !UNITY_EDITOR
+        GameObject InSceneOrb = UnityEngine.Object.Instantiate(AddressableAssets.GetPrefab(orbKey), position, Quaternion.identity, BasisDeviceManagement.Instance.transform);
+#else
+        GameObject InSceneOrb = Addressables.InstantiateAsync(orbKey, position, Quaternion.identity, BasisDeviceManagement.Instance.transform).WaitForCompletion();
+#endif
         if (InSceneOrb == null)
         {
             return;
@@ -326,7 +330,11 @@ public static class BasisContentShareManager
         {
             if (sphere != null && sphere.gameObject != null)
             {
+#if UNITY_WEBGL && !UNITY_EDITOR
+                UnityEngine.Object.Destroy(sphere.gameObject);
+#else
                 Addressables.ReleaseInstance(sphere.gameObject);
+#endif
             }
             BasisDebug.Log($"Content sphere removed: {sphereNetID}", BasisDebug.LogTag.Networking);
             OnSphereRemoved?.Invoke(sphereNetID);
@@ -343,7 +351,11 @@ public static class BasisContentShareManager
         {
             if (kvp.Value != null && kvp.Value.gameObject != null)
             {
+#if UNITY_WEBGL && !UNITY_EDITOR
+                UnityEngine.Object.Destroy(kvp.Value.gameObject);
+#else
                 Addressables.ReleaseInstance(kvp.Value.gameObject);
+#endif
             }
             BasisShareableRegistry.Unregister(kvp.Key);
         }
