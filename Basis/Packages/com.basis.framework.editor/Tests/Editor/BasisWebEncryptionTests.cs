@@ -88,6 +88,17 @@ public class BasisWebEncryptionTests
     }
 
     [Test]
+    public void WebGlLibraryMetadataPreloadsSequentially()
+    {
+        string source = File.ReadAllText("Packages/com.basis.framework/BasisUI/Menus/Library/CachedMetaData.cs");
+
+        StringAssert.Contains(
+            "#if UNITY_WEBGL && !UNITY_EDITOR\n                foreach (BasisDataStoreItemKeys.ItemKey item in items)\n                {\n                    await PreloadMetaDataForItem(item);\n                }\n#else",
+            source);
+        StringAssert.Contains("await Task.WhenAll(items.Select(async item =>", source);
+    }
+
+    [Test]
     public void WebGlBeeCacheUsesSynchronousFileOperations()
     {
         string ioSource = File.ReadAllText("Packages/com.basis.bundlemanagement/BasisIOManagement.cs");
