@@ -680,9 +680,6 @@ public static class BasisLoadHandler
             {
                 File.Move(tempPath, filePath);
             }
-#if UNITY_WEBGL && !UNITY_EDITOR
-            await BasisWebPersistence.FlushAsync();
-#endif
             BasisDebug.Log($"Disc info saved to {filePath}", BasisDebug.LogTag.Event);
         }
         catch (Exception ex)

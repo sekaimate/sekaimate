@@ -598,7 +598,6 @@ public partial class BasisHandHeldCameraUI
             string path = Path.Combine(Application.persistentDataPath, CameraSettingsJson);
 #if UNITY_WEBGL && !UNITY_EDITOR
             File.WriteAllText(path, json);
-            await BasisWebPersistence.FlushAsync();
 #else
             await File.WriteAllTextAsync(path, json);
 #endif
@@ -722,7 +721,6 @@ public partial class BasisHandHeldCameraUI
             string path = Path.Combine(Application.persistentDataPath, CameraSettingsJson);
 #if UNITY_WEBGL && !UNITY_EDITOR
             File.WriteAllText(path, json);
-            await BasisWebPersistence.FlushAsync();
 #else
             await File.WriteAllTextAsync(path, json);
 #endif

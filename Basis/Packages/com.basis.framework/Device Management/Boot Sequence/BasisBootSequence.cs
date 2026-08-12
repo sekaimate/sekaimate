@@ -68,10 +68,6 @@ namespace Basis.Scripts.Boot_Sequence
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static async Task OnAfterSceneLoadRuntimeMethod()
         {
-#if UNITY_WEBGL && !UNITY_EDITOR
-            await BasisWebPersistence.EnsureInitializedAsync();
-#endif
-
             // Subscribe once to teardown hooks.
             if (!HasEvents)
             {

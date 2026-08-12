@@ -418,7 +418,6 @@ namespace Basis.Scripts.UI.UI_Panels
             try
             {
                 File.WriteAllBytes(FilePath, byteData);
-                await BasisWebPersistence.FlushAsync();
                 BasisDebug.Log($"Item keys saved to file at: {FilePath}");
             }
             catch (System.Exception e)

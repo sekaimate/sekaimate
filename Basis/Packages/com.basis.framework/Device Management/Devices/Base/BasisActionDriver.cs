@@ -740,7 +740,6 @@ public static class BasisActionDriver
             }
 #if UNITY_WEBGL && !UNITY_EDITOR
             File.WriteAllText(SavePath, json);
-            await BasisWebPersistence.FlushAsync();
 #else
             await File.WriteAllTextAsync(SavePath, json);
 #endif

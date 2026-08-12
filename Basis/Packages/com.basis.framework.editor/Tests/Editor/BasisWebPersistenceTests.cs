@@ -6,30 +6,10 @@ using UnityEditor;
 public class BasisWebPersistenceTests
 {
     [Test]
-    public void BrowserBridgePopulatesAndFlushesIndexedDbFileSystem()
+    public void WebPersistenceUsesUnityAutomaticSyncWithoutManualBridge()
     {
-        string plugin = File.ReadAllText("Packages/com.basis.sdk/Plugins/WebGL/BasisWebPersistence.jslib");
-        string bridge = File.ReadAllText("Packages/com.basis.sdk/Scripts/Platform/BasisWebPersistence.cs");
-
-        StringAssert.Contains("FS.syncfs(operation.populate", plugin);
-        StringAssert.Contains("public static Task EnsureInitializedAsync()", bridge);
-        StringAssert.Contains("public static async Task FlushAsync()", bridge);
-        StringAssert.Contains("BeginSync(populate: true)", bridge);
-        StringAssert.Contains("BeginSync(populate: false)", bridge);
-        StringAssert.Contains("[DllImport(\"__Internal\")]", bridge);
-    }
-
-    [Test]
-    public void WebBootAwaitsPersistentDataBeforeAddressables()
-    {
-        string source = File.ReadAllText(
-            "Packages/com.basis.framework/Device Management/Boot Sequence/BasisBootSequence.cs");
-
-        int persistence = source.IndexOf("await BasisWebPersistence.EnsureInitializedAsync()");
-        int addressables = source.IndexOf("Addressables.InitializeAsync(false)");
-
-        Assert.That(persistence, Is.GreaterThanOrEqualTo(0));
-        Assert.That(addressables, Is.GreaterThan(persistence));
+        Assert.That(File.Exists("Packages/com.basis.sdk/Plugins/WebGL/BasisWebPersistence.jslib"), Is.False);
+        Assert.That(File.Exists("Packages/com.basis.sdk/Scripts/Platform/BasisWebPersistence.cs"), Is.False);
     }
 
     [Test]
@@ -39,10 +19,10 @@ public class BasisWebPersistenceTests
         string metadata = File.ReadAllText("Packages/com.basis.bundlemanagement/BasisLoadhandler.cs");
 
         StringAssert.Contains(
-            "File.Move(tempPath, path);\n#if UNITY_WEBGL && !UNITY_EDITOR\n            await BasisWebPersistence.FlushAsync();",
+            "File.Move(tempPath, path);",
             io);
         StringAssert.Contains(
-            "File.WriteAllBytes(filePath, serializedData);\n            await BasisWebPersistence.FlushAsync();",
+            "File.WriteAllBytes(filePath, serializedData);",
             metadata);
         StringAssert.Contains("await File.WriteAllBytesAsync(filePath, serializedData);", metadata);
     }
@@ -56,7 +36,7 @@ public class BasisWebPersistenceTests
             "Packages/com.basis.framework/UI Panels/BasisDataStoreAvatarKeys.cs");
 
         const string webWritePattern =
-            @"#if UNITY_WEBGL && !UNITY_EDITOR\s+(?:try\s+\{\s+)?File\.WriteAllBytes\(FilePath, byteData\);\s+await BasisWebPersistence\.FlushAsync\(\);";
+            @"#if UNITY_WEBGL && !UNITY_EDITOR\s+(?:try\s+\{\s+)?File\.WriteAllBytes\(FilePath, byteData\);";
 
         Assert.That(Regex.IsMatch(itemKeys, webWritePattern), Is.True);
         Assert.That(Regex.IsMatch(avatarKeys, webWritePattern), Is.True);
@@ -131,12 +111,12 @@ public class BasisWebPersistenceTests
         Assert.That(
             Regex.IsMatch(
                 source,
-                @"#if UNITY_WEBGL && !UNITY_EDITOR\s+try\s+\{\s+File\.WriteAllText\(FilePath, doc\.ToString\(\)\);\s+await BasisWebPersistence\.FlushAsync\(\);"),
+                @"#if UNITY_WEBGL && !UNITY_EDITOR\s+try\s+\{\s+File\.WriteAllText\(FilePath, doc\.ToString\(\)\);"),
             Is.True);
     }
 
     [Test]
-    public void WebActionBindingsUseSynchronousIoAndFlushWrites()
+    public void WebActionBindingsUseSynchronousIo()
     {
         string source = File.ReadAllText(
             "Packages/com.basis.framework/Device Management/Devices/Base/BasisActionDriver.cs");
@@ -145,7 +125,7 @@ public class BasisWebPersistenceTests
             "string json = File.ReadAllText(SavePath);\n#else\n            string json = await File.ReadAllTextAsync(SavePath);",
             source);
         StringAssert.Contains(
-            "File.WriteAllText(SavePath, json);\n            await BasisWebPersistence.FlushAsync();\n#else\n            await File.WriteAllTextAsync(SavePath, json);",
+            "File.WriteAllText(SavePath, json);\n#else\n            await File.WriteAllTextAsync(SavePath, json);",
             source);
     }
 

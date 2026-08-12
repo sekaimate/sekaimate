@@ -66,7 +66,6 @@ public class BasisWebCameraFileOutputTests
 
         StringAssert.Contains("File.WriteAllText(path, json);", source);
         StringAssert.Contains("string json = File.ReadAllText(path);", source);
-        StringAssert.Contains("await BasisWebPersistence.FlushAsync();", source);
         StringAssert.Contains("await File.WriteAllTextAsync(path, json);", source);
         StringAssert.Contains("string json = await File.ReadAllTextAsync(path);", source);
         StringAssert.DoesNotContain("BasisWebFileDownload", source);

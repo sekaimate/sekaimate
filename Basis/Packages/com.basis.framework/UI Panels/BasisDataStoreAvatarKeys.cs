@@ -121,7 +121,6 @@ namespace Basis.Scripts.UI.UI_Panels
                 byte[] byteData = BasisSerialization.SerializeValue(keys);
 #if UNITY_WEBGL && !UNITY_EDITOR
                 File.WriteAllBytes(FilePath, byteData);
-                await BasisWebPersistence.FlushAsync();
 #else
                 await File.WriteAllBytesAsync(FilePath, byteData);
 #endif

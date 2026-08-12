@@ -246,7 +246,6 @@ public static class BasisPreloadContentStore
         try
         {
             File.WriteAllText(FilePath, doc.ToString());
-            await BasisWebPersistence.FlushAsync();
             BasisDebug.Log($"Preload content saved to {FilePath}");
         }
         catch (Exception e)
