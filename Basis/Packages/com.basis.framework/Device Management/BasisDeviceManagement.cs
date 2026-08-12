@@ -319,6 +319,7 @@ namespace Basis.Scripts.Device_Management
 
             await BasisAvatarFactory.InitializeAsync();
             await BasisPlayerFactory.InitializeAsync();
+            await Basis.Scripts.UI.BasisUIRaycast.InitializeAssetsAsync();
             BasisXRManagement.Initialize();
             BasisCommandLineArgs.Initialize(BakedInCommandLineArgs, out ForcedDefault);
 

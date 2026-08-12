@@ -4,6 +4,7 @@ using Basis.Scripts.Device_Management.Devices;
 using Basis.Scripts.TransformBinders.BoneControl;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Unity.Burst;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
@@ -84,7 +85,7 @@ namespace Basis.Scripts.BasisSdk.Interactions
 
         private BasisDirectTouch _directTouch;
 
-        private void Start()
+        private async void Start()
         {
             IgnoreRaycasting = LayerMask.NameToLayer("Ignore Raycast");
             playerLayer = LayerMask.NameToLayer("Player");
@@ -119,7 +120,7 @@ namespace Basis.Scripts.BasisSdk.Interactions
             }
 
             AsyncOperationHandle<Material> op = Addressables.LoadAssetAsync<Material>(LoadMaterialAddress);
-            LineMaterial = op.WaitForCompletion();
+            LineMaterial = await op.Task;
             asyncOperationLineMaterial = op;
         }
 

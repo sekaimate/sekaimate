@@ -38,6 +38,10 @@ public static class BasisOpenLipSyncDriver
     public static async Task InitializeAsync()
     {
         if (_initialized) return;
+#if UNITY_WEBGL && !UNITY_EDITOR
+        await Task.CompletedTask;
+        return;
+#else
 
         try
         {
@@ -87,6 +91,7 @@ public static class BasisOpenLipSyncDriver
             BasisDebug.LogWarning($"[OpenLipSync] Initialization exception: {ex.Message}");
             Shutdown();
         }
+#endif
     }
 
     private static void ReleaseHandles()

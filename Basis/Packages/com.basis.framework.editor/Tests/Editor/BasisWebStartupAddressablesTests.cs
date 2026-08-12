@@ -10,6 +10,8 @@ public class BasisWebStartupAddressablesTests
     [TestCase("Packages/com.basis.framework/Drivers/Local/BasisLocalAvatarDriver.cs")]
     [TestCase("Packages/com.basis.openlipsync/Runtime/BasisOpenLipSyncDriver.cs")]
     [TestCase("Packages/com.basis.framework/UI/NamePlate/BasisRemoteNamePlateDriver.cs")]
+    [TestCase("Packages/com.basis.framework/UI/BasisUIRaycast.cs")]
+    [TestCase("Packages/com.basis.framework/Interactions/BasisPlayerInteract.cs")]
     public void StartupAddressablesDoNotBlock(string sourcePath)
     {
         string source = File.ReadAllText(sourcePath);
@@ -27,6 +29,7 @@ public class BasisWebStartupAddressablesTests
         StringAssert.Contains("await BasisAvatarFactory.InitializeAsync()", source);
         StringAssert.Contains("await BasisPlayerFactory.InitializeAsync()", source);
         StringAssert.Contains("await BasisRemoteNamePlateDriver.InitializeAsync()", source);
+        StringAssert.Contains("await Basis.Scripts.UI.BasisUIRaycast.InitializeAssetsAsync()", source);
     }
 
     [Test]
