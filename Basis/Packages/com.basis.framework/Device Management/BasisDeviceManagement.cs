@@ -243,6 +243,7 @@ namespace Basis.Scripts.Device_Management
                 await Basis.BasisUI.BasisLocalization.InitializeAsync();
                 await Basis.BasisUI.BasisTMPFontFallbacks.InitializeAsync();
                 Basis.BasisUI.BasisTMPFontFallbacks.RefreshJapanesePriority();
+                await Basis.BasisUI.AddressableAssets.InitializeAsync();
                 BasisSettingsDefaults.LoadAll();
                 Basis.BasisUI.SettingsProvider.ApplyJiggleStartupSettings();
                 // Applied here and nowhere else: the GPU Resident Drawer rebuild this triggers is only

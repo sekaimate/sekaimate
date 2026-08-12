@@ -111,6 +111,7 @@ MonoBehaviour:
     m_LabelNames:
     - default
     - language
+    - basis-ui
   m_SchemaTemplates: []
   m_GroupTemplateObjects:
   - {fileID: 11400000, guid: 91cbea64fd1da0545a9f62b746232edc, type: 2}

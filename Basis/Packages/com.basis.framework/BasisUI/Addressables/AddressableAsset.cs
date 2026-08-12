@@ -1,14 +1,17 @@
+using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
 using UnityEngine.ResourceManagement.AsyncOperations;
 using UnityEngine.ResourceManagement.ResourceLocations;
 
-
 namespace Basis.BasisUI
 {
     public static class AddressableAssets
     {
+        private const string UiLabel = "basis-ui";
+
         public static class Sprites
         {
             public static string Settings = "Packages/com.basis.sdk/Sprites/Icons/IonIcon Settings.png";
@@ -36,31 +39,21 @@ namespace Basis.BasisUI
             public static string Computer = "Packages/com.basis.sdk/Textures/Runtime/computer.png";
             public static string Information = "Packages/com.basis.sdk/Textures/Runtime/information.png";
             public static string Admin = "Packages/com.basis.sdk/Textures/Runtime/admin.png";
-
             // panel header controls (see BasisPanelMoveHandle)
             public static string Move = "Packages/com.basis.sdk/Textures/Runtime/move-outline.png";
             public static string Reset = "Packages/com.basis.sdk/Textures/Runtime/reset.png";
-
             public static string Microphone = "Packages/com.basis.sdk/Textures/Runtime/microphone-solid.png";
             public static string MicrophoneMute = "Packages/com.basis.sdk/Textures/Runtime/microphone-mute-solid.png";
             public static string People = "Packages/com.basis.sdk/Textures/Runtime/people-outline.png";
-
-            // row-action icons (Library Instantiated tab)
             public static string Select = "Packages/com.basis.sdk/Textures/Runtime/scan-outline.png";
             public static string TeleportTo = "Packages/com.basis.sdk/Textures/Runtime/Teleport.png";
             public static string Trash = "Packages/com.basis.sdk/Textures/Runtime/trash-bin-outline.png";
             public static string Link = "Packages/com.basis.sdk/Textures/Runtime/link-outline.png";
             public static string Unlink = "Packages/com.basis.sdk/Textures/Runtime/unlink-outline.png";
-
-            // embedded items
             public static string Embedded = "Packages/com.basis.sdk/Textures/Runtime/embedded.png";
-
-            // metadata performance metrics
             public static string Polygons = "Packages/com.basis.sdk/Textures/Runtime/polygons.png";
             public static string Materials = "Packages/com.basis.sdk/Textures/Runtime/materials.png";
             public static string Bones = "Packages/com.basis.sdk/Textures/Runtime/bones.png";
-
-            // platform sprites
             public static string PlatformMobileAndroid = "Packages/com.basis.sdk/Textures/Runtime/Platform Icons/logo-android.png";
             public static string PlatformMobileiOS = "Packages/com.basis.sdk/Textures/Runtime/Platform Icons/logo-ios.png";
             public static string PlatformStandaloneOSX = "Packages/com.basis.sdk/Textures/Runtime/Platform Icons/logo-mac.png";
@@ -71,59 +64,102 @@ namespace Basis.BasisUI
             public static string PlatformGeneric = "Packages/com.basis.sdk/Textures/Runtime/Platform Icons/logo-generic.png";
         }
 
-        private static readonly Dictionary<string, AsyncOperationHandle<Sprite>> _spriteHandles = new();
+        private static readonly Dictionary<string, UnityEngine.Object> Assets = new();
+        private static readonly List<AsyncOperationHandle<UnityEngine.Object>> Handles = new();
+        private static Task initializeTask;
+
+        public static Task InitializeAsync()
+        {
+            if (Assets.Count > 0)
+            {
+                return Task.CompletedTask;
+            }
+
+            return initializeTask ??= InitializeInternalAsync();
+        }
+
+        private static async Task InitializeInternalAsync()
+        {
+            AsyncOperationHandle<IList<IResourceLocation>> locationsHandle =
+                Addressables.LoadResourceLocationsAsync(UiLabel, typeof(UnityEngine.Object));
+            try
+            {
+                IList<IResourceLocation> locations = await locationsHandle.Task;
+                for (int index = 0; index < locations.Count; index++)
+                {
+                    IResourceLocation location = locations[index];
+                    AsyncOperationHandle<UnityEngine.Object> assetHandle =
+                        Addressables.LoadAssetAsync<UnityEngine.Object>(location);
+                    Handles.Add(assetHandle);
+                }
+
+                for (int index = 0; index < locations.Count; index++)
+                {
+                    UnityEngine.Object asset = await Handles[index].Task;
+                    Assets.Add(locations[index].PrimaryKey, asset);
+                }
+            }
+            catch
+            {
+                ReleaseAll();
+                initializeTask = null;
+                throw;
+            }
+            finally
+            {
+                Addressables.Release(locationsHandle);
+            }
+        }
+
+        public static T Get<T>(string path) where T : UnityEngine.Object
+        {
+            if (!Assets.TryGetValue(path, out UnityEngine.Object asset))
+            {
+                throw new InvalidOperationException($"UI asset was not preloaded: {path}");
+            }
+
+            if (asset is not T typedAsset)
+            {
+                throw new InvalidOperationException($"UI asset at {path} is not {typeof(T).Name}");
+            }
+
+            return typedAsset;
+        }
 
         public static Sprite GetSprite(string path)
         {
-            if (string.IsNullOrEmpty(path)) return null;
-
-            if (_spriteHandles.TryGetValue(path, out AsyncOperationHandle<Sprite> existing))
-            {
-                return existing.IsValid() ? existing.Result : null;
-            }
-
-            if (AddressExists(path))
-            {
-                AsyncOperationHandle<Sprite> handle = Addressables.LoadAssetAsync<Sprite>(path);
-                Sprite sprite = handle.WaitForCompletion();
-                _spriteHandles[path] = handle;
-                return sprite;
-            }
-
-            Debug.LogWarning($"Could not find addressable at path \"{path}\"");
-            return null;
+            return string.IsNullOrEmpty(path) ? null : Get<Sprite>(path);
         }
 
         public static void ReleaseAllSprites()
         {
-            foreach (AsyncOperationHandle<Sprite> handle in _spriteHandles.Values)
+            ReleaseAll();
+        }
+
+        private static void ReleaseAll()
+        {
+            for (int index = 0; index < Handles.Count; index++)
             {
+                AsyncOperationHandle<UnityEngine.Object> handle = Handles[index];
                 if (handle.IsValid())
                 {
                     Addressables.Release(handle);
                 }
             }
-            _spriteHandles.Clear();
+
+            Handles.Clear();
+            Assets.Clear();
+            initializeTask = null;
         }
 
         public static bool AddressExists(string key)
         {
-            if (string.IsNullOrEmpty(key)) return false;
-
-            AsyncOperationHandle<IList<IResourceLocation>> handle =
-                Addressables.LoadResourceLocationsAsync(key, typeof(UnityEngine.Object));
-
-            IList<IResourceLocation> locations = handle.WaitForCompletion();
-            bool exists = locations != null && locations.Count > 0;
-
-            Addressables.Release(handle);
-            return exists;
+            return !string.IsNullOrEmpty(key) && Assets.ContainsKey(key);
         }
 
         public static void Release(UnityEngine.Object obj)
         {
             Addressables.Release(obj);
         }
-
     }
 }
