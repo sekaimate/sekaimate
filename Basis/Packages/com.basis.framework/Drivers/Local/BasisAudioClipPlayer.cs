@@ -93,7 +93,7 @@ public static class BasisAudioClipPlayer
             BasisDebug.LogError($"[AudioClipPlayer] Failed to load: {chosen}", BasisDebug.LogTag.Device);
             return false;
         }
-#if UNITY_IOS && !UNITY_EDITOR
+#if (UNITY_IOS || UNITY_WEBGL) && !UNITY_EDITOR
             encoder = new OpusSharp.Core.Static.OpusEncoder(
     LocalOpusSettings.MicrophoneSampleRate,
     LocalOpusSettings.Channels,
@@ -427,7 +427,7 @@ public static class BasisAudioClipPlayer
             float[] decodeBuffer = new float[MaxOpusFrameSize * channels];
             List<float> monoSamples = new List<float>();
             int remainingPreSkip = preSkipSamples;
-#if UNITY_IOS && !UNITY_EDITOR
+#if (UNITY_IOS || UNITY_WEBGL) && !UNITY_EDITOR
             // iOS requires statically linked Opus library
             decoder = new OpusSharp.Core.Static.OpusDecoder(SampleRate, channels);
 #else
