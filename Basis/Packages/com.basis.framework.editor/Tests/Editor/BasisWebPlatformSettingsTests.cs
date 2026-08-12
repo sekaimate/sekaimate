@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using NUnit.Framework;
+using UnityEditor;
 using UnityEngine;
 
 public class BasisWebPlatformSettingsTests
@@ -16,6 +17,17 @@ public class BasisWebPlatformSettingsTests
         AssemblyDefinitionSettings settings = JsonUtility.FromJson<AssemblyDefinitionSettings>(json);
 
         Assert.That(settings.excludePlatforms, Does.Contain("WebGL"));
+    }
+
+    [TestCase("Packages/com.steam.steamaudio/Binaries/HTML5/libmysofa.a")]
+    [TestCase("Packages/com.steam.steamaudio/Binaries/HTML5/libpffft.a")]
+    [TestCase("Packages/com.steam.steamaudio/Binaries/HTML5/libz.a")]
+    public void SteamAudioDependencyIsEnabledForWebGl(string pluginPath)
+    {
+        PluginImporter importer = AssetImporter.GetAtPath(pluginPath) as PluginImporter;
+
+        Assert.That(importer, Is.Not.Null);
+        Assert.That(importer.GetCompatibleWithPlatform(BuildTarget.WebGL), Is.True);
     }
 
     [TestCase("Universal Render Pipeline/Lit", true, true)]
