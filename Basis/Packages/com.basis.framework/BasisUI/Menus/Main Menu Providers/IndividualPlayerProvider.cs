@@ -857,6 +857,7 @@ namespace Basis.BasisUI
             root = networkPage.Descriptor.ContentParent;
 
             // ---- Direct Connection (P2P) controls ----
+            PanelElementDescriptor directConnPingField = null;
             if (BasisNetworkPlatformCapabilities.SupportsDirectPeerConnections)
             {
             var p2pGroup = PanelElementDescriptor.CreateNew(PanelElementDescriptor.ElementStyles.Group, root);
@@ -1013,7 +1014,7 @@ namespace Basis.BasisUI
             };
             Basis.Scripts.Networking.BasisP2PManager.OnSessionStateChanged += p2pHandler;
 
-            var directConnPingField = PanelElementDescriptor.CreateNew(PanelElementDescriptor.ElementStyles.Group, p2pGroup.ContentParent);
+            directConnPingField = PanelElementDescriptor.CreateNew(PanelElementDescriptor.ElementStyles.Group, p2pGroup.ContentParent);
             directConnPingField.SetTitle(BasisLocalization.Get("menu.individualPlayer.directConnection.ping"));
             directConnPingField.SetDescription(BasisLocalization.Get("menu.individualPlayer.directConnection.ping.value", 0));
             // Hidden until the updater observes a Connected P2P session — see
