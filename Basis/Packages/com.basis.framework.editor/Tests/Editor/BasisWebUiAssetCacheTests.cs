@@ -203,4 +203,47 @@ public class BasisWebUiAssetCacheTests
                 @"#if UNITY_WEBGL && !UNITY_EDITOR\s+GameObject instance = await op\.Task;\s+#else\s+GameObject instance = op\.WaitForCompletion\(\);\s+#endif"),
             Is.True);
     }
+
+    [Test]
+    public void WebDesktopControlsUsePreloadedPrefabWhileNativeKeepsAddressablesInstance()
+    {
+        string source = File.ReadAllText("Packages/com.basis.framework/Device Management/Devices/Desktop/BasisDesktopMangement.cs");
+
+        StringAssert.Contains("#if UNITY_WEBGL && !UNITY_EDITOR", source);
+        StringAssert.Contains("AddressableAssets.GetPrefab(OnScreenControls)", source);
+        StringAssert.Contains("UnityEngine.Object.Destroy(Controls)", source);
+        StringAssert.Contains("#else", source);
+        StringAssert.Contains("Addressables.InstantiateAsync(OnScreenControls", source);
+        StringAssert.Contains("WaitForCompletion", source);
+        StringAssert.Contains("Addressables.ReleaseInstance(Controls)", source);
+    }
+
+    [Test]
+    public void WebDeviceVisualModelAwaitsAddressablesWhileNativeKeepsSynchronousLoad()
+    {
+        string source = File.ReadAllText("Packages/com.basis.framework/Device Management/Devices/Base/BasisInput.cs");
+
+        StringAssert.Contains("#if UNITY_WEBGL && !UNITY_EDITOR", source);
+        StringAssert.Contains("public async void LoadModelWithKey", source);
+        StringAssert.Contains("await _visualModelHandle.Task", source);
+        StringAssert.Contains("#else", source);
+        StringAssert.Contains("public void LoadModelWithKey", source);
+        StringAssert.Contains("_visualModelHandle.WaitForCompletion()", source);
+    }
+
+    [Test]
+    public void WebGizmosArePreloadedWhileNativeKeepsSynchronousLazyLoad()
+    {
+        string managerSource = File.ReadAllText("Packages/com.basis.gizmos/BasisGizmosManager.cs");
+        string startupSource = File.ReadAllText("Packages/com.basis.framework/Device Management/BasisDeviceManagement.cs");
+
+        StringAssert.Contains("public static async Task InitializeAsync()", managerSource);
+        StringAssert.Contains("await gizmoHandle.Task", managerSource);
+        StringAssert.Contains("await lineGizmoHandle.Task", managerSource);
+        StringAssert.Contains("await materialHandle.Task", managerSource);
+        StringAssert.Contains("#if UNITY_WEBGL && !UNITY_EDITOR", managerSource);
+        StringAssert.Contains("#else", managerSource);
+        StringAssert.Contains("WaitForCompletion", managerSource);
+        StringAssert.Contains("await BasisGizmoManager.InitializeAsync()", startupSource);
+    }
 }
