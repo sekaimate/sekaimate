@@ -26,6 +26,16 @@ public class BasisWebNetworkComputeTests
     }
 
     [Test]
+    public void WebGlBuildExcludesTaskWait()
+    {
+        string source = File.ReadAllText(NetworkManagementPath);
+
+        StringAssert.Contains(
+            "#if !UNITY_WEBGL || UNITY_EDITOR\n            if (s_computeTask != null)",
+            source);
+    }
+
+    [Test]
     public void SequentialComputePreservesReceiverOrderAndAudioApplyIndices()
     {
         string source = File.ReadAllText(NetworkManagementPath);
