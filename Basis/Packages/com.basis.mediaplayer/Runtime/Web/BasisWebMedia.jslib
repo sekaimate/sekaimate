@@ -31,7 +31,11 @@ mergeInto(LibraryManager.library, {
       gain: gain,
       error: 0,
     };
-    video.onerror = function() { player.error = 2; };
+    video.onerror = function() {
+      video.pause();
+      gain.gain.value = 0;
+      player.error = 2;
+    };
     BasisWebMedia.players[id] = player;
     video.load();
     return id;
@@ -140,6 +144,8 @@ mergeInto(LibraryManager.library, {
       GLctx.pixelStorei(GLctx.UNPACK_FLIP_Y_WEBGL, false);
       return 1;
     } catch (error) {
+      player.video.pause();
+      player.gain.gain.value = 0;
       player.error = 3;
       return 0;
     }
