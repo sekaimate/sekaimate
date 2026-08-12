@@ -164,6 +164,10 @@
       "value": "مكدس الشبكة"
     },
     {
+      "key": "menu.servers.webSocketUri",
+      "value": "WebSocket URI"
+    },
+    {
       "key": "menu.servers.hostPeerLimit",
       "value": "حد النظراء"
     },

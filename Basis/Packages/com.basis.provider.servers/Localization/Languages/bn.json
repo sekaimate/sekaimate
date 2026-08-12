@@ -164,6 +164,10 @@
       "value": "নেটওয়ার্কিং স্ট্যাক"
     },
     {
+      "key": "menu.servers.webSocketUri",
+      "value": "WebSocket URI"
+    },
+    {
       "key": "menu.servers.hostPeerLimit",
       "value": "পিয়ার সীমা"
     },

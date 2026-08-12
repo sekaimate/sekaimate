@@ -164,6 +164,10 @@
       "value": "Сетевой стек"
     },
     {
+      "key": "menu.servers.webSocketUri",
+      "value": "WebSocket URI"
+    },
+    {
       "key": "menu.servers.hostPeerLimit",
       "value": "Лимит пиров"
     },

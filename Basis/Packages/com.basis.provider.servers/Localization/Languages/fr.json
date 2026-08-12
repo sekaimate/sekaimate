@@ -164,6 +164,10 @@
       "value": "Pile réseau"
     },
     {
+      "key": "menu.servers.webSocketUri",
+      "value": "WebSocket URI"
+    },
+    {
       "key": "menu.servers.hostPeerLimit",
       "value": "Limite de pairs"
     },

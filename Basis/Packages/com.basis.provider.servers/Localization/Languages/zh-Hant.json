@@ -164,6 +164,10 @@
       "value": "網路堆疊"
     },
     {
+      "key": "menu.servers.webSocketUri",
+      "value": "WebSocket URI"
+    },
+    {
       "key": "menu.servers.hostPeerLimit",
       "value": "對等端上限"
     },

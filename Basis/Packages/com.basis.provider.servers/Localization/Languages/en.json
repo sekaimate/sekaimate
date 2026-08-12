@@ -39,6 +39,10 @@
       "value": "Networking Stack"
     },
     {
+      "key": "menu.servers.webSocketUri",
+      "value": "WebSocket URI"
+    },
+    {
       "key": "menu.servers.hostStack",
       "value": "Host Networking Stack"
     },

@@ -164,6 +164,10 @@
       "value": "Pila de red"
     },
     {
+      "key": "menu.servers.webSocketUri",
+      "value": "WebSocket URI"
+    },
+    {
       "key": "menu.servers.hostPeerLimit",
       "value": "Límite de pares"
     },

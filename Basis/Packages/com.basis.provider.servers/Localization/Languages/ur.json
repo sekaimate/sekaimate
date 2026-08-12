@@ -164,6 +164,10 @@
       "value": "نیٹ ورکنگ اسٹیک"
     },
     {
+      "key": "menu.servers.webSocketUri",
+      "value": "WebSocket URI"
+    },
+    {
       "key": "menu.servers.hostPeerLimit",
       "value": "پیئر حد"
     },
