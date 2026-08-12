@@ -32,6 +32,7 @@ namespace Basis.Network.Core
     public static class BasisNetworkStackRegistry
     {
         public const string LiteNetLibId = "litenetlib";
+        public const string WebSocketId = "websocket";
         public const string DefaultId = LiteNetLibId;
 
         public readonly struct StackInfo
@@ -154,9 +155,7 @@ namespace Basis.Network.Core
             {
                 if (!_slots.TryGetValue(effective, out slot))
                 {
-                    BNL.LogWarning($"Network stack '{effective}' is not registered, falling back to '{DefaultId}'");
-                    slot = _slots[DefaultId];
-                    effective = DefaultId;
+                    throw new KeyNotFoundException($"Network stack '{effective}' is not registered.");
                 }
             }
             NetManager mgr = slot.Factory(listener, configuration);
