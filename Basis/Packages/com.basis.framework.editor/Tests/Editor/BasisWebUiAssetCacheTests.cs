@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text.RegularExpressions;
 using NUnit.Framework;
 
 public class BasisWebUiAssetCacheTests
@@ -37,6 +38,18 @@ public class BasisWebUiAssetCacheTests
         StringAssert.Contains("LoadResourceLocationsAsync(UiLabel, typeof(GameObject))", source);
         StringAssert.Contains("LoadResourceLocationsAsync(UiLabel, typeof(Sprite))", source);
         StringAssert.DoesNotContain("LoadResourceLocationsAsync(UiLabel, typeof(UnityEngine.Object))", source);
+    }
+
+    [Test]
+    public void WebEmbeddedItemSpritesAreExplicitlyPreloadedByAddress()
+    {
+        string source = File.ReadAllText("Packages/com.basis.framework/BasisUI/Addressables/AddressableAsset.cs");
+
+        Assert.That(
+            Regex.IsMatch(
+                source,
+                @"#if UNITY_WEBGL && !UNITY_EDITOR\s+await LoadSpriteAsync\(Sprites\.Camera\);\s+await LoadSpriteAsync\(Sprites\.Mirror\);\s+#endif"),
+            Is.True);
     }
 
     [TestCase("Packages/com.basis.sdk/Textures/Runtime/microphone-solid.png")]
