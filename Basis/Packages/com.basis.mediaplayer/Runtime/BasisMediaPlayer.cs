@@ -3,6 +3,11 @@ using System.Collections.Concurrent;
 using System.IO;
 using UnityEngine;
 using UnityEngine.Rendering;
+#if UNITY_WEBGL && !UNITY_EDITOR
+using BasisPlatformMediaSource = BasisWebMediaSource;
+#else
+using BasisPlatformMediaSource = BasisNativeVideoSource;
+#endif
 
 // Top-level facade. Wires an IBasisFrameSource (live streaming) or
 // IBasisSeekableFrameSource (file / URL playback) to an IBasisFrameRenderer
@@ -318,12 +323,17 @@ public sealed class BasisMediaPlayer : MonoBehaviour
     {
         get
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            if (nativeEngine != null) return nativeEngine.Duration;
+#endif
             if (seekableSource != null && seekableSource.IsPrepared) return seekableSource.Duration;
+#if !UNITY_WEBGL || UNITY_EDITOR
             if (nativeEngine != null)
             {
                 long us = nativeEngine.DurationUs;
                 if (us > 0) return TimeSpan.FromTicks(us * 10L);
             }
+#endif
             return TimeSpan.Zero;
         }
     }
@@ -465,7 +475,17 @@ public sealed class BasisMediaPlayer : MonoBehaviour
 
     // Active OS-codec backend, or null when on the CPU IBasisFrameSource path.
     // Exposed for diagnostics/tooling.
-    public BasisNativeVideoSource NativeEngine => nativeEngine;
+    public BasisNativeVideoSource NativeEngine
+    {
+        get
+        {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            return null;
+#else
+            return nativeEngine;
+#endif
+        }
+    }
 
     // Human-readable transport of the current native load ("RTSP over UDP",
     // "RTSP over TCP (UDP unavailable)", or the URL scheme for protocols that
@@ -509,7 +529,7 @@ public sealed class BasisMediaPlayer : MonoBehaviour
     // the CPU IBasisFrameSource path (synthetic test source): whichever is
     // non-null is the active backend. Assigned by LoadUrl/LoadSource; the CPU
     // path is entered only by assigning Source directly.
-    private BasisNativeVideoSource nativeEngine;
+    private BasisPlatformMediaSource nativeEngine;
     private Texture lastEngineTexture;
 
     // Pending main-thread signals from worker threads.
@@ -721,9 +741,39 @@ public sealed class BasisMediaPlayer : MonoBehaviour
 
     private void StartNativeEngineForSource(BasisMediaSource media)
     {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        StartWebEngineForSource(media);
+#else
         _ = StartNativeEngineForSourceAsync(media);
+#endif
     }
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+    private void StartWebEngineForSource(BasisMediaSource media)
+    {
+        if (!ReferenceEquals(activeMediaSource, media)) return;
+
+        try
+        {
+            if (string.IsNullOrEmpty(media.Uri))
+                throw new ArgumentException("BasisMediaSource.Uri is required.", nameof(media));
+            if (!BasisMediaPlayerSecurity.IsUrlAllowed(media.Uri, out string blockReason))
+                throw new UnauthorizedAccessException($"BasisMediaPlayer refused to load '{media.Uri}': {blockReason}");
+            bool pageUsesHttps = Application.absoluteURL.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+            bool hasCustomHeaders = media.Headers != null && media.Headers.Count > 0;
+            if (!BasisWebMediaPolicy.TryValidate(media.Uri, media.AudioUri, pageUsesHttps, hasCustomHeaders, out string webReason))
+                throw new NotSupportedException(webReason);
+
+            SetNativeEngine(new BasisPlatformMediaSource(media.Uri, null, media.Delivery));
+        }
+        catch (Exception ex)
+        {
+            if (ReferenceEquals(activeMediaSource, media)) HandleError(ex);
+        }
+
+        if (ReferenceEquals(activeMediaSource, media)) ApplyMediaSourceSettings(media);
+    }
+#else
     private async System.Threading.Tasks.Task StartNativeEngineForSourceAsync(BasisMediaSource media)
     {
         // Snapshot the load's identity and descriptor before the first await: the
@@ -761,7 +811,7 @@ public sealed class BasisMediaPlayer : MonoBehaviour
 
             if (loadGeneration != LoadGeneration) return;
 
-            SetNativeEngine(new BasisNativeVideoSource(nativeUri, nativeAudioUri, delivery));
+            SetNativeEngine(new BasisPlatformMediaSource(nativeUri, nativeAudioUri, delivery));
         }
         catch (Exception ex)
         {
@@ -770,6 +820,7 @@ public sealed class BasisMediaPlayer : MonoBehaviour
 
         if (loadGeneration == LoadGeneration) ApplyMediaSourceSettings(media);
     }
+#endif
 
     // RIST exposes a receive-buffer depth that librist parses straight from the URL
     // query. Framework devs set it via Options["buffer"] (milliseconds); fold it in
@@ -998,6 +1049,14 @@ public sealed class BasisMediaPlayer : MonoBehaviour
     public void Seek(TimeSpan position)
     {
         if (position < TimeSpan.Zero) position = TimeSpan.Zero;
+#if UNITY_WEBGL && !UNITY_EDITOR
+        if (nativeEngine != null)
+        {
+            nativeEngine.Seek(position);
+            OnSeekCompleted?.Invoke(position);
+            return;
+        }
+#else
         if (nativeEngine != null)
         {
             if (!nativeEngine.SeekUs(position.Ticks / 10L))
@@ -1009,6 +1068,7 @@ public sealed class BasisMediaPlayer : MonoBehaviour
             OnSeekCompleted?.Invoke(position);
             return;
         }
+#endif
         if (seekableSource == null)
         {
             throw new NotSupportedException(
@@ -1081,7 +1141,7 @@ public sealed class BasisMediaPlayer : MonoBehaviour
         }
     }
 
-    private void SetNativeEngine(BasisNativeVideoSource engine)
+    private void SetNativeEngine(BasisPlatformMediaSource engine)
     {
         // Drop any CPU source first; the engine becomes the active backend.
         if (source != null)
@@ -1184,6 +1244,9 @@ public sealed class BasisMediaPlayer : MonoBehaviour
     private void ApplyAudioSettingsToComponent()
     {
         if (audioComponent != null) { audioComponent.VolumeGain = Volume; audioComponent.Mute = Mute; }
+#if UNITY_WEBGL && !UNITY_EDITOR
+        nativeEngine?.SetPlaybackSettings(Volume, Mute, PlaybackRate, Loop);
+#endif
         if (nativeEngine != null) RouteNativePcmSource(nativeEngine);
     }
 
@@ -1303,9 +1366,13 @@ public sealed class BasisMediaPlayer : MonoBehaviour
         // ready/size/EOS/error events, then mirror status. No CPU frame queue.
         if (nativeEngine != null)
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            nativeEngine.SetPlaybackSettings(Volume, Mute, PlaybackRate, Loop);
+#else
             // Feed the audio sink's measured output latency to the backend so it
             // paces video to match (low-latency A/V sync; desktop ignores it).
             if (audioComponent != null) nativeEngine.SetAudioLatencyUs(audioComponent.EstimatedOutputLatencyUs);
+#endif
             nativeEngine.Pump(VerboseLogging);
             DrainPendingEvents();
             PollNativeEngineStatus();
@@ -1421,6 +1488,9 @@ public sealed class BasisMediaPlayer : MonoBehaviour
         if (nativeEngine == null) return;
 
         runtimeCurrentMediaTimeUs = Math.Max(0, nativeEngine.PositionUs);
+#if UNITY_WEBGL && !UNITY_EDITOR
+        if (nativeEngine.State == BasisMediaEngineState.Playing) LastErrorMessage = null;
+#endif
 
         if (nativeEngine.TryGetPcmFormat(out int sr, out int ch) && sr > 0 && ch > 0)
         {

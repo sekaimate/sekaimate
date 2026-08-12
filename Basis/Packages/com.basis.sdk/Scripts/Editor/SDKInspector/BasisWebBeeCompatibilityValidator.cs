@@ -11,7 +11,6 @@ public static class BasisWebBeeCompatibilityValidator
     {
         "UnityEngine.VFX.VisualEffect",
         "UnityEngine.VFX.VFXRenderer",
-        "BasisMediaPlayer",
     };
 
     private static readonly string[] UnsupportedShaderNames =

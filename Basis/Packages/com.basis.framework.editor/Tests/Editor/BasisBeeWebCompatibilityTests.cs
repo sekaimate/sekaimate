@@ -19,7 +19,6 @@ public class BasisBeeWebCompatibilityTests
 
     [TestCase("UnityEngine.VFX.VisualEffect")]
     [TestCase("UnityEngine.VFX.VFXRenderer")]
-    [TestCase("BasisMediaPlayer")]
     public void WebGlRejectsUnsupportedComponents(string componentTypeName)
     {
         string[] errors = BasisWebBeeCompatibilityValidator.FindUnsupportedContent(
@@ -39,7 +38,7 @@ public class BasisBeeWebCompatibilityTests
     {
         string[] errors = BasisWebBeeCompatibilityValidator.FindUnsupportedContent(
             new[] { target },
-            new[] { "BasisMediaPlayer", "UnityEngine.VFX.VisualEffect" },
+            new[] { "UnityEngine.VFX.VisualEffect" },
             new[] { "Jiggle/ProceduralPrimitiveURP", "Hidden/VoxelizeShader" });
 
         Assert.That(errors, Is.Empty);
@@ -50,15 +49,68 @@ public class BasisBeeWebCompatibilityTests
     {
         string[] errors = BasisWebBeeCompatibilityValidator.FindUnsupportedContent(
             new[] { BuildTarget.StandaloneWindows64, BuildTarget.WebGL },
-            new[] { "BasisMediaPlayer", "UnityEngine.VFX.VFXRenderer" },
+            new[] { "UnityEngine.VFX.VFXRenderer" },
             new[] { "Hidden/VoxelizeShader" });
 
         Assert.That(errors, Is.EqualTo(new[]
         {
             "Component: UnityEngine.VFX.VFXRenderer",
-            "Component: BasisMediaPlayer",
             "Shader: Hidden/VoxelizeShader",
         }));
+    }
+
+    [Test]
+    public void WebGlAcceptsBasisMediaPlayer()
+    {
+        string[] errors = BasisWebBeeCompatibilityValidator.FindUnsupportedContent(
+            new[] { BuildTarget.WebGL },
+            new[] { "BasisMediaPlayer" },
+            new string[0]);
+
+        Assert.That(errors, Is.Empty);
+    }
+
+    [TestCase("https://media.example/video.mp4", false, true)]
+    [TestCase("https://media.example/video.mp4", true, true)]
+    [TestCase("http://media.example/video.mp4", false, true)]
+    [TestCase("http://media.example/video.mp4", true, false)]
+    [TestCase("rtsp://media.example/live", false, false)]
+    public void WebMediaUrlPolicyEnforcesBrowserTransport(
+        string mediaUrl,
+        bool pageUsesHttps,
+        bool expected)
+    {
+        bool allowed = BasisWebMediaPolicy.TryValidate(mediaUrl, null, pageUsesHttps, false, out _);
+
+        Assert.That(allowed, Is.EqualTo(expected));
+    }
+
+    [Test]
+    public void WebMediaUrlPolicyRejectsSeparateAudioStream()
+    {
+        bool allowed = BasisWebMediaPolicy.TryValidate(
+            "https://media.example/video.mp4",
+            "https://media.example/audio.m4a",
+            true,
+            false,
+            out string reason);
+
+        Assert.That(allowed, Is.False);
+        StringAssert.Contains("Separate audio", reason);
+    }
+
+    [Test]
+    public void WebMediaUrlPolicyRejectsCustomHeaders()
+    {
+        bool allowed = BasisWebMediaPolicy.TryValidate(
+            "https://media.example/video.mp4",
+            null,
+            true,
+            true,
+            out string reason);
+
+        Assert.That(allowed, Is.False);
+        StringAssert.Contains("Custom HTTP headers", reason);
     }
 
     [Test]
