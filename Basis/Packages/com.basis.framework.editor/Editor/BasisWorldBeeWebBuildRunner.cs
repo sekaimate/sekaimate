@@ -12,6 +12,7 @@ using UnityEngine.SceneManagement;
 public static class BasisWorldBeeWebBuildRunner
 {
     private const string SourceScenePath = "Packages/com.basis.examples/Seats/SeatScene.unity";
+    private const string SourceModelMetaPath = "Packages/com.basis.examples/Seats/seats.fbx.meta";
     private const string OutputArgument = "basisWorldBeeOutput";
     private const string PasswordArgument = "basisWorldBeePassword";
     private static Task<string> runningTask;
@@ -72,6 +73,7 @@ public static class BasisWorldBeeWebBuildRunner
         string originalAssetBundleDirectory = settings.AssetBundleDirectory;
         string originalAssetBundleUnCombined = settings.AssetBundleUnCombined;
         bool originalOpenFolderOnDisc = settings.OpenFolderOnDisc;
+        byte[] originalModelMeta = File.ReadAllBytes(SourceModelMetaPath);
         string verificationFolderName = $"BasisWorldBeeVerification_{Guid.NewGuid():N}";
         string verificationRoot = $"Assets/{verificationFolderName}";
 
@@ -89,16 +91,16 @@ public static class BasisWorldBeeWebBuildRunner
                 throw new InvalidOperationException($"Failed to copy verification scene from {SourceScenePath}.");
             }
 
-            settings.TemporaryStorage = $"{verificationRoot}/TemporaryStorage";
-            settings.AssetBundleDirectory = outputRoot;
-            settings.AssetBundleUnCombined = Path.Combine(outputRoot, "AssetCache");
-            settings.OpenFolderOnDisc = false;
-
             Scene scene = EditorSceneManager.OpenScene(sceneCopyPath, OpenSceneMode.Single);
             if (!BasisScene.SceneTraversalFindBasisScene(scene, out BasisScene content))
             {
                 throw new InvalidOperationException("Verification scene does not contain a BasisScene.");
             }
+
+            settings.TemporaryStorage = $"{verificationRoot}/TemporaryStorage";
+            settings.AssetBundleDirectory = outputRoot;
+            settings.AssetBundleUnCombined = Path.Combine(outputRoot, "AssetCache");
+            settings.OpenFolderOnDisc = false;
 
             (bool success, string message) = await BasisBundleBuild.SceneBundleBuild(
                 null,
@@ -148,6 +150,7 @@ public static class BasisWorldBeeWebBuildRunner
             settings.AssetBundleDirectory = originalAssetBundleDirectory;
             settings.AssetBundleUnCombined = originalAssetBundleUnCombined;
             settings.OpenFolderOnDisc = originalOpenFolderOnDisc;
+            File.WriteAllBytes(SourceModelMetaPath, originalModelMeta);
             EditorUtility.ClearProgressBar();
             try
             {
