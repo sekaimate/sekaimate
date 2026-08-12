@@ -120,6 +120,31 @@ public class BasisWebPersistenceTests
     }
 
     [Test]
+    public void WebPreloadContentUsesSynchronousPersistentStorage()
+    {
+        string source = File.ReadAllText(
+            "Packages/com.basis.framework/Resource Management/BasisPreloadContentStore.cs");
+
+        StringAssert.Contains(
+            "#if UNITY_WEBGL && !UNITY_EDITOR\n            text = File.ReadAllText(FilePath);\n#else\n            text = await File.ReadAllTextAsync(FilePath);\n#endif",
+            source);
+        StringAssert.Contains(
+            "#if UNITY_WEBGL && !UNITY_EDITOR\n            File.WriteAllText(FilePath, doc.ToString());\n            await BasisWebPersistence.FlushAsync();",
+            source);
+    }
+
+    [Test]
+    public void NativePreloadContentKeepsAsynchronousAtomicWrite()
+    {
+        string source = File.ReadAllText(
+            "Packages/com.basis.framework/Resource Management/BasisPreloadContentStore.cs");
+
+        StringAssert.Contains("await File.WriteAllTextAsync(tempPath, doc.ToString());", source);
+        StringAssert.Contains("File.Replace(tempPath, FilePath, null);", source);
+        StringAssert.Contains("File.Move(tempPath, FilePath);", source);
+    }
+
+    [Test]
     public void WebBuildEnablesAutomaticPersistentDataSync()
     {
         const string html = "<script>\nvar config = {\n  dataUrl: buildUrl + '/build.data',\n};\n</script>";
