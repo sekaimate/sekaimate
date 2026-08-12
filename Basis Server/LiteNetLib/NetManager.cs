@@ -163,6 +163,7 @@ namespace LiteNetLib
         private readonly PacketLayerBase _extraPacketLayer;
         private int _lastPeerId;
         private ConcurrentQueue<int> _peerIds = new ConcurrentQueue<int>();
+        public Func<int, bool> PeerIdUnavailable;
         private byte _channelsCount = 1;
         private readonly object _eventLock = new object();
         private volatile bool _isRunning;
@@ -1185,7 +1186,24 @@ namespace LiteNetLib
 
         private int GetNextPeerId()
         {
-            return _peerIds.TryDequeue(out int id) ? id : _lastPeerId++;
+            if (PeerIdUnavailable == null)
+            {
+                return _peerIds.TryDequeue(out int id) ? id : _lastPeerId++;
+            }
+
+            int reusableCount = _peerIds.Count;
+            for (int index = 0; index < reusableCount; index++)
+            {
+                if (!_peerIds.TryDequeue(out int reusableId)) break;
+                if (!PeerIdUnavailable(reusableId)) return reusableId;
+                _peerIds.Enqueue(reusableId);
+            }
+
+            while (PeerIdUnavailable(_lastPeerId))
+            {
+                _lastPeerId++;
+            }
+            return _lastPeerId++;
         }
 
         private void ProcessConnectRequest(

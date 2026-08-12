@@ -136,7 +136,19 @@ public sealed class WebSocketServerSession : IAsyncDisposable
 
         if (_acceptSent)
         {
-            _ = DrainPendingSendsAsync(CancellationToken.None);
+            _ = DrainPendingSendsSafelyAsync();
+        }
+    }
+
+    private async Task DrainPendingSendsSafelyAsync()
+    {
+        try
+        {
+            await DrainPendingSendsAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch
+        {
+            _socket.Abort();
         }
     }
 

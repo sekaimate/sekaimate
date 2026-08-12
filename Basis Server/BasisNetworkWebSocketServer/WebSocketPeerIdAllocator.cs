@@ -57,6 +57,25 @@ public sealed class WebSocketPeerIdAllocator
         }
     }
 
+    public bool IsLeased(int peerId)
+    {
+        lock (_sync)
+        {
+            return _leasedIds.Contains(peerId);
+        }
+    }
+
+    public int LeasedCount
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _leasedIds.Count;
+            }
+        }
+    }
+
     private int Next(int current)
     {
         if (_descending)

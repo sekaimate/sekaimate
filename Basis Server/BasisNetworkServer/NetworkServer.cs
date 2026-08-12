@@ -24,6 +24,7 @@ public static class NetworkServer
     public static ConcurrentDictionary<int, NetPeer> AuthenticatedPeers = new();
     public static readonly object AuthenticatedPeerTag = new object();
     public static Configuration Configuration;
+    public static Func<int> AdditionalConnectedPeersCountProvider;
     /// <summary>
     /// Allow-list consulted at <see cref="BasisServerHandle.BasisServerHandleEvents.OnNetworkAccepted"/>
     /// when <see cref="Configuration.BasisUserRestrictionMode"/> is set to <c>AllowList</c>.
@@ -130,6 +131,7 @@ public static class NetworkServer
         catch (Exception ex) { BNL.LogWarning($"AuthIdentity.DeInitialize failed: {ex.Message}"); }
         Server = null;
         Listener = null;
+        AdditionalConnectedPeersCountProvider = null;
         AuthenticatedPeers.Clear();
         _peerSnapshot = Array.Empty<NetPeer>();
     }

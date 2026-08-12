@@ -135,6 +135,7 @@ internal sealed class WebSocketServerPeer : NetPeer
     private readonly WebSocketServerSession _session;
     private readonly int _maximumPayloadLength;
     private bool _disconnected;
+    private int _disconnectRequested;
 
     public WebSocketServerPeer(WebSocketServerSession session, int maximumPayloadLength)
     {
@@ -155,8 +156,9 @@ internal sealed class WebSocketServerPeer : NetPeer
 
     public void Disconnect(byte[] payload)
     {
-        if (!MarkDisconnected()) return;
-        _ = _session.DisconnectAsync(payload ?? throw new ArgumentNullException(nameof(payload)), CancellationToken.None);
+        ArgumentNullException.ThrowIfNull(payload);
+        if (Interlocked.Exchange(ref _disconnectRequested, 1) != 0) return;
+        _ = DisconnectSafelyAsync(payload);
     }
 
     public void DisconnectForce() => Disconnect();
@@ -195,5 +197,16 @@ internal sealed class WebSocketServerPeer : NetPeer
         if (_disconnected) return false;
         _disconnected = true;
         return true;
+    }
+
+    private async Task DisconnectSafelyAsync(byte[] payload)
+    {
+        try
+        {
+            await _session.DisconnectAsync(payload, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch
+        {
+        }
     }
 }

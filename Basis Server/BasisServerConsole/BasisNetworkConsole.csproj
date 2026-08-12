@@ -25,6 +25,7 @@
 		<ProjectReference Include="..\BasisNetworkServer\BasisNetworkServer.csproj" />
 		<ProjectReference Include="..\BasisNetworkCore\BasisNetworkCore.csproj" />
 		<ProjectReference Include="..\LiteNetLib\LiteNetLib.csproj" />
+		<ProjectReference Include="..\BasisNetworkWebSocketServer\BasisNetworkWebSocketServer.csproj" />
 	</ItemGroup>
 	<PropertyGroup>
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>

@@ -1,5 +1,7 @@
 using Basis.Network;
 using Basis.Network.Server;
+using Basis.Network.Core;
+using Basis.Network.WebSocketServer;
 using BasisNetworkConsole;
 using BasisNetworking.InitialData;
 using BasisNetworkServer.BasisNetworkingReductionSystem;
@@ -8,6 +10,7 @@ namespace Basis
     class Program
     {
         public static BasisNetworkHealthCheck Check;
+        public static BasisWebSocketServerTransport WebSocketTransport;
 #if !UNITY_2017_1_OR_NEWER
         public static BasisRestApiHandler Api;
 #endif
@@ -48,6 +51,7 @@ namespace Basis
 #endif
 
             NetworkServer.StartServer(config);
+            StartWebSocketTransport(config);
             
             // Handle legacy resource directory name migrations and similar.
             // after a version bump or two this should be removed
@@ -91,6 +95,7 @@ namespace Basis
 #endif
                 BasisServerReductionSystemEvents.Shutdown();
                 if (config.EnableStatistics) BasisStatistics.StopWorkerThread();
+                if (WebSocketTransport != null) await WebSocketTransport.DisposeAsync();
                 await BasisServerSideLogging.ShutdownAsync();
                 BNL.Log("Server shut down successfully.");
             };
@@ -107,6 +112,33 @@ namespace Basis
             }
             // Wait for shutdown signal
             shutdownEvent.Wait();
+        }
+
+        private static void StartWebSocketTransport(Configuration config)
+        {
+            if (!config.WebSocketEnabled) return;
+            if (NetworkServer.Server is not LNLNetManager udpServer)
+            {
+                throw new InvalidOperationException("The additional WebSocket endpoint requires the LiteNetLib UDP server.");
+            }
+            if (config.PeerLimit <= 0)
+            {
+                throw new InvalidOperationException("PeerLimit must be positive when the WebSocket endpoint is enabled.");
+            }
+
+            WebSocketServerTransportOptions options = WebSocketServerTransportOptions.FromConfiguration(config);
+            WebSocketEventBridge bridge = new(NetworkServer.Listener, options.MaximumPayloadLength);
+            int maximumPeerId = Math.Min(config.PeerLimit, ushort.MaxValue) - 1;
+            WebSocketPeerIdAllocator peerIdAllocator = new(
+                0,
+                maximumPeerId,
+                descending: true,
+                id => udpServer.manager.GetPeerById(id) != null);
+            udpServer.manager.PeerIdUnavailable = peerIdAllocator.IsLeased;
+            NetworkServer.AdditionalConnectedPeersCountProvider = () => peerIdAllocator.LeasedCount;
+            WebSocketTransport = new BasisWebSocketServerTransport(options, bridge, peerIdAllocator);
+            WebSocketTransport.StartAsync().GetAwaiter().GetResult();
+            BNL.Log($"Listening for WebSocket upgrades on port {options.Port} at {options.Path}");
         }
 
         private static void CurrentDomain_UnhandledException(object sender, UnhandledExceptionEventArgs e)
