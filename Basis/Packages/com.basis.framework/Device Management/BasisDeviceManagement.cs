@@ -975,22 +975,31 @@ namespace Basis.Scripts.Device_Management
         {
 #if UNITY_SERVER
             return BasisConstants.Headless;
+#elif UNITY_WEBGL
+            return BasisConstants.Web;
 #else
-            if (Application.isMobilePlatform) // try to boot vr first on standalone devices.
+            return ResolveDefaultMode(Application.platform, Application.isMobilePlatform, false);
+#endif
+        }
+
+        public static string ResolveDefaultMode(RuntimePlatform platform, bool isMobilePlatform, bool isServer)
+        {
+            if (isServer)
             {
-                // iOS devices (iPhones/iPads) should use Desktop mode for touch controls
-                if (Application.platform == RuntimePlatform.IPhonePlayer)
-                {
-                    return BasisConstants.Desktop;
-                }
-                // On Android we assume OpenXR for VR headsets like Quest
-                return BasisConstants.OpenXRLoader;
+                return BasisConstants.Headless;
             }
-            else
+
+            if (platform == RuntimePlatform.WebGLPlayer)
+            {
+                return BasisConstants.Web;
+            }
+
+            if (!isMobilePlatform || platform == RuntimePlatform.IPhonePlayer)
             {
                 return BasisConstants.Desktop;
             }
-#endif
+
+            return BasisConstants.OpenXRLoader;
         }
 
         /// <summary>

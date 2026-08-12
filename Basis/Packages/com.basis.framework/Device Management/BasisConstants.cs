@@ -15,6 +15,8 @@ namespace Basis.Scripts.Device_Management
         /// </summary>
         public const string Desktop = "Desktop";
 
+        public const string Web = "Web";
+
         /// <summary>
         /// Identifier for headless mode, where no graphics device is present or rendering is disabled.
         /// </summary>
