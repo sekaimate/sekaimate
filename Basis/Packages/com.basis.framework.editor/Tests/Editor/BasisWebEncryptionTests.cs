@@ -32,4 +32,17 @@ public class BasisWebEncryptionTests
             "return DecryptFromBytesInternalAsync(UniqueID, password, encryptedData, reportProgress, ct);",
             source);
     }
+
+    [Test]
+    public void WebGlBeeCacheUsesSynchronousFileOperations()
+    {
+        string ioSource = File.ReadAllText("Packages/com.basis.bundlemanagement/BasisIOManagement.cs");
+        string metadataSource = File.ReadAllText("Packages/com.basis.bundlemanagement/BasisLoadhandler.cs");
+
+        StringAssert.Contains("CreateCacheReadStream", ioSource);
+        StringAssert.Contains("CreateCacheWriteStream", ioSource);
+        StringAssert.Contains("int n = s.Read(buf, read, size - read);", ioSource);
+        StringAssert.Contains("fs.Write(sizeLE, 0, sizeLE.Length);", ioSource);
+        StringAssert.Contains("File.WriteAllBytes(filePath, serializedData);", metadataSource);
+    }
 }
