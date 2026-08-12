@@ -1,6 +1,7 @@
-using System.Collections.Generic;
+using Basis.Scripts.BasisSdk;
 using NUnit.Framework;
 using UnityEditor;
+using UnityEngine;
 
 public class BasisBeeWebCompatibilityTests
 {
@@ -56,5 +57,40 @@ public class BasisBeeWebCompatibilityTests
         Assert.That(errors, Has.Exactly(1).Contains("BasisMediaPlayer"));
         Assert.That(errors, Has.Exactly(1).Contains("UnityEngine.VFX.VFXRenderer"));
         Assert.That(errors, Has.Exactly(1).Contains("Hidden/VoxelizeShader"));
+    }
+
+    [Test]
+    public void HierarchyValidationReturnsExplicitWebGlBuildError()
+    {
+        GameObject root = new GameObject("Web BEE test avatar");
+        Material material = null;
+
+        try
+        {
+            BasisAvatar avatar = root.AddComponent<BasisAvatar>();
+            MeshRenderer renderer = new GameObject("Unsupported renderer").AddComponent<MeshRenderer>();
+            renderer.transform.SetParent(root.transform);
+            Shader shader = Shader.Find("Hidden/VoxelizeShader");
+            Assert.That(shader, Is.Not.Null);
+            material = new Material(shader);
+            renderer.sharedMaterial = material;
+
+            bool isCompatible = BasisWebBeeCompatibilityValidator.TryValidate(
+                avatar,
+                new[] { BuildTarget.WebGL },
+                out string error);
+
+            Assert.That(isCompatible, Is.False);
+            StringAssert.Contains("WebGL BEE build failed", error);
+            StringAssert.Contains("Shader: Hidden/VoxelizeShader", error);
+        }
+        finally
+        {
+            if (material != null)
+            {
+                Object.DestroyImmediate(material);
+            }
+            Object.DestroyImmediate(root);
+        }
     }
 }
