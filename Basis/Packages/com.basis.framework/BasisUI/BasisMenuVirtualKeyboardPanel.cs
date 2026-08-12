@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Basis.BTween;
 using Basis.Scripts.Drivers;
 using Basis.Scripts.UI;
@@ -7,6 +8,7 @@ using Basis.Scripts.Virtual_keyboard;
 using TMPro;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
+using UnityEngine.ResourceManagement.AsyncOperations;
 using UnityEngine.UI;
 using static Basis.Scripts.Virtual_keyboard.KeyboardLayoutData;
 
@@ -47,6 +49,9 @@ namespace Basis.BasisUI
         // Layout data is cached for the app lifetime — small SO, loaded once,
         // shared across every keyboard open/close cycle.
         private static KeyboardLayoutData _cachedDefaultLayout;
+#if UNITY_WEBGL && !UNITY_EDITOR
+        private static Task<KeyboardLayoutData> _defaultLayoutTask;
+#endif
 
         public static PanelData KeyboardPanelData => new PanelData
         {
@@ -173,6 +178,39 @@ namespace Basis.BasisUI
         /// overload — equivalent to calling the explicit overload with
         /// <see cref="LoadDefaultLayout"/>.
         /// </summary>
+#if UNITY_WEBGL && !UNITY_EDITOR
+        public static async Task<BasisMenuVirtualKeyboardPanel> CreateNewAsync(
+            InputField inputField,
+            TMP_InputField tmpInputField)
+        {
+            KeyboardLayoutData layout = await LoadDefaultLayoutAsync();
+            if (!layout) return null;
+            return CreateNew(layout, inputField, tmpInputField);
+        }
+
+        public static Task<KeyboardLayoutData> LoadDefaultLayoutAsync()
+        {
+            if (_cachedDefaultLayout) return Task.FromResult(_cachedDefaultLayout);
+            return _defaultLayoutTask ??= LoadDefaultLayoutInternalAsync();
+        }
+
+        private static async Task<KeyboardLayoutData> LoadDefaultLayoutInternalAsync()
+        {
+            AsyncOperationHandle<KeyboardLayoutData> handle =
+                Addressables.LoadAssetAsync<KeyboardLayoutData>(DefaultLayoutAddress);
+            try
+            {
+                _cachedDefaultLayout = await handle.Task;
+            }
+            catch (Exception ex)
+            {
+                _defaultLayoutTask = null;
+                BasisDebug.LogError(
+                    $"Failed to load default KeyboardLayoutData at {DefaultLayoutAddress}: {ex.Message}");
+            }
+            return _cachedDefaultLayout;
+        }
+#else
         public static BasisMenuVirtualKeyboardPanel CreateNew(
             InputField inputField,
             TMP_InputField tmpInputField)
@@ -182,10 +220,6 @@ namespace Basis.BasisUI
             return CreateNew(layout, inputField, tmpInputField);
         }
 
-        /// <summary>
-        /// Synchronously loads (and caches) the default keyboard layout from
-        /// Addressables. Returns the cached instance on subsequent calls.
-        /// </summary>
         public static KeyboardLayoutData LoadDefaultLayout()
         {
             if (_cachedDefaultLayout) return _cachedDefaultLayout;
@@ -202,6 +236,7 @@ namespace Basis.BasisUI
             }
             return _cachedDefaultLayout;
         }
+#endif
 
         /// <summary>
         /// Open the keyboard panel and target the given input field. Returns
