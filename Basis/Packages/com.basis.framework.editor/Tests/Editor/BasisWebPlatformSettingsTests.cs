@@ -23,6 +23,7 @@ public class BasisWebPlatformSettingsTests
     [TestCase("Packages/com.steam.steamaudio/Binaries/HTML5/libmysofa.a")]
     [TestCase("Packages/com.steam.steamaudio/Binaries/HTML5/libpffft.a")]
     [TestCase("Packages/com.steam.steamaudio/Binaries/HTML5/libz.a")]
+    [TestCase("Packages/com.llealloo.audiolink/Runtime/Plugins/WebGL/WebALPeer.jslib")]
     public void NativeWebDependencyIsEnabledForWebGl(string pluginPath)
     {
         PluginImporter importer = AssetImporter.GetAtPath(pluginPath) as PluginImporter;
