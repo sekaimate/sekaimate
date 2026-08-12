@@ -11,7 +11,7 @@ namespace Basis.Network.Core
         {
             if (!webGlPlayer)
             {
-                return nativeTarget ?? throw new ArgumentNullException(nameof(nativeTarget));
+                return nativeTarget;
             }
             if (string.IsNullOrWhiteSpace(webSocketUri))
             {

@@ -16,6 +16,12 @@ public sealed class ClientConnectionTargetSelectorTests
     }
 
     [Fact]
+    public void Select_PreservesMissingNativeTargetOutsideWebGl()
+    {
+        Assert.Null(ClientConnectionTargetSelector.Select(null!, string.Empty, false));
+    }
+
+    [Fact]
     public void Select_UsesExplicitDirectoryWebSocketUriInWebGl()
     {
         ConnectionTarget nativeTarget = new(BasisNetworkStackRegistry.LiteNetLibId, "server.example:4296");
