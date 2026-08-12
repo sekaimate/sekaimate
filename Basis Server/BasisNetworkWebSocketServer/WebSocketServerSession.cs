@@ -7,11 +7,18 @@ namespace Basis.Network.WebSocketServer;
 
 public sealed class WebSocketServerSession : IAsyncDisposable
 {
+    private readonly record struct QueuedFrame(byte Channel, DeliveryMethod DeliveryMethod, byte[] Payload);
+
     private readonly WebSocket _socket;
     private readonly IWebSocketServerConnectionHandler _handler;
     private readonly WebSocketServerProtocol _protocol;
     private readonly int _maximumPayloadLength;
+    private readonly int _pendingSendCapacity;
+    private readonly Queue<QueuedFrame> _pendingSends;
+    private readonly object _pendingSendLock = new();
     private readonly SemaphoreSlim _sendLock = new(1, 1);
+    private readonly SemaphoreSlim _drainLock = new(1, 1);
+    private volatile bool _acceptSent;
     private int _disposed;
 
     internal WebSocketServerSession(
@@ -19,15 +26,22 @@ public sealed class WebSocketServerSession : IAsyncDisposable
         IWebSocketServerConnectionHandler handler,
         int maximumPayloadLength,
         IPEndPoint remoteEndPoint,
-        int peerId)
+        int peerId,
+        int pendingSendCapacity = 64)
     {
         if (peerId < 0)
         {
             throw new ArgumentOutOfRangeException(nameof(peerId));
         }
+        if (pendingSendCapacity <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(pendingSendCapacity));
+        }
         _socket = socket;
         _handler = handler;
         _maximumPayloadLength = maximumPayloadLength;
+        _pendingSendCapacity = pendingSendCapacity;
+        _pendingSends = new Queue<QueuedFrame>(pendingSendCapacity);
         _protocol = new WebSocketServerProtocol(maximumPayloadLength);
         RemoteEndPoint = remoteEndPoint;
         PeerId = peerId;
@@ -61,6 +75,8 @@ public sealed class WebSocketServerSession : IAsyncDisposable
                             DeliveryMethod.ReliableOrdered,
                             WebSocketAcceptPayloadCodec.Encode(PeerId),
                             cancellationToken).ConfigureAwait(false);
+                        _acceptSent = true;
+                        await DrainPendingSendsAsync(cancellationToken).ConfigureAwait(false);
                     }
                     else
                     {
@@ -83,6 +99,7 @@ public sealed class WebSocketServerSession : IAsyncDisposable
                         frame.DeliveryMethod,
                         frame.Payload,
                         cancellationToken).ConfigureAwait(false);
+                    await DrainPendingSendsAsync(cancellationToken).ConfigureAwait(false);
                 }
                 else if (protocolEvent == WebSocketServerProtocolEvent.Disconnected)
                 {
@@ -94,6 +111,32 @@ public sealed class WebSocketServerSession : IAsyncDisposable
         finally
         {
             await _handler.OnDisconnectedAsync(this, CancellationToken.None).ConfigureAwait(false);
+        }
+    }
+
+    public void QueueData(ReadOnlyMemory<byte> payload, byte channel, DeliveryMethod deliveryMethod)
+    {
+        if (payload.Length > _maximumPayloadLength)
+        {
+            throw new ArgumentException("Payload exceeds the configured WebSocket maximum length.", nameof(payload));
+        }
+        if (_protocol.State == WebSocketServerProtocolState.Closed)
+        {
+            throw new InvalidOperationException("Cannot send through a closed WebSocket session.");
+        }
+
+        lock (_pendingSendLock)
+        {
+            if (_pendingSends.Count >= _pendingSendCapacity)
+            {
+                throw new InvalidOperationException("The WebSocket pending send queue is full.");
+            }
+            _pendingSends.Enqueue(new QueuedFrame(channel, deliveryMethod, payload.ToArray()));
+        }
+
+        if (_acceptSent)
+        {
+            _ = DrainPendingSendsAsync(CancellationToken.None);
         }
     }
 
@@ -129,6 +172,36 @@ public sealed class WebSocketServerSession : IAsyncDisposable
             cancellationToken).ConfigureAwait(false);
         await CloseAsync(WebSocketCloseStatus.NormalClosure, "Server disconnected", cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    private async Task DrainPendingSendsAsync(CancellationToken cancellationToken)
+    {
+        await _drainLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            while (true)
+            {
+                QueuedFrame queuedFrame;
+                lock (_pendingSendLock)
+                {
+                    if (_pendingSends.Count == 0)
+                    {
+                        return;
+                    }
+                    queuedFrame = _pendingSends.Dequeue();
+                }
+                await SendFrameAsync(
+                    WebSocketFrameKind.Data,
+                    queuedFrame.Channel,
+                    queuedFrame.DeliveryMethod,
+                    queuedFrame.Payload,
+                    cancellationToken).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            _drainLock.Release();
+        }
     }
 
     private async Task<byte[]> ReceiveBinaryMessageAsync(CancellationToken cancellationToken)
@@ -202,6 +275,7 @@ public sealed class WebSocketServerSession : IAsyncDisposable
         await CloseAsync(WebSocketCloseStatus.NormalClosure, "Server stopping", CancellationToken.None)
             .ConfigureAwait(false);
         _sendLock.Dispose();
+        _drainLock.Dispose();
         _socket.Dispose();
     }
 }
