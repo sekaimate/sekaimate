@@ -2,6 +2,8 @@ using System;
 using Basis.BasisUI;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
+using UnityEngine.ResourceManagement.AsyncOperations;
+using UnityEngine.UI;
 
 namespace HVR.LicenseReview
 {
@@ -15,10 +17,39 @@ namespace HVR.LicenseReview
             SettingsProvider.LicensesBuilder = BuildSection;
         }
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+        static async void BuildSection(RectTransform container)
+        {
+            try
+            {
+                AsyncOperationHandle<LicenseManifest> handle =
+                    Addressables.LoadAssetAsync<LicenseManifest>("BasisFrameworkLicenseManifest");
+                LicenseManifest licenseManifest = await handle.Task;
+                PopulateSection(container, licenseManifest);
+                LayoutRebuilder.ForceRebuildLayoutImmediate(container);
+            }
+            catch (Exception exception)
+            {
+                BasisDebug.LogError($"Failed to load the third-party license manifest: {exception}");
+            }
+        }
+#else
         static void BuildSection(RectTransform container)
         {
-            var licenseManifest = Addressables.LoadAssetAsync<LicenseManifest>("BasisFrameworkLicenseManifest")
+            LicenseManifest licenseManifest = Addressables
+                .LoadAssetAsync<LicenseManifest>("BasisFrameworkLicenseManifest")
                 .WaitForCompletion();
+            PopulateSection(container, licenseManifest);
+        }
+#endif
+
+        static void PopulateSection(RectTransform container, LicenseManifest licenseManifest)
+        {
+            if (licenseManifest == null)
+            {
+                BasisDebug.LogError("Could not load the third-party license manifest.");
+                return;
+            }
 
             foreach (var license in licenseManifest.baked)
             {
