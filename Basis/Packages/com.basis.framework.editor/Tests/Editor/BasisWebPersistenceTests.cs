@@ -11,7 +11,7 @@ public class BasisWebPersistenceTests
 
         StringAssert.Contains("FS.syncfs(operation.populate", plugin);
         StringAssert.Contains("public static Task EnsureInitializedAsync()", bridge);
-        StringAssert.Contains("public static Task FlushAsync()", bridge);
+        StringAssert.Contains("public static async Task FlushAsync()", bridge);
         StringAssert.Contains("BeginSync(populate: true)", bridge);
         StringAssert.Contains("BeginSync(populate: false)", bridge);
         StringAssert.Contains("[DllImport(\"__Internal\")]", bridge);
