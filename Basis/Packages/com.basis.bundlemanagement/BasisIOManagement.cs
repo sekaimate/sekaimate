@@ -1007,6 +1007,9 @@ public static class BasisIOManagement
                 File.Delete(path);
             }
             File.Move(tempPath, path);
+#if UNITY_WEBGL && !UNITY_EDITOR
+            await BasisWebPersistence.FlushAsync();
+#endif
         }
         catch (Exception ex)
         {
