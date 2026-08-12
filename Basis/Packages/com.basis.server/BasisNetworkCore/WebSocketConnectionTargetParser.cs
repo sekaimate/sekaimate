@@ -18,10 +18,13 @@ namespace Basis.Network.Core
                 || !Uri.TryCreate(raw, UriKind.Absolute, out Uri uri)
                 || !IsSupportedScheme(uri.Scheme)
                 || string.IsNullOrEmpty(uri.Host)
-                || !string.IsNullOrEmpty(uri.UserInfo)
-                || !IsSecureOrLoopback(uri))
+                || !string.IsNullOrEmpty(uri.UserInfo))
             {
                 throw new FormatException("A valid ws or wss URI without user information or a fragment is required.");
+            }
+            if (!IsSecureOrLoopback(uri))
+            {
+                throw new FormatException("A wss URI is required outside loopback development endpoints.");
             }
 
             target.Set(ConnectionTarget.Keys.Scheme, uri.Scheme);
