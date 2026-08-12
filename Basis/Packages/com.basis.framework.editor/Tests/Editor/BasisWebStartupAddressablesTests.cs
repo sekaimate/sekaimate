@@ -14,6 +14,8 @@ public class BasisWebStartupAddressablesTests
     [TestCase("Packages/com.basis.framework/Interactions/BasisPlayerInteract.cs")]
     [TestCase("Packages/com.basis.framework/BasisUI/Menus/Library/EmbeddedItems.cs")]
     [TestCase("Packages/com.basis.sdk/UiStyling/Runtime/Components/UiStyleSettings.cs")]
+    [TestCase("Packages/com.basis.framework/Networking/Recievers/BasisAudioRemoteSource.cs")]
+    [TestCase("Packages/com.basis.framework/Networking/BasisNetworkPIPCameraDriver.cs")]
     public void StartupAddressablesDoNotBlock(string sourcePath)
     {
         string source = File.ReadAllText(sourcePath);
@@ -94,5 +96,18 @@ public class BasisWebStartupAddressablesTests
         StringAssert.Contains("#if UNITY_WEBGL && !UNITY_EDITOR", source);
         StringAssert.Contains("string json = File.ReadAllText(SavePath)", source);
         StringAssert.Contains("File.WriteAllText(SavePath, json)", source);
+    }
+
+    [Test]
+    public void NetworkInitializationAwaitsAddressableAssets()
+    {
+        string lifeCycleSource = File.ReadAllText("Packages/com.basis.framework/Networking/BasisNetworkLifeCycle.cs");
+        string deviceSource = File.ReadAllText("Packages/com.basis.framework/Device Management/BasisDeviceManagement.cs");
+        string connectionSource = File.ReadAllText("Packages/com.basis.framework/Networking/BasisConnectionService.cs");
+
+        StringAssert.Contains("await BasisAudioRemoteSource.InitializeAsync()", lifeCycleSource);
+        StringAssert.Contains("await BasisNetworkPIPCameraDriver.CreateAsync()", lifeCycleSource);
+        StringAssert.Contains("await BasisNetworkLifeCycle.Initialize()", deviceSource);
+        StringAssert.Contains("await BasisNetworkLifeCycle.Initialize()", connectionSource);
     }
 }
