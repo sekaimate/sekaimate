@@ -1,9 +1,12 @@
 using System.Linq;
 using Basis.Scripts.BasisSdk;
 using Basis.Scripts.BasisSdk.Interactions;
+using Basis.Scripts.UI;
+using Basis.Scripts.UI.UI_Panels;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.UI;
 
 public class BasisWorldInteractionFixtureBuilderTests
 {
@@ -98,5 +101,25 @@ public class BasisWorldInteractionFixtureBuilderTests
         Assert.That(primary.GetComponent("CueGrip"), Is.Not.Null);
         Assert.That(secondary, Is.Not.Null);
         Assert.That(secondary.GetComponent("CueGrip"), Is.Not.Null);
+    }
+
+    [Test]
+    public void DirectTouchTargetUsesProductionWorldSpaceUi()
+    {
+        contentObject = new GameObject("WorldContent");
+        BasisScene content = contentObject.AddComponent<BasisScene>();
+        content.SpawnPoint = contentObject.transform;
+
+        fixtureRoot = BasisWorldInteractionFixtureBuilder.Create(content);
+        GameObject target = GameObject.Find(BasisWorldInteractionFixtureBuilder.DirectTouchName);
+
+        Assert.That(target, Is.Not.Null);
+        Assert.That(target.layer, Is.EqualTo(LayerMask.NameToLayer("UI")));
+        Assert.That(target.GetComponent<Canvas>().renderMode, Is.EqualTo(RenderMode.WorldSpace));
+        Assert.That(target.GetComponent<CanvasScaler>(), Is.Not.Null);
+        Assert.That(target.GetComponent<BasisGraphicUIRayCaster>(), Is.Not.Null);
+        Assert.That(target.GetComponent<BasisUIComponent>(), Is.Not.Null);
+        Assert.That(target.GetComponent<BoxCollider>(), Is.Not.Null);
+        Assert.That(target.GetComponentInChildren<Button>(), Is.Not.Null);
     }
 }
