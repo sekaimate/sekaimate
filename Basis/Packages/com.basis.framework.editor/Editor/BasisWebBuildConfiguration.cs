@@ -8,10 +8,13 @@ using UnityEditor.Callbacks;
 public static class BasisWebBuildConfiguration
 {
     private const string AutomaticSyncProperty = "autoSyncPersistentDataPath: true,";
+    private const string StandardDpiProperty = "devicePixelRatio: 1,";
     private static readonly Regex ExistingAutomaticSync = new(
         @"(?m)^(?<indent>[ \t]*)autoSyncPersistentDataPath[ \t]*:[ \t]*(?:true|false)[ \t]*,?");
     private static readonly Regex ConfigDeclaration = new(
         @"(?m)^(?<indent>[ \t]*)(?:var|let|const)[ \t]+config[ \t]*=[ \t]*\{[ \t]*$");
+    private static readonly Regex ExistingDevicePixelRatio = new(
+        @"(?m)^(?<indent>[ \t]*)devicePixelRatio[ \t]*:[ \t]*[^,\r\n]+,?");
 
     [PostProcessBuild(100)]
     public static void OnPostprocessBuild(BuildTarget target, string buildPath)
@@ -37,16 +40,28 @@ public static class BasisWebBuildConfiguration
 
     public static string ConfigureGeneratedIndex(BuildTarget target, string html)
     {
-        return target == BuildTarget.WebGL ? AddAutomaticPersistentDataSync(html) : html;
+        return target == BuildTarget.WebGL
+            ? UseStandardDpi(AddAutomaticPersistentDataSync(html))
+            : html;
     }
 
     public static string AddAutomaticPersistentDataSync(string html)
     {
-        Match existingProperty = ExistingAutomaticSync.Match(html);
+        return SetConfigProperty(html, ExistingAutomaticSync, AutomaticSyncProperty);
+    }
+
+    public static string UseStandardDpi(string html)
+    {
+        return SetConfigProperty(html, ExistingDevicePixelRatio, StandardDpiProperty);
+    }
+
+    private static string SetConfigProperty(string html, Regex existingPropertyPattern, string property)
+    {
+        Match existingProperty = existingPropertyPattern.Match(html);
         if (existingProperty.Success)
         {
-            string replacement = existingProperty.Groups["indent"].Value + AutomaticSyncProperty;
-            return ExistingAutomaticSync.Replace(html, replacement, 1);
+            string replacement = existingProperty.Groups["indent"].Value + property;
+            return existingPropertyPattern.Replace(html, replacement, 1);
         }
 
         Match configDeclaration = ConfigDeclaration.Match(html);
@@ -59,6 +74,6 @@ public static class BasisWebBuildConfiguration
         string propertyIndent = configDeclaration.Groups["indent"].Value + "  ";
         return html.Insert(
             configDeclaration.Index + configDeclaration.Length,
-            newline + propertyIndent + AutomaticSyncProperty);
+            newline + propertyIndent + property);
     }
 }

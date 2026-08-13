@@ -161,6 +161,30 @@ public class BasisWebPersistenceTests
     }
 
     [Test]
+    public void WebBuildUsesStableStandardDpiRendering()
+    {
+        const string html = "<script>\nvar config = {\n  dataUrl: buildUrl + '/build.data',\n};\n</script>";
+
+        string configured = BasisWebBuildConfiguration.ConfigureGeneratedIndex(BuildTarget.WebGL, html);
+
+        StringAssert.Contains("devicePixelRatio: 1,", configured);
+        Assert.That(
+            BasisWebBuildConfiguration.ConfigureGeneratedIndex(BuildTarget.WebGL, configured),
+            Is.EqualTo(configured));
+    }
+
+    [Test]
+    public void ExistingDevicePixelRatioIsSetToStandardDpi()
+    {
+        const string html = "<script>\nvar config = {\n  devicePixelRatio: 2,\n};\n</script>";
+
+        string configured = BasisWebBuildConfiguration.UseStandardDpi(html);
+
+        StringAssert.Contains("devicePixelRatio: 1,", configured);
+        StringAssert.DoesNotContain("devicePixelRatio: 2", configured);
+    }
+
+    [Test]
     public void NativeBuildDoesNotModifyGeneratedIndex()
     {
         const string html = "<script>\nvar config = {\n  dataUrl: buildUrl + '/build.data',\n};\n</script>";
