@@ -5,5 +5,7 @@ E2E. That repository is distributed under the Apache License 2.0.
 
 Source: https://github.com/google-ai-edge/mediapipe-samples
 
-`mediapipe-hand-thumbs-up.jpg` is attributed by the upstream repository to
-Pixabay image 4589867 and is distributed under the Pixabay Content License.
+`mediapipe-hand-model.png` is copied from the official
+`google-ai-edge/mediapipe-samples-web` repository at commit
+`bbb8974ffd450650ad5a1e7c1656c9debb8e38bf`. That repository is distributed
+under the Apache License 2.0.

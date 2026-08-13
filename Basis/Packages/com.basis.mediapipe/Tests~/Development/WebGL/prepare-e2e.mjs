@@ -33,7 +33,7 @@ for (const file of [
 }
 for (const file of [
   "mediapipe-face-business-person.png",
-  "mediapipe-hand-thumbs-up.jpg",
+  "mediapipe-hand-model.png",
   "mediapipe-pose-test-image.jpg",
 ]) {
   await cp(`${sourceDirectory}/fixtures/${file}`, `${outputDirectory}/fixtures/${file}`);

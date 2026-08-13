@@ -4,7 +4,7 @@ const cameraPreview = document.querySelector("#camera-preview");
 const resultElement = document.querySelector("#result");
 const fixtureNames = {
   face: "mediapipe-face-business-person.png",
-  hand: "mediapipe-hand-thumbs-up.jpg",
+  hand: "mediapipe-hand-model.png",
   pose: "mediapipe-pose-test-image.jpg",
 };
 
@@ -18,6 +18,7 @@ const state = {
   rightHandDetected: false,
   poseDetected: false,
   handSelectionChanged: false,
+  mirrorSelectionChanged: false,
   avatarSignals: {
     faceBlendshapes: false,
     headTransform: false,
@@ -102,6 +103,7 @@ function decodeResult(buffer, fixture) {
   const rightHandCount = values[4];
   const poseCount = values[5];
   const poseWorldCount = values[6];
+  const headX = values[23];
   const faceSize = values[25];
   const observation = {
     fixture,
@@ -114,6 +116,7 @@ function decodeResult(buffer, fixture) {
     rightHandCount,
     poseCount,
     poseWorldCount,
+    headX,
     faceSize,
   };
   state.observations.push(observation);
@@ -154,7 +157,13 @@ async function run() {
   try {
     await initializeSyntheticCamera();
     await initializeWorker({ enableFace: true, enableHands: false, enablePose: false, mirror: false, swapHands: false });
-    await inferUntil("face", observation => observation.faceDetected && observation.faceSize > 0);
+    const originalFace = await inferUntil("face", observation => observation.faceDetected && observation.faceSize > 0);
+
+    worker.terminate();
+    state.ready = false;
+    await initializeWorker({ enableFace: true, enableHands: false, enablePose: false, mirror: true, swapHands: false });
+    const mirroredFace = await inferUntil("face", observation => observation.faceDetected && observation.faceSize > 0);
+    state.mirrorSelectionChanged = Math.abs(originalFace.headX + mirroredFace.headX - 1) < 0.1;
 
     worker.terminate();
     state.ready = false;
@@ -174,7 +183,7 @@ async function run() {
 
     worker.terminate();
     state.ready = false;
-    await initializeWorker({ enableFace: false, enableHands: true, enablePose: false, mirror: true, swapHands: true });
+    await initializeWorker({ enableFace: false, enableHands: true, enablePose: false, mirror: false, swapHands: true });
     const swappedHand = await inferUntil(
       "hand",
       observation => observation.leftHandCount + observation.rightHandCount === 21,
