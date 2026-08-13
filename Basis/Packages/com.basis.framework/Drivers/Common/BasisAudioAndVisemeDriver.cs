@@ -237,6 +237,7 @@ namespace Basis.Scripts.Drivers
         {
             BasisOpenLipSyncDriver.UnregisterSlotRevokedCallback(_cachedEntityId);
             ReleaseOpenLipSyncContext();
+            UnsubscribeFaceRenderer();
 #if UNITY_WEBGL && !UNITY_EDITOR
             webVolumeVisemeDriver?.Dispose();
             webVolumeVisemeDriver = null;
@@ -396,6 +397,13 @@ namespace Basis.Scripts.Drivers
                 subscribedFaceRenderer = null;
             }
         }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+        public void CloseWebVolumeViseme()
+        {
+            webVolumeVisemeDriver?.ZeroViseme();
+        }
+#endif
 
         /// <summary>
         /// Forwards raw audio samples to the OpenLipSync context when enabled and initialized.

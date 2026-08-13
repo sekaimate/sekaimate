@@ -1,5 +1,7 @@
 using System.IO;
+using Basis.Scripts.BasisSdk;
 using NUnit.Framework;
+using UnityEngine;
 
 public class BasisWebLipSyncTests
 {
@@ -39,6 +41,43 @@ public class BasisWebLipSyncTests
     }
 
     [Test]
+    public void PcmLevelDrivesAvatarMouthBlendShape()
+    {
+        GameObject avatarObject = new GameObject("Web volume viseme test avatar");
+        Mesh mesh = new Mesh();
+        try
+        {
+            mesh.vertices = new[] { Vector3.zero, Vector3.right, Vector3.up };
+            mesh.triangles = new[] { 0, 1, 2 };
+            Vector3[] deltas = { Vector3.zero, Vector3.zero, Vector3.zero };
+            mesh.AddBlendShapeFrame("aa", 100f, deltas, deltas, deltas);
+
+            SkinnedMeshRenderer renderer = avatarObject.AddComponent<SkinnedMeshRenderer>();
+            renderer.sharedMesh = mesh;
+            BasisAvatar avatar = avatarObject.AddComponent<BasisAvatar>();
+            avatar.FaceVisemeMesh = renderer;
+            avatar.FaceVisemeMovement = new[] { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, -1, -1, -1, -1 };
+
+            BasisWebVolumeVisemeDriver driver = new BasisWebVolumeVisemeDriver();
+            Assert.That(driver.Initialize(avatar), Is.True);
+
+            driver.ProcessAudioSamples(CreateConstantFrame(0.2f), 960);
+            driver.Simulate(0.1f);
+            driver.Apply();
+
+            Assert.That(renderer.GetBlendShapeWeight(0), Is.GreaterThan(0f));
+
+            driver.Dispose();
+            Assert.That(renderer.GetBlendShapeWeight(0), Is.Zero);
+        }
+        finally
+        {
+            Object.DestroyImmediate(avatarObject);
+            Object.DestroyImmediate(mesh);
+        }
+    }
+
+    [Test]
     public void BrowserPcmDrivesWebVolumeVisemes()
     {
         string microphoneSource = File.ReadAllText(MicrophoneDriverPath);
@@ -50,6 +89,28 @@ public class BasisWebLipSyncTests
         StringAssert.Contains("#if UNITY_WEBGL && !UNITY_EDITOR", visemeSource);
         StringAssert.Contains("BasisWebVolumeVisemeDriver", visemeSource);
         StringAssert.Contains("SetBlendShapeWeight", webDriverSource);
+    }
+
+    [Test]
+    public void RemoteRangeExitClosesWebVolumeVisemeBeforeRemoval()
+    {
+        string remoteSource = File.ReadAllText("Packages/com.basis.framework/Drivers/Remote/BasisRemoteAudioDriver.cs");
+
+        int closeIndex = remoteSource.IndexOf("driver.CloseWebVolumeViseme()", System.StringComparison.Ordinal);
+        int removalIndex = remoteSource.IndexOf("RemoveFromActive(driver)", closeIndex, System.StringComparison.Ordinal);
+
+        Assert.That(closeIndex, Is.GreaterThanOrEqualTo(0));
+        Assert.That(removalIndex, Is.GreaterThan(closeIndex));
+    }
+
+    [Test]
+    public void AvatarReinitializationRebindsFaceRendererLifecycle()
+    {
+        string source = File.ReadAllText(AudioAndVisemeDriverPath);
+
+        StringAssert.Contains("UnbindFaceRenderer();", source);
+        StringAssert.Contains("HashInstanceID = Player.FaceRenderer.GetEntityId();", source);
+        StringAssert.Contains("HashInstanceID = EntityId.None;", source);
     }
 
     [Test]

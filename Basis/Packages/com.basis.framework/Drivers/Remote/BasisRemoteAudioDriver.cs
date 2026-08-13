@@ -305,6 +305,9 @@ namespace Basis.Scripts.Drivers
             }
             else
             {
+#if UNITY_WEBGL && !UNITY_EDITOR
+                driver.CloseWebVolumeViseme();
+#endif
                 if (driver.ActiveIndex >= 0) RemoveFromActive(driver);
             }
         }
