@@ -17,6 +17,7 @@ interface BasisLibraryE2EInstance {
 
 interface BasisLibraryE2ESnapshot {
   buttons: Array<{ title: string; tooltip: string }>;
+  connected: boolean;
   currentPage: 'Avatar' | 'Prop' | 'World' | 'Instantiated';
   dropdowns: Array<{ entries: string[]; title: string; value: string }>;
   instances: BasisLibraryE2EInstance[];
@@ -25,6 +26,7 @@ interface BasisLibraryE2ESnapshot {
   lastRequestId: number;
   ready: boolean;
   search: string;
+  shareables: Array<{ id: string; kind: string; title: string }>;
 }
 
 interface BasisLibraryE2ECommand {

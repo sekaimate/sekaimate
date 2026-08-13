@@ -306,6 +306,7 @@ namespace Basis.BasisUI
             return new SnapshotPayload
             {
                 buttons = buttons,
+                connected = BasisNetworkConnection.LocalPlayerIsConnected,
                 currentPage = CurrentPage(),
                 dropdowns = dropdowns,
                 instances = instances,
@@ -316,7 +317,16 @@ namespace Basis.BasisUI
                 ready = true,
                 search = ActiveComponents<PanelTextField>()
                     .FirstOrDefault(field => string.Equals(field._placeholderLabel?.text, BasisLocalization.Get("ui.search"), StringComparison.Ordinal))
-                    ?.Value ?? string.Empty
+                    ?.Value ?? string.Empty,
+                shareables = BasisShareableRegistry.GetAll()
+                    .Select(entry => new ShareablePayload
+                    {
+                        id = entry.Id ?? string.Empty,
+                        kind = entry.Kind.ToString(),
+                        title = entry.Title ?? string.Empty
+                    })
+                    .OrderBy(entry => entry.id, StringComparer.Ordinal)
+                    .ToArray()
             };
         }
 
@@ -346,6 +356,7 @@ namespace Basis.BasisUI
         private sealed class SnapshotPayload
         {
             public ButtonPayload[] buttons;
+            public bool connected;
             public string currentPage;
             public DropdownPayload[] dropdowns;
             public InstancePayload[] instances;
@@ -355,6 +366,7 @@ namespace Basis.BasisUI
             public int lastRequestId;
             public bool ready;
             public string search;
+            public ShareablePayload[] shareables;
         }
 
         [Serializable]
@@ -391,6 +403,14 @@ namespace Basis.BasisUI
             public bool selected;
             public bool @static;
             public string url;
+        }
+
+        [Serializable]
+        private sealed class ShareablePayload
+        {
+            public string id;
+            public string kind;
+            public string title;
         }
     }
 }

@@ -98,6 +98,8 @@ test.beforeAll(() => {
   requiredEnvironment('BASIS_PROP_BEE_PASSWORD');
   requiredEnvironment('BASIS_WORLD_BEE_URL');
   requiredEnvironment('BASIS_WORLD_BEE_PASSWORD');
+  requiredEnvironment('BASIS_WEBSOCKET_URI');
+  requiredEnvironment('BASIS_NETWORK_USER');
 });
 
 test('adds real Avatar, Prop, and World BEE files through the visible library dialog', async ({ page }) => {
@@ -141,10 +143,11 @@ test('loads Avatar, Prop, and World from their real detail overlays', async ({ p
 test('operates instantiated placement, teleport, persistence, static, and despawn controls', async ({ page }) => {
   const prop = fixtures.find(fixtureValue => fixtureValue.type === 'Prop');
   if (!prop) throw new Error('Prop fixture is missing.');
+  const networkEnabled = Boolean(process.env.BASIS_WEBSOCKET_URI && process.env.BASIS_NETWORK_USER);
+  if (networkEnabled) await waitForSnapshot(page, value => value.connected);
   await command(page, 'select-tab', 'Prop');
   await searchFixture(page, prop);
   await command(page, 'click-first-card');
-  const networkEnabled = Boolean(process.env.BASIS_WEBSOCKET_URI && process.env.BASIS_NETWORK_USER);
   if (networkEnabled) {
     await waitForSnapshot(page, value => value.dropdowns.some(dropdown => dropdown.title.length > 0 && dropdown.entries.length >= 3));
     await command(page, 'set-dropdown-key', 'library.networkType', 'Networked');
@@ -152,7 +155,8 @@ test('operates instantiated placement, teleport, persistence, static, and despaw
     await command(page, 'set-dropdown-key', 'library.networkType', 'Local');
   }
   await command(page, 'click-title-key', 'library.load');
-  await waitForSnapshot(page, value => value.instances.some(instance => instance.url === prop.url));
+  await waitForSnapshot(page, value => value.instances.some(instance =>
+    instance.url === prop.url && instance.persistent && instance.networked === networkEnabled));
   await command(page, 'select-tab', 'Instantiated');
   await waitForSnapshot(page, value => value.currentPage === 'Instantiated' && value.instances.some(instance => instance.url === prop.url));
   await command(page, 'click-tooltip-key', 'library.instantiated.select.tooltip');
@@ -176,6 +180,7 @@ test('operates instantiated placement, teleport, persistence, static, and despaw
 
 test('shares and deletes each saved content type through its detail overlay', async ({ page }) => {
   const networkEnabled = Boolean(process.env.BASIS_WEBSOCKET_URI && process.env.BASIS_NETWORK_USER);
+  if (networkEnabled) await waitForSnapshot(page, value => value.connected);
   for (const bee of fixtures) {
     await command(page, 'select-tab', bee.type);
     await searchFixture(page, bee);
@@ -183,7 +188,7 @@ test('shares and deletes each saved content type through its detail overlay', as
     if (networkEnabled) {
       await command(page, 'click-title-key', 'library.share');
       await command(page, 'click-title-key', 'ui.yes');
-      await waitForSnapshot(page, value => value.buttons.some(button => button.tooltip.length > 0));
+      await waitForSnapshot(page, value => value.shareables.some(shareable => shareable.kind === bee.type));
     }
     await command(page, 'click-title-key', 'library.delete');
     await command(page, 'click-title-key', 'ui.yes');
