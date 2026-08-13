@@ -41,6 +41,24 @@ mergeInto(LibraryManager.library, {
         snapshot: function() {
           return Object.assign({}, BasisWebAudioDiagnosticsState.values);
         },
+        verifySender: function() {
+          var values = BasisWebAudioDiagnosticsState.values;
+          var failures = [];
+          if (!values.permissionGranted || values.captureState !== 3) failures.push('microphone-permission');
+          if (values.capturePcmFrames <= 0 || values.capturePcmSamples <= 0) failures.push('capture-pcm');
+          if (values.opusEncodedPackets <= 0 || values.opusEncodedBytes <= 0) failures.push('opus-encode');
+          if (values.networkPacketsSent <= 0 || values.networkBytesSent <= 0) failures.push('network-send');
+          return { passed: failures.length === 0, failures: failures, snapshot: Object.assign({}, values) };
+        },
+        verifyReceiver: function() {
+          var values = BasisWebAudioDiagnosticsState.values;
+          var failures = [];
+          if (values.networkPacketsReceived <= 0 || values.networkBytesReceived <= 0) failures.push('network-receive');
+          if (values.opusDecodedFrames <= 0 || values.opusDecodedSamples <= 0) failures.push('opus-decode');
+          if (values.playbackFramesPushed <= 0 || values.playbackSamplesPushed <= 0) failures.push('audio-worklet-push');
+          if (values.playbackNonSilentFramesPushed <= 0 || values.playbackPeak <= 0) failures.push('audible-pcm');
+          return { passed: failures.length === 0, failures: failures, snapshot: Object.assign({}, values) };
+        },
       };
     },
     markCaptureState: function(state) {
