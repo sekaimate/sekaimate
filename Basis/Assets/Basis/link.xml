@@ -22,7 +22,7 @@
     <assembly fullname="BasisExamples" preserve="all" />
     <assembly fullname="BasisGizmos" preserve="all" />
     <assembly fullname="BasisMediaPipe" preserve="all" />
-    <assembly fullname="BasisMediaPipe.Homuler" preserve="all" />
+    <assembly fullname="BasisMediaPipe.WebGL" preserve="all" />
     <assembly fullname="BasisMediaPlayer" preserve="all" />
     <assembly fullname="BasisNetworkClient" preserve="all" />
     <assembly fullname="BasisNetworkCore" preserve="all" />
@@ -56,6 +56,7 @@
     <assembly fullname="Klak.Spout.Runtime" preserve="all" />
     <assembly fullname="Klak.Syphon.Runtime" preserve="all" />
     <assembly fullname="LiteNetLib" preserve="all" />
+    <assembly fullname="MCPForUnity.Runtime" preserve="all" />
     <assembly fullname="MeaMod.DNS" preserve="all" />
     <assembly fullname="Mediapipe.Runtime" preserve="all" />
     <assembly fullname="Microsoft.ML.OnnxRuntime" preserve="all" />
@@ -130,7 +131,6 @@
     <assembly fullname="Unity.XR.OpenXR.Features.MockRuntime" preserve="all" />
     <assembly fullname="Unity.XR.OpenXR.Features.OculusQuestSupport" preserve="all" />
     <assembly fullname="Unity.XR.OpenXR.Features.RuntimeDebugger" preserve="all" />
-    <assembly fullname="Unity.XR.OpenXR.TestTooling" preserve="all" />
     <assembly fullname="UnityEngine.CoreModule" preserve="all" />
     <assembly fullname="UnityEngine.SpatialTracking" preserve="all" />
     <assembly fullname="UnityEngine.UI" preserve="all" />
