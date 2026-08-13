@@ -90,6 +90,7 @@ public sealed class BasisWebNetworkE2EHarnessTests
         string bridge = File.ReadAllText("Packages/com.basis.framework/Networking/WebGL/BasisWebNetworkE2E.jslib");
 
         StringAssert.Contains("BasisUIManagement.CloseAllMenus", source);
+        StringAssert.Contains("BasisMainMenu.Close", source);
         StringAssert.Contains("menus-closed", source);
         StringAssert.Contains("basisNetworkE2ECloseMenus", bridge);
     }

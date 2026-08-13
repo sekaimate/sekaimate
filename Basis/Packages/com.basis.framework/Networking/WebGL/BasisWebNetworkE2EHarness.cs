@@ -83,6 +83,7 @@ namespace Basis.Scripts.Networking
         public void CloseMenus()
         {
             BasisUIManagement.CloseAllMenus();
+            BasisMainMenu.Close();
             Report("menus-closed");
         }
 
