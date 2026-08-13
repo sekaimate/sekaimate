@@ -143,12 +143,12 @@ namespace Basis.Scripts.Device_Management.Devices.Web
             float[] buttons = source?.buttons ?? Array.Empty<float>();
             float[] axes = source?.axes ?? Array.Empty<float>();
             Vector2 primaryAxis = axes.Length >= 4
-                ? new Vector2(axes[2], axes[3])
+                ? new Vector2(axes[2], -axes[3])
                 : axes.Length >= 2
-                    ? new Vector2(axes[0], axes[1])
+                    ? new Vector2(axes[0], -axes[1])
                     : Vector2.zero;
             Vector2 secondaryAxis = axes.Length >= 4
-                ? new Vector2(axes[0], axes[1])
+                ? new Vector2(axes[0], -axes[1])
                 : Vector2.zero;
 
             return new BasisWebXRControllerState(
