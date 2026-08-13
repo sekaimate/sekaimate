@@ -9,6 +9,7 @@ namespace Basis.Scripts.Device_Management.Devices.Web
 {
     public sealed class BasisWebXRBackend : MonoBehaviour
     {
+        private const string DiagnosticsQuery = "basisWebXRE2E=1";
         internal const string Subsystem = "BasisWebXR";
         internal const string HeadId = "WebXR Head";
         internal const string LeftHandId = "WebXR Left Hand";
@@ -22,10 +23,12 @@ namespace Basis.Scripts.Device_Management.Devices.Web
         private BasisWebXRHandInput leftHandInput;
         private BasisWebXRHandInput rightHandInput;
         private bool isShutdown;
+        private bool diagnosticsEnabled;
 
         public void Initialize(BasisWebManagement owner)
         {
             management = owner;
+            diagnosticsEnabled = Application.absoluteURL.IndexOf(DiagnosticsQuery, StringComparison.Ordinal) >= 0;
             BasisWebXRInitialize();
         }
 
@@ -54,6 +57,7 @@ namespace Basis.Scripts.Device_Management.Devices.Web
                 BasisWebXRInputMapping.ConvertToUnity(snapshot);
                 CurrentSnapshot = snapshot;
                 SynchronizeSession(snapshot);
+                PublishDiagnostics();
             }
             finally
             {
@@ -132,6 +136,38 @@ namespace Basis.Scripts.Device_Management.Devices.Web
                 role == BasisBoneTrackedRole.LeftHand ? "left" : "right");
         }
 
+        private void PublishDiagnostics()
+        {
+            if (!diagnosticsEnabled)
+            {
+                return;
+            }
+
+            BasisWebXRDiagnostics diagnostics = new BasisWebXRDiagnostics
+            {
+                schemaVersion = 1,
+                frame = CurrentSnapshot?.frame ?? 0,
+                sessionActive = IsImmersiveSessionActive,
+                headDevice = IsRegistered(headInput),
+                leftHandDevice = IsRegistered(leftHandInput),
+                rightHandDevice = IsRegistered(rightHandInput),
+                leftHandTracked = leftHandInput?.Joints?.Length == BasisWebXRInputMapping.JointCount,
+                rightHandTracked = rightHandInput?.Joints?.Length == BasisWebXRInputMapping.JointCount,
+                leftPinch = leftHandInput?.Pinch ?? 0f,
+                rightPinch = rightHandInput?.Pinch ?? 0f,
+                leftTrigger = leftHandInput?.CurrentInputState?.Trigger ?? 0f,
+                rightTrigger = rightHandInput?.CurrentInputState?.Trigger ?? 0f,
+                leftAxis = leftHandInput?.CurrentInputState?.Primary2DAxisRaw ?? Vector2.zero,
+                rightAxis = rightHandInput?.CurrentInputState?.Primary2DAxisRaw ?? Vector2.zero,
+            };
+            BasisWebXRPublishBasisState(JsonUtility.ToJson(diagnostics));
+        }
+
+        private static bool IsRegistered(BasisInput input)
+        {
+            return input != null && BasisDeviceManagement.Instance.AllInputDevices.Contains(input);
+        }
+
         public void Shutdown(bool restoreDesktop)
         {
             if (isShutdown)
@@ -197,6 +233,28 @@ namespace Basis.Scripts.Device_Management.Devices.Web
 
         [DllImport("__Internal")]
         private static extern void BasisWebXREndSession();
+
+        [DllImport("__Internal")]
+        private static extern void BasisWebXRPublishBasisState(string diagnosticsJson);
+    }
+
+    [Serializable]
+    internal sealed class BasisWebXRDiagnostics
+    {
+        public int schemaVersion;
+        public int frame;
+        public bool sessionActive;
+        public bool headDevice;
+        public bool leftHandDevice;
+        public bool rightHandDevice;
+        public bool leftHandTracked;
+        public bool rightHandTracked;
+        public float leftPinch;
+        public float rightPinch;
+        public float leftTrigger;
+        public float rightTrigger;
+        public Vector2 leftAxis;
+        public Vector2 rightAxis;
     }
 }
 #endif

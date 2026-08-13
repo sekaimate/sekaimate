@@ -270,4 +270,11 @@ mergeInto(LibraryManager.library, {
   BasisWebXREndSession: function() {
     BasisWebXRRuntime.exit().catch(function() {});
   },
+
+  BasisWebXRPublishBasisState: function(diagnosticsJsonPointer) {
+    if (!window.basisWebXR) {
+      return;
+    }
+    window.basisWebXR.basisState = JSON.parse(UTF8ToString(diagnosticsJsonPointer));
+  },
 });
