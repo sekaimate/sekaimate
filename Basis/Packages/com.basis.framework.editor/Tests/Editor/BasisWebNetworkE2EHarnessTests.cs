@@ -4,6 +4,15 @@ using NUnit.Framework;
 public sealed class BasisWebNetworkE2EHarnessTests
 {
     [Test]
+    public void WebClientConfiguresNetworkListenerBeforeStartingTransport()
+    {
+        string source = File.ReadAllText("Packages/com.basis.framework/Networking/BasisNetworkConnection.cs");
+
+        StringAssert.Contains("authenticationPayload, serverConfig,\n                        ConfigureNetworkListener);", source);
+        StringAssert.DoesNotContain("NetworkClient.listener.NetworkReceiveEvent +=", source);
+    }
+
+    [Test]
     public void RuntimeHarnessIsRestrictedToDevelopmentWebGlPlayers()
     {
         string source = File.ReadAllText("Packages/com.basis.framework/Networking/WebGL/BasisWebNetworkE2EHarness.cs");
