@@ -8,6 +8,7 @@ services:
     restart: unless-stopped
     environment:
       SetPort: 4296
+      HealthCheckHost: "*"
       HealthCheckPort: 10666
       PromethusPort: 1234
       Password: default_password

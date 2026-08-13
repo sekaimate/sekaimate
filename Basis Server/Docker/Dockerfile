@@ -12,7 +12,7 @@ RUN dotnet restore ./BasisNetworkConsole.csproj
 RUN dotnet publish -c Release --no-restore -o /app/publish
 
 # Stage 2: Create runtime image
-FROM mcr.microsoft.com/dotnet/runtime:10.0-noble
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble
 
 # Install Curl for healthcheck
 RUN apt-get update && \
