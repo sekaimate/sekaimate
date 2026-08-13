@@ -95,7 +95,8 @@ mergeInto(LibraryManager.library, {
         snapshot: function() {
           return Object.assign({}, BasisWebAudioDiagnosticsState.values);
         },
-        selectInputDevice: function(namePart) {
+        selectInputDeviceForE2E: function(namePart) {
+          if (new URLSearchParams(window.location.search).get('basisNetworkE2E') !== '1') return false;
           var normalizedName = String(namePart || '').toLocaleLowerCase();
           var device = BasisWebAudio.deviceEntries.find(function(entry) {
             return entry.name.toLocaleLowerCase().includes(normalizedName);
@@ -123,33 +124,6 @@ mergeInto(LibraryManager.library, {
           return { passed: failures.length === 0, failures: failures, snapshot: Object.assign({}, values) };
         },
       };
-      BasisWebAudioDiagnosticsState.installOverlay();
-    },
-    installOverlay: function() {
-      if (new URLSearchParams(window.location.search).get('basisVoiceDiagnostics') !== '1') return;
-      var install = function() {
-        if (document.getElementById('basis-voice-diagnostics')) return;
-        var overlay = document.createElement('div');
-        overlay.id = 'basis-voice-diagnostics';
-        overlay.style.cssText = 'position:fixed;top:12px;right:12px;z-index:2147483647;pointer-events:none;padding:10px 12px;border-radius:8px;background:rgba(10,14,24,.92);color:#fff;font:12px/1.45 monospace;white-space:pre;box-shadow:0 2px 10px rgba(0,0,0,.4)';
-        document.body.appendChild(overlay);
-        var render = function() {
-          var values = BasisWebAudioDiagnosticsState.values;
-          var senderOk = globalThis.BasisWebAudioDiagnostics.verifySender().passed && values.capturePeak > 0;
-          var receiverOk = globalThis.BasisWebAudioDiagnostics.verifyReceiver().passed;
-          overlay.style.border = '2px solid ' + (senderOk && receiverOk ? '#35d07f' : '#e0a72e');
-          overlay.textContent = (senderOk && receiverOk ? 'VOICE OK' : 'VOICE CHECKING')
-            + '\nMic: ' + (values.activeDeviceName || 'permission required')
-            + '\nInput: ' + values.capturePeak.toFixed(4) + ' @ ' + values.captureSampleRate + ' Hz'
-            + '\nSent: ' + values.networkPacketsSent
-            + '\nReceived: ' + values.networkPacketsReceived
-            + '\nPlayback: ' + values.playbackPeak.toFixed(4);
-        };
-        render();
-        window.setInterval(render, 250);
-      };
-      if (document.body) install();
-      else window.addEventListener('DOMContentLoaded', install, { once: true });
     },
     markCaptureState: function(state) {
       BasisWebAudioDiagnosticsState.ensureInstalled();
