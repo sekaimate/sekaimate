@@ -117,24 +117,50 @@ public static class BasisWorldInteractionFixtureBuilder
         cue.transform.localRotation = Quaternion.Euler(0f, 90f, 0f);
         SetLayerRecursively(cue);
 
-        Component cueGrip = cue.GetComponentsInChildren<Component>(true)
-            .FirstOrDefault(component => component != null && component.GetType().Name == "CueGrip");
-        if (cueGrip == null)
+        GameObject primaryGripObject = FindRequiredChild(cue, "primary");
+        GameObject secondaryGripObject = FindRequiredChild(cue, "secondary");
+        Component primaryGrip = primaryGripObject.GetComponent("CueGrip")
+            ?? AddRequiredComponent(primaryGripObject, "BasisPoolTable", "CueGrip");
+        Component secondaryGrip = secondaryGripObject.GetComponent("CueGrip")
+            ?? AddRequiredComponent(secondaryGripObject, "BasisPoolTable", "CueGrip");
+        Component[] cueGrips = { primaryGrip, secondaryGrip };
+        if (cueGrips.Any(cueGrip => cueGrip == null))
         {
-            throw new InvalidOperationException("Pool cue fixture does not contain CueGrip.");
+            throw new InvalidOperationException("Pool cue fixture must contain two CueGrip components.");
         }
 
-        BasisPickupInteractable pickup = cueGrip.GetComponent<BasisPickupInteractable>();
-        if (pickup == null)
+        foreach (Component cueGrip in cueGrips)
         {
-            pickup = cueGrip.gameObject.AddComponent<BasisPickupInteractable>();
-            Rigidbody rigidbody = cueGrip.GetComponent<Rigidbody>() ?? cueGrip.gameObject.AddComponent<Rigidbody>();
-            rigidbody.isKinematic = true;
-            pickup.RigidRef = rigidbody;
-            pickup.GenerateColliderMesh = false;
-            pickup.OnPickupUse = new UnityEngine.Events.UnityEvent<BasisPickUpUseMode>();
+            BasisPickupInteractable pickup = cueGrip.GetComponent<BasisPickupInteractable>();
+            if (pickup == null)
+            {
+                pickup = cueGrip.gameObject.AddComponent<BasisPickupInteractable>();
+                Rigidbody rigidbody = cueGrip.GetComponent<Rigidbody>() ?? cueGrip.gameObject.AddComponent<Rigidbody>();
+                rigidbody.isKinematic = true;
+                pickup.RigidRef = rigidbody;
+                pickup.GenerateColliderMesh = false;
+                pickup.OnPickupUse = new UnityEngine.Events.UnityEvent<BasisPickUpUseMode>();
+            }
+            pickup.AutoHold = BasisInteractableObject.BasisAutoHold.DesktopOnly;
         }
-        pickup.AutoHold = BasisInteractableObject.BasisAutoHold.DesktopOnly;
+
+        Component controller = cue.GetComponentsInChildren<Component>(true)
+            .Single(component => component != null && component.GetType().Name == "CueController");
+        var serializedController = new SerializedObject(controller);
+        serializedController.FindProperty("primary").objectReferenceValue = primaryGripObject;
+        serializedController.FindProperty("secondary").objectReferenceValue = secondaryGripObject;
+        serializedController.ApplyModifiedPropertiesWithoutUndo();
+    }
+
+    private static GameObject FindRequiredChild(GameObject parent, string name)
+    {
+        Transform child = parent.GetComponentsInChildren<Transform>(true)
+            .SingleOrDefault(candidate => candidate.name == name);
+        if (child == null)
+        {
+            throw new InvalidOperationException($"Pool cue fixture does not contain {name}.");
+        }
+        return child.gameObject;
     }
 
     private static Component AddRequiredComponent(GameObject target, string assemblyName, string typeName)

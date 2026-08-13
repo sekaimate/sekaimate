@@ -8,8 +8,8 @@ public class CueController : BasisNetworkBehaviour
 {
     [SerializeField] private BilliardsModule table;
 
-    [SerializeField] private CueGrip primary;
-    [SerializeField] private CueGrip secondary;
+    [SerializeField] private GameObject primary;
+    [SerializeField] private GameObject secondary;
     public BasisPickupSyncNetworking PrimaryNetworking;
     public BasisPickupSyncNetworking SecondaryNetworking;
 
