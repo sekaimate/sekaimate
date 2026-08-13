@@ -741,7 +741,20 @@ namespace Basis.Scripts.Device_Management.Devices
         /// <param name="Volume">Playback volume.</param>
         public void PlaySoundEffectDefaultImplementation(string SoundEffectName, float Volume)
         {
-         //   BasisDebug.Log("Volume was " + Volume);
+#if UNITY_WEBGL && !UNITY_EDITOR
+            switch (SoundEffectName)
+            {
+                case "hover":
+                    BasisWebAudioUiSoundBridge.Play(BasisWebAudioUiSound.Hover, Volume);
+                    break;
+                case "press":
+                    BasisWebAudioUiSoundBridge.Play(BasisWebAudioUiSound.Press, Volume);
+                    break;
+                case "chat":
+                    BasisWebAudioUiSoundBridge.Play(BasisWebAudioUiSound.Chat, Volume);
+                    break;
+            }
+#else
             switch (SoundEffectName)
             {
                 case "hover":
@@ -757,6 +770,7 @@ namespace Basis.Scripts.Device_Management.Devices
                     BasisUISounds.PlayAt(BasisUISoundEvent.Chat, BasisDeviceManagement.Instance.ChatNotificationUI, transform.position, Volume);
                     break;
             }
+#endif
         }
 
         /// <summary>

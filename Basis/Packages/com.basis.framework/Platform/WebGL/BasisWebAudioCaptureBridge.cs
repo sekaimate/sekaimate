@@ -2,6 +2,7 @@
 using AOT;
 using System;
 using System.Runtime.InteropServices;
+using UnityEngine;
 
 public enum BasisWebAudioCaptureState
 {
@@ -22,15 +23,18 @@ public static class BasisWebAudioCaptureBridge
 
     private delegate void StateChangedCallback(int state);
     private delegate void PcmCallback(IntPtr samples, int sampleCount);
+    private delegate void DevicesChangedCallback(IntPtr devicesJson);
 
     private static readonly StateChangedCallback StateChanged = HandleStateChanged;
     private static readonly PcmCallback PcmReceived = HandlePcmReceived;
+    private static readonly DevicesChangedCallback DevicesChanged = HandleDevicesChanged;
     private static readonly float[] Frame = new float[FrameSize];
     private static int frameOffset;
     private static bool initialized;
 
     public static event Action<BasisWebAudioCaptureState> CaptureStateChanged;
     public static event Action<float[]> PcmFrameReady;
+    public static event Action<string[]> MicrophoneDevicesChanged;
 
     public static BasisWebAudioCaptureState State { get; private set; } = BasisWebAudioCaptureState.Idle;
 
@@ -41,7 +45,7 @@ public static class BasisWebAudioCaptureBridge
             return;
         }
 
-        BasisWebAudioInitialize(StateChanged, PcmReceived);
+        BasisWebAudioInitialize(StateChanged, PcmReceived, DevicesChanged);
         initialized = true;
     }
 
@@ -66,6 +70,12 @@ public static class BasisWebAudioCaptureBridge
     {
         EnsureInitialized();
         BasisWebAudioPlayMicrophoneToggleSound(muted ? 1 : 0, volume);
+    }
+
+    public static void SelectDevice(string deviceName)
+    {
+        EnsureInitialized();
+        BasisWebAudioSetCaptureDevice(deviceName ?? string.Empty);
     }
 
     [MonoPInvokeCallback(typeof(StateChangedCallback))]
@@ -94,14 +104,31 @@ public static class BasisWebAudioCaptureBridge
         }
     }
 
+    [MonoPInvokeCallback(typeof(DevicesChangedCallback))]
+    private static void HandleDevicesChanged(IntPtr devicesJson)
+    {
+        string json = Marshal.PtrToStringAnsi(devicesJson);
+        DeviceList deviceList = JsonUtility.FromJson<DeviceList>(json);
+        MicrophoneDevicesChanged?.Invoke(deviceList?.devices ?? Array.Empty<string>());
+    }
+
+    [Serializable]
+    private sealed class DeviceList
+    {
+        public string[] devices;
+    }
+
     [DllImport("__Internal")]
-    private static extern void BasisWebAudioInitialize(StateChangedCallback onStateChanged, PcmCallback onPcm);
+    private static extern void BasisWebAudioInitialize(StateChangedCallback onStateChanged, PcmCallback onPcm, DevicesChangedCallback onDevicesChanged);
 
     [DllImport("__Internal")]
     private static extern int BasisWebAudioCaptureRequestFromUserGesture();
 
     [DllImport("__Internal")]
     private static extern void BasisWebAudioCaptureStop();
+
+    [DllImport("__Internal")]
+    private static extern void BasisWebAudioSetCaptureDevice(string deviceName);
 
     [DllImport("__Internal")]
     private static extern void BasisWebAudioPlayMicrophoneToggleSound(int muted, float volume);

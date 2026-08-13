@@ -584,6 +584,7 @@ namespace Basis.Scripts.Networking
                 localPlayerId = localPlayerId,
                 connected = BasisNetworkConnection.LocalPlayerIsConnected,
                 remotePlayerCount = BasisNetworkPlayers.RemotePlayers.Count,
+                invalidRemoteMetadata = HasInvalidRemoteMetadata(),
                 avatarStateReady = avatarStateReady,
                 sphereId = sphereId ?? string.Empty,
                 contentType = contentType ?? string.Empty,
@@ -601,6 +602,18 @@ namespace Basis.Scripts.Networking
             string json = JsonUtility.ToJson(payload);
             Debug.Log("[BasisWebNetworkE2E] " + json);
             BasisWebNetworkE2EReport(json);
+        }
+
+        private static bool HasInvalidRemoteMetadata()
+        {
+            foreach (BasisRemotePlayer player in BasisNetworkPlayers.RemotePlayers.Values)
+            {
+                if (player.DisplayName == "Error" || string.IsNullOrWhiteSpace(player.PlayerPlatform))
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private static bool TryReadConfiguration(
@@ -670,6 +683,7 @@ namespace Basis.Scripts.Networking
             public int localPlayerId;
             public bool connected;
             public int remotePlayerCount;
+            public bool invalidRemoteMetadata;
             public bool avatarStateReady;
             public string sphereId;
             public string contentType;

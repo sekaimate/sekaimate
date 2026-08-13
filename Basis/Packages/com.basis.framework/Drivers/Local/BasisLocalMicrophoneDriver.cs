@@ -220,6 +220,8 @@ public static class BasisLocalMicrophoneDriver
         if (IsInitialize) return true;
 #if UNITY_WEBGL && !UNITY_EDITOR
         isPaused = ResolvePausedFromSettings();
+        SMDMicrophone.LoadInMicrophoneData(BasisDeviceManagement.StaticCurrentMode);
+        RegisterEvents();
         LocalOpusSettings.EnsureProcessBuffer(ref processBufferArray, out ProcessFrameLength);
         LocalOpusSettings.CreateOrResizeArray(LocalOpusSettings.rmsWindowSize, ref rmsValues);
         Array.Clear(rmsValues, 0, rmsValues.Length);
@@ -229,6 +231,7 @@ public static class BasisLocalMicrophoneDriver
         PacketSize = ProcessFrameLength * sizeof(float);
         BasisWebAudioCaptureBridge.PcmFrameReady += HandleWebPcmFrame;
         BasisWebAudioCaptureBridge.CaptureStateChanged += HandleWebCaptureState;
+        BasisWebAudioCaptureBridge.MicrophoneDevicesChanged += HandleWebMicrophoneDevicesChanged;
         BasisWebAudioCaptureBridge.EnsureInitialized();
         IsInitialize = true;
         OnInitializedAction?.Invoke(true);
@@ -269,7 +272,9 @@ public static class BasisLocalMicrophoneDriver
 #if UNITY_WEBGL && !UNITY_EDITOR
         BasisWebAudioCaptureBridge.PcmFrameReady -= HandleWebPcmFrame;
         BasisWebAudioCaptureBridge.CaptureStateChanged -= HandleWebCaptureState;
+        BasisWebAudioCaptureBridge.MicrophoneDevicesChanged -= HandleWebMicrophoneDevicesChanged;
         BasisWebAudioCaptureBridge.Stop();
+        UnregisterEvents();
         MicrophoneIsStarted = false;
         processBufferArray = null;
         rmsValues = null;
@@ -330,7 +335,16 @@ public static class BasisLocalMicrophoneDriver
     /// </summary>
     private static void ApplyMicSettings(SMDMicrophone.MicSettings s)
     {
-        // 1) Update Volume mapping
+#if UNITY_WEBGL && !UNITY_EDITOR
+        ChangeMicrophoneVolume(s.Volume01);
+        if (!string.Equals(MicrophoneDevice, s.Microphone, StringComparison.Ordinal))
+        {
+            MicrophoneDevice = s.Microphone;
+            BasisWebAudioCaptureBridge.SelectDevice(s.Microphone);
+        }
+        return;
+#else
+        // 1) Update Volume mapping (affects VAJ.Volume too)
         ChangeMicrophoneVolume(s.Volume01);
 
         // 2) AdjustVolume reads the limiter values straight off the settings snapshot it
@@ -356,6 +370,7 @@ public static class BasisLocalMicrophoneDriver
         {
             ResetMicrophones(s.Microphone);
         }
+#endif
     }
 
     public static void ToggleIsPaused()
@@ -743,6 +758,15 @@ public static class BasisLocalMicrophoneDriver
     }
 
 #if UNITY_WEBGL && !UNITY_EDITOR
+    private static void HandleWebMicrophoneDevicesChanged(string[] devices)
+    {
+        SMDMicrophone.SetDeviceList(devices);
+        if (devices.Length > 0 && Array.IndexOf(devices, SMDMicrophone.Current.Microphone) < 0)
+        {
+            SMDMicrophone.SetMicrophone(devices[0]);
+        }
+    }
+
     private static void HandleWebCaptureState(BasisWebAudioCaptureState state)
     {
         MicrophoneIsStarted = state == BasisWebAudioCaptureState.Running;

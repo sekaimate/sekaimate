@@ -7,6 +7,8 @@ public class BasisWebAudioBridgeTests
     private const string BrowserPluginPath = "Packages/com.basis.framework/Platform/WebGL/BasisWebAudio.jslib";
     private const string CaptureBridgePath = "Packages/com.basis.framework/Platform/WebGL/BasisWebAudioCaptureBridge.cs";
     private const string PlaybackBridgePath = "Packages/com.basis.framework/Platform/WebGL/BasisWebAudioPlaybackBridge.cs";
+    private const string UiSoundBridgePath = "Packages/com.basis.framework/Platform/WebGL/BasisWebAudioUiSoundBridge.cs";
+    private const string InputPath = "Packages/com.basis.framework/Device Management/Devices/Base/BasisInput.cs";
     private const string DiagnosticsBridgePath = "Packages/com.basis.framework/Platform/WebGL/BasisWebAudioDiagnosticsBridge.cs";
     private const string MicrophoneDriverPath = "Packages/com.basis.framework/Drivers/Local/BasisLocalMicrophoneDriver.cs";
     private const string MicrophoneIconDriverPath = "Packages/com.basis.framework/Drivers/Local/BasisLocalMicrophoneIconDriver.cs";
@@ -38,22 +40,41 @@ public class BasisWebAudioBridgeTests
         StringAssert.Contains("channelCount: 1", source);
         StringAssert.Contains("frameSize: 960", source);
         StringAssert.Contains("NotAllowedError", source);
-        StringAssert.Contains("navigator.userActivation.isActive", source);
+        StringAssert.DoesNotContain("navigator.userActivation.isActive", source);
         StringAssert.Contains("visibilitychange", source);
         StringAssert.Contains("document.hidden", source);
+        StringAssert.DoesNotContain("BasisWebAudio.context.suspend()", source);
+        StringAssert.DoesNotContain("track.enabled = false", source);
+        StringAssert.Contains("new window.AudioContext", source);
+        StringAssert.Contains("sampleRate: BasisWebAudio.sampleRate", source);
     }
 
     [Test]
-    public void CaptureResumesExistingAudioContextBeforeAwaitingInitialization()
+    public void CaptureRequestsPermissionWithoutTransientActivationDependency()
     {
         string source = File.ReadAllText(BrowserPluginPath);
-        int resumeIndex = source.IndexOf("var resumePromise = BasisWebAudio.context ? BasisWebAudio.context.resume() : null;");
-        int initializationIndex = source.IndexOf("await BasisWebAudio.ensureInitialized();", resumeIndex);
+        int requestIndex = source.IndexOf("requestCapture: async function()");
+        int permissionIndex = source.IndexOf("var streamPromise = BasisWebAudio.stream ? null : navigator.mediaDevices.getUserMedia", requestIndex);
+        int initializationIndex = source.IndexOf("await BasisWebAudio.ensureInitialized();", permissionIndex);
+        int initializationStartIndex = source.IndexOf("ensureInitialized: function()");
+        int initializationResumeIndex = source.IndexOf("await BasisWebAudio.context.resume();", initializationStartIndex);
+        int processorIndex = source.IndexOf("createScriptProcessor", initializationResumeIndex);
+        int gestureIndex = source.IndexOf("resumeFromGesture: function()");
+        int gestureResumeIndex = source.IndexOf("context.resume()", gestureIndex);
+        int gestureInitializationIndex = source.IndexOf("BasisWebAudio.ensureInitialized()", gestureResumeIndex);
         int awaitResumeIndex = source.IndexOf("await resumePromise;", initializationIndex);
 
-        Assert.That(resumeIndex, Is.GreaterThanOrEqualTo(0));
-        Assert.That(initializationIndex, Is.GreaterThan(resumeIndex));
-        Assert.That(awaitResumeIndex, Is.GreaterThan(initializationIndex));
+        Assert.That(requestIndex, Is.GreaterThanOrEqualTo(0));
+        Assert.That(permissionIndex, Is.GreaterThan(requestIndex));
+        Assert.That(initializationIndex, Is.GreaterThan(permissionIndex));
+        Assert.That(initializationResumeIndex, Is.GreaterThan(initializationStartIndex));
+        Assert.That(processorIndex, Is.GreaterThan(initializationResumeIndex));
+        Assert.That(gestureIndex, Is.GreaterThanOrEqualTo(0));
+        Assert.That(gestureResumeIndex, Is.GreaterThan(gestureIndex));
+        Assert.That(gestureInitializationIndex, Is.GreaterThan(gestureResumeIndex));
+        StringAssert.Contains("await BasisWebAudio.context.resume();", source.Substring(initializationIndex));
+        Assert.That(awaitResumeIndex, Is.EqualTo(-1));
+        StringAssert.Contains("BasisWebAudio.notifyState(BasisWebAudio.State.AwaitingUserGesture);", source);
     }
 
     [Test]
@@ -64,22 +85,70 @@ public class BasisWebAudioBridgeTests
         string iconDriverSource = File.ReadAllText(MicrophoneIconDriverPath);
 
         StringAssert.Contains("BasisWebAudioPlayMicrophoneToggleSound", pluginSource);
-        StringAssert.Contains("context.createOscillator()", pluginSource);
+        StringAssert.Contains("BasisWebAudioFeedback.play", pluginSource);
+        StringAssert.Contains("BasisWebAudioPlayMicrophoneToggleSound__deps: ['$BasisWebAudioFeedback']", pluginSource);
         StringAssert.Contains("BasisWebAudioPlayMicrophoneToggleSound", bridgeSource);
         StringAssert.Contains("BasisWebAudioCaptureBridge.PlayMicrophoneToggleSound", iconDriverSource);
         StringAssert.Contains("#if UNITY_WEBGL && !UNITY_EDITOR", iconDriverSource);
     }
 
     [Test]
-    public void PlaybackUsesAudioWorkletPcmSink()
+    public void UiSoundsBypassUnityAudioClipsOnWebGl()
     {
-        string source = File.ReadAllText(BrowserPluginPath);
+        string pluginSource = File.ReadAllText(BrowserPluginPath);
+        string bridgeSource = File.ReadAllText(UiSoundBridgePath);
+        string inputSource = File.ReadAllText(InputPath);
 
-        StringAssert.Contains("registerProcessor('basis-capture-processor'", source);
-        StringAssert.Contains("registerProcessor('basis-playback-processor'", source);
-        StringAssert.Contains("audioWorklet.addModule", source);
-        StringAssert.Contains("BasisWebAudioPlaybackPush", source);
-        StringAssert.Contains("BasisWebAudioPlaybackRemoveSink", source);
+        StringAssert.Contains("BasisWebAudioPlayUiSound", pluginSource);
+        StringAssert.Contains("$BasisWebAudioFeedback", pluginSource);
+        StringAssert.Contains("BasisWebAudioPlayUiSound", bridgeSource);
+        StringAssert.Contains("BasisWebAudioUiSoundBridge.Play", inputSource);
+        StringAssert.Contains("#if UNITY_WEBGL && !UNITY_EDITOR", inputSource);
+        StringAssert.Contains("AudioSource.PlayClipAtPoint", inputSource);
+    }
+
+    [Test]
+    public void PlaybackUsesOneExplicit48KhzVoiceContext()
+    {
+        string pluginSource = File.ReadAllText(BrowserPluginPath);
+
+        StringAssert.Contains("new window.AudioContext", pluginSource);
+        StringAssert.Contains("sampleRate: BasisWebAudio.sampleRate", pluginSource);
+        StringAssert.Contains("latencyHint: 'interactive'", pluginSource);
+        StringAssert.Contains("createScriptProcessor(2048, 1, 1)", pluginSource);
+        StringAssert.Contains("BasisWebAudio.playbackSources", pluginSource);
+        StringAssert.DoesNotContain("audioWorklet.addModule", pluginSource);
+        StringAssert.Contains("BasisWebAudioPlaybackPush", pluginSource);
+        StringAssert.Contains("BasisWebAudioPlaybackRemoveSink", pluginSource);
+    }
+
+    [Test]
+    public void BrowserPacketsStartPlaybackBeforeDecode()
+    {
+        string source = File.ReadAllText(AudioReceiverPath);
+        int insertIndex = source.IndexOf("VoiceBuffer.InsertEncoded", System.StringComparison.Ordinal);
+        int startIndex = source.IndexOf("StartAudio(BasisTransmissionResults.ConvertedVoiceDistance)", System.StringComparison.Ordinal);
+        int decodeGateIndex = source.IndexOf("if (!HasAudioSource)\n            {\n                return;", System.StringComparison.Ordinal);
+
+        Assert.That(insertIndex, Is.GreaterThanOrEqualTo(0));
+        Assert.That(startIndex, Is.GreaterThan(insertIndex));
+        Assert.That(decodeGateIndex, Is.GreaterThan(startIndex));
+    }
+
+    [Test]
+    public void BrowserMicrophoneDevicesPopulateTheSettingsList()
+    {
+        string pluginSource = File.ReadAllText(BrowserPluginPath);
+        string bridgeSource = File.ReadAllText(CaptureBridgePath);
+        string microphoneSource = File.ReadAllText(MicrophoneDriverPath);
+
+        StringAssert.Contains("navigator.mediaDevices.enumerateDevices()", pluginSource);
+        StringAssert.Contains("stringToNewUTF8(payload)", pluginSource);
+        StringAssert.Contains("device.kind === 'audioinput'", pluginSource);
+        StringAssert.Contains("devicechange", pluginSource);
+        StringAssert.Contains("BasisWebAudioSetCaptureDevice", pluginSource);
+        StringAssert.Contains("MicrophoneDevicesChanged", bridgeSource);
+        StringAssert.Contains("SMDMicrophone.SetDeviceList", microphoneSource);
     }
 
     [Test]

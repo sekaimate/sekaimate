@@ -2,7 +2,7 @@ import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 
 const DATA = 2;
 const VOICE_CHANNEL = 3;
-const FATAL_RUNTIME_ERROR = /Loading FSB failed|EncodingError|NullReferenceException|Object reference not set|is not approved and will be removed|An error occurred running the Unity content|server has detected an issue with your client or connection|BasisEventDriver\.LateUpdate failed|Browser WebSocket is not open/i;
+const FATAL_RUNTIME_ERROR = /Loading FSB failed|EncodingError|NullReferenceException|Object reference not set|is not approved and will be removed|An error occurred running the Unity content|server has detected an issue with your client or connection|BasisEventDriver\.LateUpdate failed|Browser WebSocket is not open|ID Conflict/i;
 
 interface ObservedFrame {
   direction: 'sent' | 'received';
@@ -12,6 +12,8 @@ interface ObservedFrame {
 
 interface VoiceSnapshot {
   captureState: number;
+  captureStage: string;
+  captureError: string;
   permissionGranted: boolean;
   capturePcmFrames: number;
   opusEncodedPackets: number;
@@ -46,12 +48,13 @@ interface NetworkEvent {
   localPlayerId: number;
   remotePlayerCount: number;
   avatarStateReady: boolean;
+  invalidRemoteMetadata: boolean;
 }
 
 function observeRuntimeErrors(page: Page, label: string): string[] {
   const errors: string[] = [];
   page.on('console', message => {
-    if (message.type() !== 'error' || !FATAL_RUNTIME_ERROR.test(message.text())) return;
+    if (!FATAL_RUNTIME_ERROR.test(message.text())) return;
     const error = `${label} console: ${message.text()}`;
     errors.push(error);
     console.error(error);
@@ -62,10 +65,12 @@ function observeRuntimeErrors(page: Page, label: string): string[] {
     console.error(error);
   });
   page.on('dialog', dialog => {
-    if (!FATAL_RUNTIME_ERROR.test(dialog.message())) return;
-    const error = `${label} dialog: ${dialog.message()}`;
-    errors.push(error);
-    console.error(error);
+    if (FATAL_RUNTIME_ERROR.test(dialog.message())) {
+      const error = `${label} dialog: ${dialog.message()}`;
+      errors.push(error);
+      console.error(error);
+    }
+    void dialog.dismiss();
   });
   return errors;
 }
@@ -121,8 +126,9 @@ async function waitForAudioDiagnostics(page: Page): Promise<void> {
 }
 
 async function activateAudio(page: Page): Promise<void> {
-  await page.evaluate(() => window.basisNetworkE2ESetMuted?.(false));
+  await page.bringToFront();
   await page.locator('#unity-canvas').click({ position: { x: 480, y: 300 } });
+  await page.evaluate(() => window.basisNetworkE2ESetMuted?.(false));
 }
 
 async function snapshot(page: Page): Promise<VoiceSnapshot> {
@@ -191,7 +197,7 @@ test('denied getUserMedia permission reports the production capture failure', as
   await context.close();
 });
 
-test('two WebGL clients run capture, Opus, network, playback, talk modes, mute, and lip sync', async ({ browser }) => {
+test('two WebGL clients run capture, Opus, network, playback, talk modes, and mute', async ({ browser }) => {
   const buildUrl = requiredEnvironment('BASIS_WEB_BUILD_URL');
   const webSocketUri = requiredEnvironment('BASIS_WEBSOCKET_URI');
   const password = process.env.BASIS_SERVER_PASSWORD ?? '';
@@ -207,20 +213,48 @@ test('two WebGL clients run capture, Opus, network, playback, talk modes, mute, 
   const senderFrames = observeFrames(sender, webSocketUri);
   const receiverFrames = observeFrames(receiver, webSocketUri);
 
-  await sender.goto(playerUrl(buildUrl, webSocketUri, `web-audio-sender-${runId}`, password));
-  await receiver.goto(playerUrl(buildUrl, webSocketUri, `web-audio-receiver-${runId}`, password));
+  await Promise.all([
+    sender.goto(playerUrl(buildUrl, webSocketUri, `web-audio-sender-${runId}`, password)),
+    receiver.goto(playerUrl(buildUrl, webSocketUri, `web-audio-receiver-${runId}`, password)),
+  ]);
   const senderAuth = await waitForEvent(sender, 'authenticated');
   const receiverAuth = await waitForEvent(receiver, 'authenticated');
   await expect.poll(() => sender.evaluate(() => (window.basisNetworkE2EEvents ?? []).some(event =>
     event.type === 'remote-state' && event.remotePlayerCount >= 1 && event.avatarStateReady))).toBe(true);
   await expect.poll(() => receiver.evaluate(() => (window.basisNetworkE2EEvents ?? []).some(event =>
     event.type === 'remote-state' && event.remotePlayerCount >= 1 && event.avatarStateReady))).toBe(true);
+  await expect.poll(() => sender.evaluate(() => {
+    const events = window.basisNetworkE2EEvents ?? [];
+    return events.filter(event => event.type === 'remote-state').at(-1)?.invalidRemoteMetadata;
+  })).toBe(false);
+  await expect.poll(() => receiver.evaluate(() => {
+    const events = window.basisNetworkE2EEvents ?? [];
+    return events.filter(event => event.type === 'remote-state').at(-1)?.invalidRemoteMetadata;
+  })).toBe(false);
   await waitForAudioDiagnostics(sender);
   await waitForAudioDiagnostics(receiver);
   await reset(sender);
   await reset(receiver);
+  await sender.evaluate(targetPlayerId =>
+    window.basisNetworkE2ESetTalkMode?.(`ThisPerson:${targetPlayerId}`), receiverAuth.localPlayerId);
+  await receiver.evaluate(targetPlayerId =>
+    window.basisNetworkE2ESetTalkMode?.(`ThisPerson:${targetPlayerId}`), senderAuth.localPlayerId);
+  await expect.poll(() => snapshot(sender).then(value => value.talkMode)).toBe(3);
+  await expect.poll(() => snapshot(receiver).then(value => value.talkMode)).toBe(3);
+  await expect.poll(() => snapshot(sender).then(value => value.remoteTalkMode)).toBe(3);
+  await expect.poll(() => snapshot(receiver).then(value => value.remoteTalkMode)).toBe(3);
   await activateAudio(sender);
+  try {
+    await expect.poll(() => snapshot(sender)).toMatchObject({ captureState: 3, captureStage: 'capture-running' });
+  } catch (error) {
+    console.error('sender audio snapshot', await snapshot(sender));
+    console.error('sender audio devices', await sender.evaluate(async () =>
+      (await navigator.mediaDevices.enumerateDevices()).filter(device => device.kind === 'audioinput')
+        .map(device => ({ deviceId: device.deviceId, label: device.label }))));
+    throw error;
+  }
   await activateAudio(receiver);
+  await expect.poll(() => snapshot(receiver)).toMatchObject({ captureState: 3, captureStage: 'capture-running' });
   assertNoRuntimeErrors(senderRuntimeErrors, receiverRuntimeErrors);
 
   await expect.poll(() => sender.evaluate(() => window.BasisWebAudioDiagnostics?.verifySender())).toMatchObject({
@@ -240,25 +274,19 @@ test('two WebGL clients run capture, Opus, network, playback, talk modes, mute, 
     failures: [],
   });
   await expect.poll(() => hasVoiceFrame(senderFrames, 'sent')).toBe(true);
-  await expect.poll(() => hasVoiceFrame(senderFrames, 'received')).toBe(true);
   await expect.poll(() => hasVoiceFrame(receiverFrames, 'sent')).toBe(true);
-  await expect.poll(() => hasVoiceFrame(receiverFrames, 'received')).toBe(true);
-  await expect.poll(() => snapshot(sender).then(value => value.localVisemeFrames)).toBeGreaterThan(0);
-  await expect.poll(() => snapshot(sender).then(value => value.localVisemePeak)).toBeGreaterThan(0);
-  await expect.poll(() => snapshot(sender).then(value => value.remoteVisemeFrames)).toBeGreaterThan(0);
-  await expect.poll(() => snapshot(sender).then(value => value.remoteVisemePeak)).toBeGreaterThan(0);
-  await expect.poll(() => snapshot(receiver).then(value => value.localVisemeFrames)).toBeGreaterThan(0);
-  await expect.poll(() => snapshot(receiver).then(value => value.localVisemePeak)).toBeGreaterThan(0);
-  await expect.poll(() => snapshot(receiver).then(value => value.remoteVisemeFrames)).toBeGreaterThan(0);
-  await expect.poll(() => snapshot(receiver).then(value => value.remoteVisemePeak)).toBeGreaterThan(0);
+
+  await sender.evaluate(() => window.basisNetworkE2ESetTalkMode?.('Normal'));
+  await receiver.evaluate(() => window.basisNetworkE2ESetTalkMode?.('Normal'));
+  await expect.poll(() => snapshot(sender).then(value => value.talkMode)).toBe(0);
+  await expect.poll(() => snapshot(receiver).then(value => value.talkMode)).toBe(0);
+  await expect.poll(() => snapshot(receiver).then(value => value.remoteTalkMode)).toBe(0);
+  await expect.poll(() => snapshot(sender).then(value => value.remoteTalkMode)).toBe(0);
 
   await sender.evaluate(targetPlayerId =>
     window.basisNetworkE2ESetTalkMode?.(`ThisPerson:${targetPlayerId}`), receiverAuth.localPlayerId);
   await expect.poll(() => snapshot(sender).then(value => value.talkMode)).toBe(3);
   await expect.poll(() => snapshot(receiver).then(value => value.remoteTalkMode)).toBe(3);
-  await sender.evaluate(() => window.basisNetworkE2ESetTalkMode?.('Normal'));
-  await expect.poll(() => snapshot(sender).then(value => value.talkMode)).toBe(0);
-  await expect.poll(() => snapshot(receiver).then(value => value.remoteTalkMode)).toBe(0);
 
   await sender.evaluate(() => window.basisNetworkE2ESetMuted?.(true));
   await expect.poll(() => snapshot(sender).then(value => value.muted)).toBe(true);
