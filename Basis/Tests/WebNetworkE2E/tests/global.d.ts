@@ -9,6 +9,15 @@ interface BasisNetworkE2EEvent {
   sphereId: string;
   contentType: 'Avatar' | 'Prop' | 'World' | 'Server' | '';
   contentUrl: string;
+  visibleLabels: string[];
+  availableAdminActions: string[];
+  volume: number;
+  pinned: boolean;
+  highlighted: boolean;
+  avatarVisible: boolean;
+  chatVisible: boolean;
+  blocked: boolean;
+  temporarilyBlocked: boolean;
 }
 
 interface BasisNetworkE2EContentShareInput {
@@ -28,4 +37,12 @@ interface Window {
   basisNetworkE2EShareContent?: (input: BasisNetworkE2EContentShareInput) => void;
   basisNetworkE2ERemoveContent?: (sphereId: string) => void;
   basisNetworkE2ELoadContent?: (sphereId: string) => void;
+  basisNetworkE2EOpenPlayerList?: () => void;
+  basisNetworkE2EPlayerSearch?: (query: string) => void;
+  basisNetworkE2EPlayerSort?: (sort: string) => void;
+  basisNetworkE2EOpenPlayer?: (displayName: string) => void;
+  basisNetworkE2EPlayerUiAction?: (localizationKey: string) => void;
+  basisNetworkE2EPlayerVolume?: (volume: number) => void;
+  basisNetworkE2EConfirmDialogue?: (accepted: boolean) => void;
+  basisNetworkE2EPlayerState?: () => void;
 }

@@ -69,4 +69,23 @@ public sealed class BasisWebNetworkE2EHarnessTests
         StringAssert.Contains("basisNetworkE2ELoadContent", bridge);
         StringAssert.DoesNotContain("new WebSocket", bridge);
     }
+
+    [Test]
+    public void RuntimeHarnessDrivesProductionPlayerPanelsAndReportsTheirState()
+    {
+        string source = File.ReadAllText("Packages/com.basis.framework/Networking/WebGL/BasisWebNetworkE2EHarness.cs");
+        string bridge = File.ReadAllText("Packages/com.basis.framework/Networking/WebGL/BasisWebNetworkE2E.jslib");
+
+        StringAssert.Contains("BasisMainMenu.OpenWithProvider(UserListProvider.StaticTitle)", source);
+        StringAssert.Contains("PanelTextField", source);
+        StringAssert.Contains("PanelDropdown", source);
+        StringAssert.Contains("PanelButton", source);
+        StringAssert.Contains("PanelSlider", source);
+        StringAssert.Contains("Dialogue.AcceptButton.OnClick", source);
+        StringAssert.Contains("BasisPlayerSettingsManager.RequestPlayerSettings", source);
+        StringAssert.Contains("IndividualPlayerActionPermissions.CanUse", source);
+        StringAssert.Contains("basisNetworkE2EOpenPlayerList", bridge);
+        StringAssert.Contains("basisNetworkE2EPlayerUiAction", bridge);
+        StringAssert.Contains("basisNetworkE2EConfirmDialogue", bridge);
+    }
 }
