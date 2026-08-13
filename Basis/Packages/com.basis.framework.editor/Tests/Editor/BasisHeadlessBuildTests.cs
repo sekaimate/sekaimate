@@ -41,6 +41,14 @@ public class BasisHeadlessBuildTests
     }
 
     [Test]
+    public void CreateWebBuildPlayerOptionsEnablesDevelopmentCodeForE2E()
+    {
+        BuildPlayerOptions options = BasisHeadlessBuild.CreateWebBuildPlayerOptions("Build/WebE2E", true);
+
+        Assert.That(options.options, Is.EqualTo(BuildOptions.Development));
+    }
+
+    [Test]
     public void FindMissingWebBuildArtifactsAcceptsCompleteCompressedBuild()
     {
         string[] paths =
