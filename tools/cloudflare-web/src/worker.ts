@@ -44,6 +44,9 @@ function keyFromRequest(request: Request): string | null {
 
 export function cacheControlFor(key: string): string {
   if (key === 'index.html') return 'no-cache';
+  if (key.startsWith('Build/')) {
+    return 'public, max-age=0, s-maxage=31536000, must-revalidate, no-transform';
+  }
   if (key.endsWith('/catalog.bin') || key.endsWith('/catalog.hash') || key.endsWith('/settings.json')) {
     return 'public, max-age=300, s-maxage=300, must-revalidate';
   }
@@ -107,7 +110,7 @@ export default {
       headers.delete('content-length');
       const html = await new Response(object.body).text();
       return new Response(
-        injectBrowserCacheControls(rewriteBuildArtifactReferences(html)),
+        injectBrowserCacheControls(rewriteBuildArtifactReferences(html, object.httpEtag)),
         { headers },
       );
     }

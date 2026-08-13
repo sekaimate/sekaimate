@@ -2,9 +2,16 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { cacheControlFor, contentEncodingFor, responseInitFor } from './worker.ts';
 
-test('long-lived build artifacts use edge and browser caches', () => {
+test('fixed build artifacts revalidate in browsers and remain cached at the edge', () => {
   assert.equal(
-    cacheControlFor('Build/client.wasm'),
+    cacheControlFor('Build/basis.wasm.gz'),
+    'public, max-age=0, s-maxage=31536000, must-revalidate, no-transform',
+  );
+});
+
+test('non-build static assets keep long-lived browser caching', () => {
+  assert.equal(
+    cacheControlFor('TemplateData/style.css'),
     'public, max-age=86400, s-maxage=31536000, immutable, no-transform',
   );
 });
