@@ -91,6 +91,8 @@ public class BasisWebAudioBridgeTests
         StringAssert.Contains("networkPacketsReceived", pluginSource);
         StringAssert.Contains("opusDecodedFrames", pluginSource);
         StringAssert.Contains("playbackFramesPushed", pluginSource);
+        StringAssert.Contains("playbackNonSilentFramesPushed", pluginSource);
+        StringAssert.Contains("playbackPeak", pluginSource);
         StringAssert.Contains("#if UNITY_WEBGL && !UNITY_EDITOR", bridgeSource);
         StringAssert.Contains("BasisWebAudioDiagnosticsBridge.MarkOpusEncoded", transmissionSource);
         StringAssert.Contains("BasisWebAudioDiagnosticsBridge.MarkNetworkSent", transmissionSource);
