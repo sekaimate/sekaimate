@@ -78,6 +78,8 @@ async function initializeWorker(settings) {
 async function initializeSyntheticCamera() {
   cameraStream = sourceCanvas.captureStream(30);
   cameraPreview.srcObject = cameraStream;
+  sourceContext.fillStyle = "#000";
+  sourceContext.fillRect(0, 0, sourceCanvas.width, sourceCanvas.height);
   await cameraPreview.play();
 }
 
