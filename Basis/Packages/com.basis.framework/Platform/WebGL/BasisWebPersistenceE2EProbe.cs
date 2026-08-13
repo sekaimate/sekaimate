@@ -1,9 +1,12 @@
 #if UNITY_WEBGL && !UNITY_EDITOR && DEVELOPMENT_BUILD
+using Basis.BasisUI;
 using Basis.Scripts.Device_Management;
+using Basis.Scripts.Networking;
 using Basis.Scripts.Settings;
 using Basis.Scripts.TransformBinders.BoneControl;
 using Basis.Scripts.UI.UI_Panels;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -21,6 +24,12 @@ public static class BasisWebPersistenceE2EProbe
     private const string WorldPassword = "basis-e2e-world";
     private const string SettingKey = "basis.web.persistence.e2e";
     private const string SettingValue = "reload-restored";
+    private const string SavedServerId = "basis-web-persistence-e2e";
+    private const string SavedServerDisplayName = "Basis Web Persistence E2E";
+    private const string SavedServerAddress = "persistence.basis.invalid";
+    private const ushort SavedServerPort = 4297;
+    private const string SavedServerWebSocketUri = "wss://persistence.basis.invalid/client";
+    private const string TrustedUrl = "https://persistence.basis.invalid/*";
     private const float CameraFov = 73.5f;
     private const BasisActionDriver.ActionId BindingAction =
         BasisActionDriver.ActionId.ToggleHamburgerOnSecondaryRelease;
@@ -83,6 +92,23 @@ public static class BasisWebPersistenceE2EProbe
 
         BasisSettingsSystem.LoadAllSettings();
         BasisSettingsSystem.SaveString(SettingKey, SettingValue);
+
+        List<SavedServerEntry> savedServers = SavedServerStore.Load();
+        savedServers.RemoveAll(server => server != null && server.Id == SavedServerId);
+        savedServers.Add(new SavedServerEntry
+        {
+            Id = SavedServerId,
+            DisplayName = SavedServerDisplayName,
+            Address = SavedServerAddress,
+            Port = SavedServerPort,
+            Password = string.Empty,
+            HasPassword = false,
+            WebSocketUri = SavedServerWebSocketUri
+        });
+        SavedServerStore.Save(savedServers);
+
+        await BasisTrustedUrls.InitializeAsync();
+        BasisTrustedUrls.Add(TrustedUrl);
     }
 
     private static async Task<ProbeResult> Verify()
@@ -92,6 +118,7 @@ public static class BasisWebPersistenceE2EProbe
         await BasisDataStoreItemKeys.LoadKeys();
         await BasisActionDriver.LoadApplyToDriverAsync();
         BasisSettingsSystem.LoadAllSettings();
+        await BasisTrustedUrls.InitializeAsync();
 
         BasisDataStoreAvatarKeys.AvatarKey[] avatars = BasisDataStoreAvatarKeys.DisplayKeys();
         BasisDataStoreItemKeys.ItemKey[] items = BasisDataStoreItemKeys.DisplayKeys();
@@ -107,7 +134,16 @@ public static class BasisWebPersistenceE2EProbe
             world = ContainsItem(items, BundledContentHolder.Mode.World, WorldUrl, WorldPassword),
             binding = BasisActionDriver.GetBindings(BindingAction).Contains(BindingRole),
             camera = cameraSettings != null && Mathf.Approximately(cameraSettings.fov, CameraFov),
-            settings = BasisSettingsSystem.LoadString(SettingKey, string.Empty) == SettingValue
+            settings = BasisSettingsSystem.LoadString(SettingKey, string.Empty) == SettingValue,
+            savedServers = SavedServerStore.Load().Any(server =>
+                server != null &&
+                server.Id == SavedServerId &&
+                server.DisplayName == SavedServerDisplayName &&
+                server.Address == SavedServerAddress &&
+                server.Port == SavedServerPort &&
+                !server.HasPassword &&
+                server.WebSocketUri == SavedServerWebSocketUri),
+            trustedUrls = BasisTrustedUrls.GetUserAdded().Contains(TrustedUrl)
         };
     }
 
@@ -189,6 +225,8 @@ public static class BasisWebPersistenceE2EProbe
         public bool binding;
         public bool camera;
         public bool settings;
+        public bool savedServers;
+        public bool trustedUrls;
         public string error;
     }
 
