@@ -166,7 +166,7 @@ test('real WebGL players authenticate, synchronize, chat, and reconnect through 
   await expect.poll(() => hasAvatarFrame(firstTrace, 'sent')).toBe(true);
   await expect.poll(() => hasAvatarFrame(secondTrace, 'received')).toBe(true);
 
-  const initialChat = `before-reconnect-${runId}`;
+  const initialChat = 'basis hello from first client';
   await firstPage.evaluate(message => window.basisNetworkE2ESendChat?.(message), initialChat);
   await waitForHarnessEvent(secondPage, { type: 'chat-received', message: initialChat });
   await expect.poll(() => hasFrame(firstTrace, 'sent', DATA, CHAT_CHANNEL)).toBe(true);
@@ -187,7 +187,7 @@ test('real WebGL players authenticate, synchronize, chat, and reconnect through 
   await expect.poll(() => frameCount(secondTrace, 'sent', DATA, AUTH_IDENTITY_CHANNEL)).toBeGreaterThanOrEqual(2);
   await expect.poll(() => frameCount(secondTrace, 'received', DATA, METADATA_CHANNEL)).toBeGreaterThanOrEqual(2);
 
-  const reconnectedChat = `after-reconnect-${runId}`;
+  const reconnectedChat = 'basis hello after reconnect';
   await firstPage.evaluate(message => window.basisNetworkE2ESendChat?.(message), reconnectedChat);
   await waitForHarnessEvent(secondPage, { type: 'chat-received', message: reconnectedChat });
 
