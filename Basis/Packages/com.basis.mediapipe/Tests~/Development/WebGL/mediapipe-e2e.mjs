@@ -139,6 +139,14 @@ async function inferFixture(name) {
   return decodeResult((await resultMessage).values, name);
 }
 
+async function inferUntil(name, predicate) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const observation = await inferFixture(name);
+    if (predicate(observation)) return observation;
+  }
+  throw new Error(`${name} fixture did not produce its expected landmarks`);
+}
+
 async function run() {
   state.running = true;
   state.error = null;
@@ -146,14 +154,23 @@ async function run() {
   try {
     await initializeSyntheticCamera();
     await initializeWorker({ mirror: false, swapHands: false });
-    await inferFixture("face");
-    const originalHand = await inferFixture("hand");
-    await inferFixture("pose");
+    await inferUntil("face", observation => observation.faceDetected && observation.faceSize > 0);
+    const originalHand = await inferUntil(
+      "hand",
+      observation => observation.leftHandCount + observation.rightHandCount === 21,
+    );
+    await inferUntil(
+      "pose",
+      observation => observation.poseCount === 33 && observation.poseWorldCount === 33,
+    );
 
     worker.terminate();
     state.ready = false;
     await initializeWorker({ mirror: true, swapHands: true });
-    const swappedHand = await inferFixture("hand");
+    const swappedHand = await inferUntil(
+      "hand",
+      observation => observation.leftHandCount + observation.rightHandCount === 21,
+    );
     state.handSelectionChanged = originalHand.leftHandCount === swappedHand.rightHandCount
       && originalHand.rightHandCount === swappedHand.leftHandCount
       && originalHand.leftHandCount + originalHand.rightHandCount > 0;
