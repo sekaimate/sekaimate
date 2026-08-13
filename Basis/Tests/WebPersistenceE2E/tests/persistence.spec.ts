@@ -45,7 +45,7 @@ async function persistedFileNames(page: Page): Promise<string[]> {
             request.onsuccess = () => resolve(request.result);
             request.onerror = () => reject(request.error);
           });
-          keys.push(...storeKeys.map(String));
+          keys.push(...storeKeys.map(key => String(key).split('/').pop() ?? String(key)));
         }
       } finally {
         connection.close();
