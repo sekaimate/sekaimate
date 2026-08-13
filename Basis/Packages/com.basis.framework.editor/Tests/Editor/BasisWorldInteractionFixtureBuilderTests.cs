@@ -1,3 +1,4 @@
+using System.IO;
 using System.Linq;
 using Basis.Scripts.BasisSdk;
 using Basis.Scripts.BasisSdk.Interactions;
@@ -10,6 +11,7 @@ using UnityEngine.UI;
 
 public class BasisWorldInteractionFixtureBuilderTests
 {
+    private const string WebHarnessPath = "Packages/com.basis.framework/Platform/WebGL/BasisWebWorldInteractionE2E.cs";
     private GameObject contentObject;
     private GameObject fixtureRoot;
 
@@ -121,5 +123,14 @@ public class BasisWorldInteractionFixtureBuilderTests
         Assert.That(target.GetComponent<BasisUIComponent>(), Is.Not.Null);
         Assert.That(target.GetComponent<BoxCollider>(), Is.Not.Null);
         Assert.That(target.GetComponentInChildren<Button>(), Is.Not.Null);
+    }
+
+    [Test]
+    public void WebHarnessImportsAvatarTransformMapping()
+    {
+        string source = File.ReadAllText(WebHarnessPath);
+
+        StringAssert.Contains("using Basis.Scripts.Common;", source);
+        StringAssert.Contains("BasisTransformMapping mapping = BasisLocalAvatarDriver.Mapping;", source);
     }
 }
