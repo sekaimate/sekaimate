@@ -11,7 +11,7 @@ using UnityEngine;
 
 namespace OpenLipSync.Inference
 {
-    public sealed class OpenLipSyncBackend : IDisposable
+    public sealed class OpenLipSyncBackend : IBasisOpenLipSyncBackend
     {
         private readonly object _lock = new object();
         private readonly ConcurrentDictionary<uint, AudioContext> _contexts = new ConcurrentDictionary<uint, AudioContext>();
@@ -510,6 +510,15 @@ namespace OpenLipSync.Inference
                 Shutdown();
                 _disposed = true;
             }
+        }
+    }
+
+    internal static class OpenLipSyncNativeBackendRegistration
+    {
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void Register()
+        {
+            BasisOpenLipSyncBackendRegistry.Register(() => new OpenLipSyncBackend());
         }
     }
 }

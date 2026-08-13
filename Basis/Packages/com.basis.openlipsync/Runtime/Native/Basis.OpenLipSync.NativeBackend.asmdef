@@ -1,16 +1,17 @@
 {
-    "name": "Basis.OpenLipSync.Runtime",
+    "name": "Basis.OpenLipSync.NativeBackend",
     "rootNamespace": "",
     "references": [
-        "Unity.Addressables",
-        "Unity.ResourceManager",
-        "BasisDebug"
+        "Basis.OpenLipSync.Runtime"
     ],
     "includePlatforms": [],
-    "excludePlatforms": [],
+    "excludePlatforms": [
+        "WebGL"
+    ],
     "allowUnsafeCode": false,
     "overrideReferences": true,
     "precompiledReferences": [
+        "Microsoft.ML.OnnxRuntime.dll",
         "Newtonsoft.Json.dll"
     ],
     "autoReferenced": true,

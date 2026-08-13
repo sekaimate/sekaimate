@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using OpenLipSync.Inference;
 using OpenLipSync.Inference.OVRCompat;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
@@ -25,7 +24,7 @@ public static class BasisOpenLipSyncDriver
     public const string ModelAddress = "Packages/com.basisvr.openlipsync/OpenLipSync/model.onnx.bytes";
     public const string ConfigAddress = "Packages/com.basisvr.openlipsync/OpenLipSync/config.json";
 
-    private static OpenLipSyncBackend _backend;
+    private static IBasisOpenLipSyncBackend _backend;
     private static readonly Dictionary<EntityId, uint> _playerToContext = new Dictionary<EntityId, uint>();
     private static readonly Dictionary<EntityId, Action> _slotRevokedCallbacks = new Dictionary<EntityId, Action>();
     private static readonly Stack<uint> _contextPool = new Stack<uint>();
@@ -64,7 +63,13 @@ public static class BasisOpenLipSyncDriver
                 return;
             }
 
-            _backend = new OpenLipSyncBackend();
+            _backend = BasisOpenLipSyncBackendRegistry.Create();
+            if (_backend == null)
+            {
+                BasisDebug.LogWarning("[OpenLipSync] Native backend is unavailable");
+                ReleaseHandles();
+                return;
+            }
             string configJson = configAsset.IsValid() && configAsset.Status == AsyncOperationStatus.Succeeded && configAsset.Result != null
                 ? configAsset.Result.text
                 : null;
