@@ -109,7 +109,7 @@ namespace Basis.BasisUI
             PanelButton copyBtn = PanelButton.CreateNew(controlsGroup.ContentParent);
             copyBtn.Descriptor.SetTitle(BasisLocalization.Get("settings.console.copyLogs"));
             copyBtn.Descriptor.SetTooltip(BasisLocalization.Get("settings.console.copyLogs.tooltip"));
-            copyBtn.OnClicked += () => BasisClipboard.Copy(BasisLogManager.GetAllLogsPlainText(), copyBtn);
+            copyBtn.OnClicked += () => global::BasisClipboard.WriteText(BasisLogManager.GetAllLogsPlainText());
 
             PanelButton crashBtn = PanelButton.CreateNew(controlsGroup.ContentParent);
             crashBtn.Descriptor.SetTitle(BasisLocalization.Get("settings.console.openCrashReport"));

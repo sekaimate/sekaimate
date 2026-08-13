@@ -773,16 +773,11 @@ namespace Basis.BasisUI
                     return;
 
                 case BasisVirtualKeyboardSpecialKey.IsCopyKey:
-                    BasisClipboard.Copy(ReadCurrentText(), entry.Button);
+                    global::BasisClipboard.WriteText(ReadCurrentText());
                     return;
 
                 case BasisVirtualKeyboardSpecialKey.IsPasteKey:
-                    string buffer = GUIUtility.systemCopyBuffer;
-                    if (!string.IsNullOrEmpty(buffer))
-                    {
-                        InsertText(buffer);
-                        UpdateDisplay();
-                    }
+                    global::BasisClipboard.ReadText(AppendClipboardText);
                     return;
 
                 case BasisVirtualKeyboardSpecialKey.NotSpecial:
@@ -800,6 +795,17 @@ namespace Basis.BasisUI
         {
             if (DisplayField == null || DisplayField._inputField == null) return;
             DisplayField._inputField.SetTextWithoutNotify(ReadCurrentText());
+        }
+
+        private void AppendClipboardText(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+            {
+                return;
+            }
+
+            AppendText(text);
+            UpdateDisplay();
         }
 
         private string ReadCurrentText()
