@@ -998,6 +998,12 @@ namespace Basis.Scripts.UI.NamePlate
         }
         public void WasPressed(BasisInput input)
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            if (BasisMainMenu.Instance != null)
+            {
+                return;
+            }
+#endif
             if (BasisRemotePlayer != null && BasisMainMenu.ActiveMenuTitle != IndividualPlayerProvider.StaticTitle)
             {
                 BasisMainMenu.Close();

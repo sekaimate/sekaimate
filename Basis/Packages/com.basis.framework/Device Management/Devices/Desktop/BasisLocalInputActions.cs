@@ -596,7 +596,7 @@ namespace Basis.Scripts.Device_Management.Devices.Desktop
         public static void OnLeftMouse(InputAction.CallbackContext ctx)
         {
 #if UNITY_WEBGL && !UNITY_EDITOR
-            if (ctx.performed)
+            if (ctx.performed && BasisMainMenu.Instance == null)
             {
                 BasisCursorManagement.RequestPointerLockFromUserGesture();
             }
