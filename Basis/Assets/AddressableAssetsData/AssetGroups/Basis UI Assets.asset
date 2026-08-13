@@ -238,7 +238,8 @@ MonoBehaviour:
   - m_GUID: 51c066608c024d44b8e43ebda8031e83
     m_Address: Packages/com.basis.sdk/Textures/Runtime/Platform Icons/logo-generic.png
     m_ReadOnly: 0
-    m_SerializedLabels: []
+    m_SerializedLabels:
+    - basis-ui
     FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 528389918ed51d04ebb375283982ac07
     m_Address: Packages/com.basis.sdk/Prefabs/Panel Elements/PE Single Select Entry.prefab
@@ -267,7 +268,8 @@ MonoBehaviour:
   - m_GUID: 96e9340b2362c0a488f4d81dc66f7670
     m_Address: Packages/com.basis.sdk/Textures/Runtime/sliders.png
     m_ReadOnly: 0
-    m_SerializedLabels: []
+    m_SerializedLabels:
+    - basis-ui
     FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 64a436389ec64fc47bfd6d1068f1e3c9
     m_Address: Packages/com.basis.sdk/Prefabs/Panel Elements/PE Button.prefab
@@ -359,12 +361,14 @@ MonoBehaviour:
   - m_GUID: 8cc72aae073d4249b391dbd1155329aa
     m_Address: Packages/com.basis.sdk/Textures/Runtime/move-outline.png
     m_ReadOnly: 0
-    m_SerializedLabels: []
+    m_SerializedLabels:
+    - basis-ui
     FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 8b6980c020de5fa428b85e14cbdebbf1
     m_Address: Packages/com.basis.sdk/Textures/Runtime/reset.png
     m_ReadOnly: 0
-    m_SerializedLabels: []
+    m_SerializedLabels:
+    - basis-ui
     FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 80400c0dd2aacdb4ead120b1c924f77d
     m_Address: Packages/com.basis.sdk/Prefabs/Basis Menu Instance.prefab
