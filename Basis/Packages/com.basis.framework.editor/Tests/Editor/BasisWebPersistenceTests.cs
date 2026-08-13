@@ -9,6 +9,8 @@ public class BasisWebPersistenceTests
         "Packages/com.basis.framework/Platform/WebGL/BasisWebPersistenceE2EProbe.cs";
     private const string E2EPluginPath =
         "Packages/com.basis.framework/Platform/WebGL/BasisWebPersistenceE2E.jslib";
+    private const string E2ESpecPath =
+        "Tests/WebPersistenceE2E/tests/persistence.spec.ts";
 
     [Test]
     public void WebPersistenceUsesUnityAutomaticSyncWithoutManualBridge()
@@ -206,6 +208,8 @@ public class BasisWebPersistenceTests
         StringAssert.Contains("WaitForWebDeviceMode", probe);
         StringAssert.Contains("BasisSettingsSystem.SaveString", probe);
         StringAssert.Contains("BasisHandHeldCameraUI.CameraSettings", probe);
+        StringAssert.Contains("SavedServerStore.Save", probe);
+        StringAssert.Contains("BasisTrustedUrls.Add", probe);
     }
 
     [Test]
@@ -217,6 +221,8 @@ public class BasisWebPersistenceTests
         StringAssert.Contains("BasisDataStoreItemKeys.LoadKeys", probe);
         StringAssert.Contains("BasisActionDriver.LoadApplyToDriverAsync", probe);
         StringAssert.Contains("BasisSettingsSystem.LoadString", probe);
+        StringAssert.Contains("SavedServerStore.Load", probe);
+        StringAssert.Contains("BasisTrustedUrls.GetUserAdded", probe);
         StringAssert.Contains("File.ReadAllText(CameraSettingsPath)", probe);
         StringAssert.Contains("avatar =", probe);
         StringAssert.Contains("prop =", probe);
@@ -224,6 +230,23 @@ public class BasisWebPersistenceTests
         StringAssert.Contains("binding =", probe);
         StringAssert.Contains("camera =", probe);
         StringAssert.Contains("settings =", probe);
+        StringAssert.Contains("savedServers =", probe);
+        StringAssert.Contains("trustedUrls =", probe);
+    }
+
+    [Test]
+    public void PlaywrightPersistenceSpecWaitsForIndexedDbThenReloadsIntoVerifyPhase()
+    {
+        string spec = File.ReadAllText(E2ESpecPath);
+
+        StringAssert.Contains("basisPersistenceE2E', 'seed'", spec);
+        StringAssert.Contains("indexedDB.databases()", spec);
+        StringAssert.Contains("KeyStore.json", spec);
+        StringAssert.Contains("SavedServers.BAS", spec);
+        StringAssert.Contains("trustedUrls.json", spec);
+        StringAssert.Contains("basisPersistenceE2E', 'verify'", spec);
+        StringAssert.Contains("page.reload()", spec);
+        StringAssert.DoesNotContain("waitForTimeout", spec);
     }
 
     [Test]
