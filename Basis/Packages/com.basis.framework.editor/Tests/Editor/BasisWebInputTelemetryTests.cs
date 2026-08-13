@@ -25,7 +25,7 @@ public class BasisWebInputTelemetryTests
 
         StringAssert.Contains("#if UNITY_WEBGL && !UNITY_EDITOR", source);
         StringAssert.Contains("Application.absoluteURL", source);
-        StringAssert.Contains("basisInputTelemetry=1", source);
+        StringAssert.Contains("basisInputE2E=1", source);
         StringAssert.Contains("BasisWebInputTelemetryPublish", source);
     }
 
@@ -45,11 +45,31 @@ public class BasisWebInputTelemetryTests
     }
 
     [Test]
+    public void SnapshotKeepsThePlaywrightInputContractStable()
+    {
+        string source = File.ReadAllText(TelemetryPath);
+
+        StringAssert.Contains("schemaVersion", source);
+        StringAssert.Contains("pointerLocked", source);
+        StringAssert.Contains("moveAction", source);
+        StringAssert.Contains("moveDevice", source);
+        StringAssert.Contains("movement", source);
+        StringAssert.Contains("playerPosition", source);
+        StringAssert.Contains("lookAction", source);
+        StringAssert.Contains("lookDevice", source);
+        StringAssert.Contains("lookVector", source);
+        StringAssert.Contains("lookYaw", source);
+        StringAssert.Contains("lookPitch", source);
+        StringAssert.Contains("activeTouches", source);
+        StringAssert.Contains("onScreenControls", source);
+    }
+
+    [Test]
     public void BrowserTelemetryPublishesAReadOnlySnapshot()
     {
         string source = File.ReadAllText(BrowserPluginPath);
 
-        StringAssert.Contains("window.BasisWebInputTelemetry", source);
+        StringAssert.Contains("window.basisInputE2E", source);
         StringAssert.Contains("Object.freeze", source);
         StringAssert.Contains("UTF8ToString", source);
         StringAssert.DoesNotContain("SendMessage", source);
