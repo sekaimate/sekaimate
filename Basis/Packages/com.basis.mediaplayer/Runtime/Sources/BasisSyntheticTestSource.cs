@@ -1,5 +1,8 @@
 using System;
+#if !UNITY_WEBGL || UNITY_EDITOR
 using System.Threading;
+#endif
+using UnityEngine;
 
 // Generates a moving gradient on a background thread. Lets the full
 // source -> queue -> clock -> renderer pipeline be exercised without any network
@@ -30,11 +33,28 @@ public sealed class BasisSyntheticTestSource : IBasisFrameSource
     public int EmitEndOfStreamAfterFrames { get; set; } = 0; // 0 = never
     public int NoiseSeed { get; set; } = 0;
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+    private double nextFrameTime;
+    private long webPresentationTimeUs;
+    private int webFrameIndex;
+    private Random webRandom;
+#else
     private Thread thread;
+#endif
     private volatile bool running;
     private long framesEmitted;
 
-    public long FramesEmitted => System.Threading.Interlocked.Read(ref framesEmitted);
+    public long FramesEmitted
+    {
+        get
+        {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            return framesEmitted;
+#else
+            return System.Threading.Interlocked.Read(ref framesEmitted);
+#endif
+        }
+    }
 
     public event Action<BasisVideoFrame> OnVideoFrame;
     public event Action<Exception> OnError;
@@ -57,24 +77,58 @@ public sealed class BasisSyntheticTestSource : IBasisFrameSource
     {
         if (running) return;
         running = true;
+#if UNITY_WEBGL && !UNITY_EDITOR
+        webPresentationTimeUs = 0;
+        webFrameIndex = 0;
+        webRandom = new Random(NoiseSeed);
+        nextFrameTime = Time.realtimeSinceStartupAsDouble;
+        OnVideoSizeChanged?.Invoke(Width, Height);
+        OnReady?.Invoke();
+        BasisWebMediaPlayerLoop.Register(UpdateWeb);
+#else
         thread = new Thread(Run) { IsBackground = true, Name = "BasisSyntheticTestSource" };
         thread.Start();
+#endif
     }
 
     public void Stop()
     {
         running = false;
+#if UNITY_WEBGL && !UNITY_EDITOR
+        BasisWebMediaPlayerLoop.Unregister(UpdateWeb);
+#else
         thread?.Join(500);
         thread = null;
+#endif
     }
 
     public void Dispose() => Stop();
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+    private void UpdateWeb()
+    {
+        if (!running) return;
+        double now = Time.realtimeSinceStartupAsDouble;
+        if (now < nextFrameTime) return;
+
+        try
+        {
+            EmitFrame(ref webPresentationTimeUs, ref webFrameIndex, webRandom);
+            nextFrameTime += 1d / FramesPerSecond;
+            if (nextFrameTime < now) nextFrameTime = now + 1d / FramesPerSecond;
+        }
+        catch (Exception ex)
+        {
+            running = false;
+            BasisWebMediaPlayerLoop.Unregister(UpdateWeb);
+            OnError?.Invoke(ex);
+        }
+    }
+#else
     private void Run()
     {
         try
         {
-            long frameDurationUs = 1_000_000L / FramesPerSecond;
             long pts = 0;
             int frameIndex = 0;
             var rng = new Random(NoiseSeed);
@@ -89,29 +143,8 @@ public sealed class BasisSyntheticTestSource : IBasisFrameSource
 
             while (running)
             {
-                byte[] buffer = new byte[Width * Height * 4];
-                FillPattern(buffer, frameIndex, rng);
-
-                OnVideoFrame?.Invoke(new BasisVideoFrame
-                {
-                    PresentationTimeUs = pts,
-                    Width = Width,
-                    Height = Height,
-                    Format = BasisVideoFrameFormat.Rgba32,
-                    Data = buffer,
-                    DataLength = buffer.Length,
-                });
-
-                pts += frameDurationUs;
-                frameIndex++;
-                System.Threading.Interlocked.Increment(ref framesEmitted);
-
-                if (EmitEndOfStreamAfterFrames > 0 && frameIndex >= EmitEndOfStreamAfterFrames)
-                {
-                    OnEndOfStream?.Invoke();
-                    running = false;
-                    break;
-                }
+                EmitFrame(ref pts, ref frameIndex, rng);
+                if (!running) break;
 
                 long waitTicks = nextFrameTicks - sw.ElapsedTicks;
                 if (waitTicks > 0)
@@ -126,6 +159,40 @@ public sealed class BasisSyntheticTestSource : IBasisFrameSource
         catch (Exception ex)
         {
             OnError?.Invoke(ex);
+        }
+    }
+#endif
+
+    private void EmitFrame(ref long presentationTimeUs, ref int frameIndex, Random random)
+    {
+        byte[] buffer = new byte[Width * Height * 4];
+        FillPattern(buffer, frameIndex, random);
+
+        OnVideoFrame?.Invoke(new BasisVideoFrame
+        {
+            PresentationTimeUs = presentationTimeUs,
+            Width = Width,
+            Height = Height,
+            Format = BasisVideoFrameFormat.Rgba32,
+            Data = buffer,
+            DataLength = buffer.Length,
+        });
+
+        presentationTimeUs += 1_000_000L / FramesPerSecond;
+        frameIndex++;
+#if UNITY_WEBGL && !UNITY_EDITOR
+        framesEmitted++;
+#else
+        System.Threading.Interlocked.Increment(ref framesEmitted);
+#endif
+
+        if (EmitEndOfStreamAfterFrames > 0 && frameIndex >= EmitEndOfStreamAfterFrames)
+        {
+            OnEndOfStream?.Invoke();
+            running = false;
+#if UNITY_WEBGL && !UNITY_EDITOR
+            BasisWebMediaPlayerLoop.Unregister(UpdateWeb);
+#endif
         }
     }
 
