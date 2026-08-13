@@ -2,6 +2,13 @@ import { readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, extname, join, relative, resolve, sep } from 'node:path';
 import { spawn } from 'node:child_process';
 import { createWorkerConfig } from './src/config.ts';
+import { fixedBuildArtifactKey } from './src/build-artifacts.ts';
+import {
+  DEPLOYMENT_MANIFEST_KEY,
+  deploymentManifest,
+  parseDeploymentManifest,
+  staleDeploymentKeys,
+} from './src/deployment-manifest.ts';
 
 interface Options {
   domain: string;
@@ -75,6 +82,29 @@ function run(command: string, arguments_: string[], allowFailure = false): Promi
   });
 }
 
+function runCaptured(command: string, arguments_: string[]): Promise<{ output: string; succeeded: boolean }> {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn(command, arguments_, { stdio: ['ignore', 'pipe', 'ignore'] });
+    let output = '';
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', chunk => { output += chunk; });
+    child.once('error', rejectPromise);
+    child.once('exit', code => resolvePromise({ output, succeeded: code === 0 }));
+  });
+}
+
+function runWithInput(command: string, arguments_: string[], input: string): Promise<void> {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn(command, arguments_, { stdio: ['pipe', 'inherit', 'inherit'] });
+    child.once('error', rejectPromise);
+    child.once('exit', code => {
+      if (code === 0) resolvePromise();
+      else rejectPromise(new Error(`${command} exited with code ${code ?? 'unknown'}.`));
+    });
+    child.stdin.end(input);
+  });
+}
+
 async function filesIn(directory: string): Promise<string[]> {
   const entries = await readdir(directory, { withFileTypes: true });
   const nested = await Promise.all(entries.map(entry => {
@@ -85,7 +115,7 @@ async function filesIn(directory: string): Promise<string[]> {
 }
 
 function uploadFor(buildDirectory: string, source: string): Upload {
-  const key = relative(buildDirectory, source).split(sep).join('/');
+  const key = fixedBuildArtifactKey(relative(buildDirectory, source).split(sep).join('/'));
   const compressionExtension = extname(source).toLowerCase();
   const contentEncoding = compressionExtension === '.gz'
     ? 'gzip'
@@ -97,6 +127,33 @@ function uploadFor(buildDirectory: string, source: string): Upload {
     : source.slice(0, -compressionExtension.length);
   const contentType = MIME_TYPES[extname(contentPath).toLowerCase()] ?? 'application/octet-stream';
   return { source, key, contentType, contentEncoding };
+}
+
+async function previousDeploymentKeys(bucketName: string): Promise<string[]> {
+  const result = await runCaptured('pnpm', [
+    'exec', 'wrangler', 'r2', 'object', 'get', `${bucketName}/${DEPLOYMENT_MANIFEST_KEY}`,
+    '--remote', '--pipe',
+  ]);
+  return result.succeeded ? parseDeploymentManifest(result.output).keys : [];
+}
+
+async function synchronizeDeployment(options: Options, uploads: Upload[]): Promise<void> {
+  const keys = uploads.map(upload => upload.key);
+  if (new Set(keys).size !== keys.length) throw new Error('Fixed build artifact keys are not unique.');
+
+  const previousKeys = await previousDeploymentKeys(options.bucketName);
+  await uploadFiles(options, uploads);
+  for (const key of staleDeploymentKeys(previousKeys, keys)) {
+    console.log(`Deleting ${key}`);
+    await run('pnpm', [
+      'exec', 'wrangler', 'r2', 'object', 'delete', `${options.bucketName}/${key}`, '--remote',
+    ]);
+  }
+  await runWithInput('pnpm', [
+    'exec', 'wrangler', 'r2', 'object', 'put', `${options.bucketName}/${DEPLOYMENT_MANIFEST_KEY}`,
+    '--pipe', '--content-type', 'application/json; charset=utf-8',
+    '--cache-control', 'no-store', '--remote',
+  ], deploymentManifest(keys));
 }
 
 async function uploadFiles(options: Options, uploads: Upload[]): Promise<void> {
@@ -133,7 +190,7 @@ async function main(): Promise<void> {
 
   if (!options.workerOnly) {
     await run('pnpm', ['exec', 'wrangler', 'r2', 'bucket', 'create', options.bucketName], true);
-    await uploadFiles(options, uploads);
+    await synchronizeDeployment(options, uploads);
   }
 
   const scriptDirectory = import.meta.dirname;

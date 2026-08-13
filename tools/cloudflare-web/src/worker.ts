@@ -3,6 +3,7 @@ import {
   browserCacheClearResponse,
   injectBrowserCacheControls,
 } from './browser-cache.ts';
+import { rewriteBuildArtifactReferences } from './build-artifacts.ts';
 
 interface R2ObjectBody {
   body: ReadableStream;
@@ -105,7 +106,10 @@ export default {
     if (key === 'index.html') {
       headers.delete('content-length');
       const html = await new Response(object.body).text();
-      return new Response(injectBrowserCacheControls(html), { headers });
+      return new Response(
+        injectBrowserCacheControls(rewriteBuildArtifactReferences(html)),
+        { headers },
+      );
     }
 
     headers.set('content-length', object.size.toString());
