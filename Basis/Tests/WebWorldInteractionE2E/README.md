@@ -22,7 +22,7 @@ WebXR hand testには、Meta公式Immersive Web Emulatorの`v2.0.0-alpha`が必�
 1. [Meta公式v2.0.0-alpha release](https://github.com/meta-quest/immersive-web-emulator/releases/tag/v2.0.0-alpha)からsource archiveを取得します。
 2. [公式README](https://github.com/meta-quest/immersive-web-emulator#develop)に従って`pnpm install`と`pnpm build`を実行します。
 3. `manifest.json`と`build/iwe.min.js`を含むunpacked extension directoryを`BASIS_IWE_EXTENSION_PATH`へ設定します。
-4. ChromeまたはChromiumをheaded modeで実行できる環境を用意します。extensionのminimum Chrome versionは96です。
+4. Playwright付属のChromiumをheaded modeで実行できる環境を用意します。extensionのminimum Chrome versionは96です。
 
 Playwrightはpersistent contextへこのunpacked extensionだけを読み込み、extension service workerの`chrome.scripting` APIで対象originへ公式runtimeを注入します。hand mode切替、hand pose、位置、pinchは公式DevUIを操作します。テスト用のhand inputをUnityへ直接注入しません。
 
@@ -33,3 +33,4 @@ Playwrightはpersistent contextへこのunpacked extensionだけを読み込み�
 - [Immersive Web Emulator](https://github.com/meta-quest/immersive-web-emulator)
 - [v2.0.0-alpha release](https://github.com/meta-quest/immersive-web-emulator/releases/tag/v2.0.0-alpha)
 - [Immersive Web Emulation Runtime](https://github.com/meta-quest/immersive-web-emulation-runtime)
+- [Playwright Chrome extensions](https://playwright.dev/docs/chrome-extensions)

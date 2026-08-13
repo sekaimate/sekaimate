@@ -110,6 +110,7 @@ export async function launchIwe(testInfo: TestInfo, pageUrl: string): Promise<Iw
   validateExtension(directory);
 
   const context = await chromium.launchPersistentContext(testInfo.outputPath('iwe-profile'), {
+    channel: 'chromium',
     headless: false,
     args: [`--disable-extensions-except=${directory}`, `--load-extension=${directory}`],
   });
