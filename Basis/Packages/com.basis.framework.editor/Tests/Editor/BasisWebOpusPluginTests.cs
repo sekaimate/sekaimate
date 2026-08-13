@@ -16,6 +16,15 @@ public class BasisWebOpusPluginTests
         StringAssert.Contains("private const string DllName = \"__Internal\";", source);
     }
 
+    [TestCase("Packages/com.basis.framework/Networking/Transmitters/BasisAudioTransmission.cs")]
+    [TestCase("Packages/com.basis.framework/Networking/VoiceRecording/BasisVoiceObjectSource.cs")]
+    public void VoiceRuntimeUsesStaticOpusOnWebGl(string sourcePath)
+    {
+        string source = File.ReadAllText(sourcePath);
+
+        StringAssert.Contains("#if (UNITY_IOS || UNITY_WEBGL) && !UNITY_EDITOR", source);
+    }
+
     [Test]
     public void WebGlPluginContainsEveryOpusSharpCtlEntryPoint()
     {
