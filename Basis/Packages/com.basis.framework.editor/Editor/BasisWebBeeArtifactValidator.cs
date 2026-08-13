@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 
 public static class BasisWebBeeArtifactValidator
 {
@@ -6,6 +7,26 @@ public static class BasisWebBeeArtifactValidator
         BasisBundleConnector connector,
         long connectorLength,
         long fileLength,
+        out string error)
+    {
+        return TryValidate(connector, connectorLength, fileLength, "Scene", null, out error);
+    }
+
+    public static bool TryValidateAvatar(
+        BasisBundleConnector connector,
+        long connectorLength,
+        long fileLength,
+        out string error)
+    {
+        return TryValidate(connector, connectorLength, fileLength, "GameObject", "BasisAvatar", out error);
+    }
+
+    private static bool TryValidate(
+        BasisBundleConnector connector,
+        long connectorLength,
+        long fileLength,
+        string expectedAssetMode,
+        string requiredComponentName,
         out string error)
     {
         error = string.Empty;
@@ -30,9 +51,15 @@ public static class BasisWebBeeArtifactValidator
             return false;
         }
 
-        if (!string.Equals(section.AssetMode, "Scene", StringComparison.Ordinal))
+        if (!string.Equals(section.AssetMode, expectedAssetMode, StringComparison.Ordinal))
         {
-            error = $"BEE section asset mode must be Scene, but was {section.AssetMode}.";
+            error = $"BEE section asset mode must be {expectedAssetMode}, but was {section.AssetMode}.";
+            return false;
+        }
+
+        if (requiredComponentName != null && !ContainsComponent(connector, requiredComponentName))
+        {
+            error = $"BEE metadata must contain {requiredComponentName}.";
             return false;
         }
 
@@ -66,5 +93,12 @@ public static class BasisWebBeeArtifactValidator
         }
 
         return true;
+    }
+
+    private static bool ContainsComponent(BasisBundleConnector connector, string componentName)
+    {
+        BasisBundleConnector.BasisComponentName[] components = connector.MetaData.ComponentNames;
+        return components != null && components.Any(component =>
+            component.count > 0 && string.Equals(component.Name, componentName, StringComparison.Ordinal));
     }
 }
