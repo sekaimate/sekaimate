@@ -36,7 +36,7 @@ const FATAL_RUNTIME_ERROR = /Loading FSB failed|EncodingError|NullReferenceExcep
 function observeRuntimeErrors(page: Page, label: string): string[] {
   const errors: string[] = [];
   page.on('console', message => {
-    if (message.type() !== 'error' || !FATAL_RUNTIME_ERROR.test(message.text())) return;
+    if (!FATAL_RUNTIME_ERROR.test(message.text())) return;
     const error = `${label} console: ${message.text()}`;
     errors.push(error);
     console.error(error);
@@ -47,10 +47,12 @@ function observeRuntimeErrors(page: Page, label: string): string[] {
     console.error(error);
   });
   page.on('dialog', dialog => {
-    if (!FATAL_RUNTIME_ERROR.test(dialog.message())) return;
-    const error = `${label} dialog: ${dialog.message()}`;
-    errors.push(error);
-    console.error(error);
+    if (FATAL_RUNTIME_ERROR.test(dialog.message())) {
+      const error = `${label} dialog: ${dialog.message()}`;
+      errors.push(error);
+      console.error(error);
+    }
+    void dialog.dismiss();
   });
   return errors;
 }
