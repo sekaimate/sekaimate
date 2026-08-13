@@ -14,6 +14,9 @@ mergeInto(LibraryManager.library, {
     window.basisNetworkE2ESetTalkMode = function(talkMode) {
       Module.SendMessage('Basis Web Network E2E', 'SetTalkMode', talkMode);
     };
+    window.basisNetworkE2ESetAvatar = function(input) {
+      Module.SendMessage('Basis Web Network E2E', 'SetAvatar', JSON.stringify(input));
+    };
     window.basisNetworkE2EShareContent = function(input) {
       Module.SendMessage('Basis Web Network E2E', 'ShareContent', JSON.stringify(input));
     };

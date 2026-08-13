@@ -1,6 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
+import { type BeeFormat, verifyRenderedCapability } from './runtime-capability';
 
 const DATA = 2;
+const AVATAR_CHANGE_CHANNEL = 14;
 const CONTENT_SHARE_CHANNEL = 29;
 const CONTENT_SHARE_CLEANUP_CHANNEL = 30;
 
@@ -43,6 +45,7 @@ function playerUrl(buildUrl: string, webSocketUri: string, userName: string, pas
   url.searchParams.set('websocketUri', webSocketUri);
   url.searchParams.set('userName', userName);
   url.searchParams.set('password', password);
+  url.searchParams.set('basisBeeRuntimeE2E', '1');
   return url.toString();
 }
 
@@ -76,7 +79,7 @@ async function waitForEvent(
   sphereId?: string,
   contentType?: ContentShareType,
   contentUrl?: string,
-): Promise<void> {
+): Promise<BasisNetworkE2EEvent> {
   await page.waitForFunction(criteria => (window.basisNetworkE2EEvents ?? []).some(event =>
     event.type === criteria.type
     && (criteria.sphereId === undefined || event.sphereId === criteria.sphereId)
@@ -87,6 +90,15 @@ async function waitForEvent(
     contentType,
     contentUrl,
   });
+  return page.evaluate(criteria => {
+    const event = (window.basisNetworkE2EEvents ?? []).find(candidate =>
+      candidate.type === criteria.type
+      && (criteria.sphereId === undefined || candidate.sphereId === criteria.sphereId)
+      && (criteria.contentType === undefined || candidate.contentType === criteria.contentType)
+      && (criteria.contentUrl === undefined || candidate.contentUrl === criteria.contentUrl));
+    if (!event) throw new Error(`Missing network event: ${criteria.type}`);
+    return event;
+  }, { type, sphereId, contentType, contentUrl });
 }
 
 function hasFrame(frames: ObservedFrame[], direction: ObservedFrame['direction'], channel: number): boolean {
@@ -139,9 +151,11 @@ test('Avatar, Prop, World, and Server shares synchronize through Basis Server', 
   const receiverBeeRequests = observeBeeRequests(receiverPage, beeShares.map(share => share.contentUrl));
 
   await senderPage.goto(playerUrl(buildUrl, webSocketUri, `web-share-sender-${runId}`, password));
-  await waitForEvent(senderPage, 'authenticated');
+  const senderAuth = await waitForEvent(senderPage, 'authenticated');
   await receiverPage.goto(playerUrl(buildUrl, webSocketUri, `web-share-receiver-${runId}`, password));
-  await waitForEvent(receiverPage, 'authenticated');
+  const receiverAuth = await waitForEvent(receiverPage, 'authenticated');
+  await senderPage.locator('#unity-canvas').click({ position: { x: 480, y: 300 } });
+  await receiverPage.locator('#unity-canvas').click({ position: { x: 480, y: 300 } });
 
   for (const share of shares) {
     await senderPage.evaluate(input => window.basisNetworkE2EShareContent?.(input), share);
@@ -150,9 +164,32 @@ test('Avatar, Prop, World, and Server shares synchronize through Basis Server', 
   }
 
 
-  for (const share of beeShares) {
+  const avatarShare = shares.find(share => share.contentType === 'Avatar');
+  if (!avatarShare) throw new Error('Avatar share is required.');
+  await senderPage.evaluate(input => window.basisNetworkE2ESetAvatar?.(input), avatarShare);
+  await waitForEvent(senderPage, 'avatar-load-complete', undefined, 'Avatar', avatarShare.contentUrl);
+  await receiverPage.evaluate(input => window.basisNetworkE2ESetAvatar?.(input), avatarShare);
+  await waitForEvent(receiverPage, 'avatar-load-complete', undefined, 'Avatar', avatarShare.contentUrl);
+  await verifyRenderedCapability(senderPage, 'Avatar', 'RemoteAvatar', receiverAuth.localPlayerId);
+  await verifyRenderedCapability(receiverPage, 'Avatar', 'RemoteAvatar', senderAuth.localPlayerId);
+  await expect.poll(() => hasFrame(senderFrames, 'sent', AVATAR_CHANGE_CHANNEL)).toBe(true);
+  await expect.poll(() => hasFrame(senderFrames, 'received', AVATAR_CHANGE_CHANNEL)).toBe(true);
+  await expect.poll(() => hasFrame(receiverFrames, 'sent', AVATAR_CHANGE_CHANNEL)).toBe(true);
+  await expect.poll(() => hasFrame(receiverFrames, 'received', AVATAR_CHANGE_CHANNEL)).toBe(true);
+  await expect.poll(() => receiverBeeRequests.some(request =>
+    request.url === avatarShare.contentUrl
+    && (request.requestRange !== undefined
+      || request.responseStatus === 206
+      || request.contentRange !== undefined))).toBe(true);
+
+  for (const share of beeShares.filter(candidate => candidate.contentType !== 'Avatar')) {
+    const format = share.contentType as BeeFormat;
+    await senderPage.evaluate(sphereId => window.basisNetworkE2ELoadContent?.(sphereId), share.sphereId);
+    await waitForEvent(senderPage, 'content-load-complete', share.sphereId, share.contentType, share.contentUrl);
     await receiverPage.evaluate(sphereId => window.basisNetworkE2ELoadContent?.(sphereId), share.sphereId);
     await waitForEvent(receiverPage, 'content-load-complete', share.sphereId, share.contentType, share.contentUrl);
+    await verifyRenderedCapability(senderPage, format, 'Content');
+    await verifyRenderedCapability(receiverPage, format, 'Content');
     await expect.poll(() => receiverBeeRequests.some(request =>
       request.url === share.contentUrl
       && (request.requestRange !== undefined

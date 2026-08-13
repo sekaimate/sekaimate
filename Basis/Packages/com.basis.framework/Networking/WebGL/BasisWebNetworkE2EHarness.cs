@@ -119,6 +119,39 @@ namespace Basis.Scripts.Networking
             Report("talk-mode-changed", BasisTalkModeManager.CurrentMode.ToString());
         }
 
+        public async void SetAvatar(string json)
+        {
+            AvatarInput input = JsonUtility.FromJson<AvatarInput>(json);
+            if (input == null
+                || string.IsNullOrWhiteSpace(input.contentUrl)
+                || BasisLocalPlayer.Instance == null)
+            {
+                Report("avatar-load-failed", "invalid-avatar-input");
+                return;
+            }
+
+            var bundle = new BasisLoadableBundle
+            {
+                BasisRemoteBundleEncrypted = new BasisRemoteEncyptedBundle
+                {
+                    RemoteBeeFileLocation = input.contentUrl,
+                },
+                BasisLocalEncryptedBundle = new BasisStoredEncryptedBundle(),
+                BasisBundleConnector = new BasisBundleConnector(),
+                UnlockPassword = input.unlockPassword ?? string.Empty,
+            };
+
+            try
+            {
+                await BasisLocalPlayer.Instance.CreateAvatar(BasisPlayer.LoadModeNetworkDownloadable, bundle);
+                Report("avatar-load-complete", contentType: "Avatar", contentUrl: input.contentUrl);
+            }
+            catch (Exception exception)
+            {
+                Report("avatar-load-failed", exception.Message, contentType: "Avatar", contentUrl: input.contentUrl);
+            }
+        }
+
         public void ShareContent(string json)
         {
             ContentShareInput input = JsonUtility.FromJson<ContentShareInput>(json);
@@ -195,9 +228,12 @@ namespace Basis.Scripts.Networking
                 }
                 else
                 {
-                    BundledContentHolder.Selector selector = sphere.ContentType == SerializableBasis.ContentShareType.Avatar
-                        ? BundledContentHolder.Selector.Avatar
-                        : BundledContentHolder.Selector.Prop;
+                    BundledContentHolder.Selector selector = sphere.ContentType switch
+                    {
+                        SerializableBasis.ContentShareType.Avatar => BundledContentHolder.Selector.Avatar,
+                        SerializableBasis.ContentShareType.Prop => BundledContentHolder.Selector.Prop,
+                        _ => throw new InvalidOperationException($"Unsupported game object content type: {sphere.ContentType}"),
+                    };
                     GameObject loadedObject = await BasisLoadHandler.LoadGameObjectBundle(
                         BasisDeviceManagement.Instance.CreationGameobject,
                         bundle,
@@ -658,6 +694,13 @@ namespace Basis.Scripts.Networking
             public float positionX;
             public float positionY;
             public float positionZ;
+        }
+
+        [Serializable]
+        private sealed class AvatarInput
+        {
+            public string contentUrl;
+            public string unlockPassword;
         }
     }
 }

@@ -33,7 +33,7 @@ public sealed class BasisWebNetworkE2EHarnessTests
         string source = File.ReadAllText("Packages/com.basis.framework/Networking/WebGL/BasisWebNetworkE2EHarness.cs");
 
         StringAssert.Contains("BasisNetworkCommons.ContentShareChannel", source);
-        StringAssert.Contains("BasisNetworkCommons.ContentShareCleanupChannel", source);
+        StringAssert.Contains("BasisContentShareManager.RequestRemoveSphere", source);
         StringAssert.Contains("BasisContentShareManager.OnSphereCreated", source);
         StringAssert.Contains("BasisContentShareManager.OnSphereRemoved", source);
         StringAssert.Contains("ContentShareType.Avatar", source);
@@ -52,6 +52,18 @@ public sealed class BasisWebNetworkE2EHarnessTests
         StringAssert.Contains("BasisContentShareManager.TryGetSphere", source);
         StringAssert.Contains("content-load-complete", source);
         StringAssert.Contains("content-load-failed", source);
+    }
+
+    [Test]
+    public void RuntimeHarnessChangesTheProductionLocalAvatarForNetworkReplication()
+    {
+        string source = File.ReadAllText("Packages/com.basis.framework/Networking/WebGL/BasisWebNetworkE2EHarness.cs");
+        string bridge = File.ReadAllText("Packages/com.basis.framework/Networking/WebGL/BasisWebNetworkE2E.jslib");
+
+        StringAssert.Contains("BasisLocalPlayer.Instance.CreateAvatar", source);
+        StringAssert.Contains("BasisPlayer.LoadModeNetworkDownloadable", source);
+        StringAssert.Contains("avatar-load-complete", source);
+        StringAssert.Contains("basisNetworkE2ESetAvatar", bridge);
     }
 
     [Test]

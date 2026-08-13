@@ -17,6 +17,9 @@ public class BasisBeeRuntimeCapabilityWebTests
         StringAssert.Contains("Application.absoluteURL", source);
         StringAssert.Contains("BasisRuntimeCapability-", source);
         StringAssert.Contains("EntityId.ToULong(gameObject.GetEntityId())", source);
+        StringAssert.Contains("LocalAvatar", source);
+        StringAssert.Contains("RemoteAvatar", source);
+        StringAssert.Contains("ownerPlayerId", source);
         StringAssert.DoesNotContain("GetInstanceID()", source);
     }
 

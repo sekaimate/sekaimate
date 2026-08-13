@@ -30,10 +30,16 @@ interface BasisNetworkE2EContentShareInput {
   positionZ: number;
 }
 
+interface BasisNetworkE2EAvatarInput {
+  contentUrl: string;
+  unlockPassword: string;
+}
+
 interface Window {
   basisNetworkE2EEvents?: BasisNetworkE2EEvent[];
   basisNetworkE2ESendChat?: (message: string) => void;
   basisNetworkE2EReconnect?: () => void;
+  basisNetworkE2ESetAvatar?: (input: BasisNetworkE2EAvatarInput) => void;
   basisNetworkE2EShareContent?: (input: BasisNetworkE2EContentShareInput) => void;
   basisNetworkE2ERemoveContent?: (sphereId: string) => void;
   basisNetworkE2ELoadContent?: (sphereId: string) => void;
