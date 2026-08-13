@@ -4,6 +4,7 @@ using NUnit.Framework;
 public class BasisWebMediaBackendTests
 {
     private const string PluginPath = "Packages/com.basis.mediaplayer/Runtime/Web/BasisWebMedia.jslib";
+    private const string E2EFixturePath = "Packages/com.basis.mediaplayer/Runtime/Web/BasisWebMediaE2EFixture.cs";
 
     [Test]
     public void UploadsOnlyNewBrowserVideoFrames()
@@ -43,5 +44,29 @@ public class BasisWebMediaBackendTests
 
         StringAssert.DoesNotContain("createPanner", source);
         StringAssert.Contains("gain.connect(audioContext.destination)", source);
+    }
+
+    [Test]
+    public void ExposesOptInDiagnosticsFromTheBrowserMediaBackend()
+    {
+        string source = File.ReadAllText(PluginPath);
+
+        StringAssert.Contains("basisMediaE2E", source);
+        StringAssert.Contains("window.__basisWebMediaE2E", source);
+        StringAssert.Contains("video instanceof HTMLVideoElement", source);
+        StringAssert.Contains("textureUploadCount", source);
+        StringAssert.Contains("audioContext.state", source);
+        StringAssert.Contains("canPlayType", source);
+    }
+
+    [Test]
+    public void E2EFixtureLoadsMediaThroughBasisMediaPlayer()
+    {
+        string source = File.ReadAllText(E2EFixturePath);
+
+        StringAssert.Contains("basisMediaE2EUrl", source);
+        StringAssert.Contains("AddComponent<BasisMediaPlayer>()", source);
+        StringAssert.Contains("player.LoadUrl(mediaUrl)", source);
+        StringAssert.DoesNotContain("BasisWebMediaCreate", source);
     }
 }
