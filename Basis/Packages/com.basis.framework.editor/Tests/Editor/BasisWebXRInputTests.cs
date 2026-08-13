@@ -37,6 +37,7 @@ public class BasisWebXRInputTests
         Assert.That(state.trigger, Is.EqualTo(0.75f));
         Assert.That(state.grip, Is.EqualTo(0.6f));
         Assert.That(state.primaryAxis, Is.EqualTo(new Vector2(-0.4f, 0.8f)));
+        Assert.That(state.secondaryAxis, Is.EqualTo(new Vector2(0.1f, 0.2f)));
         Assert.That(state.axisClick, Is.True);
         Assert.That(state.primaryButton, Is.True);
         Assert.That(state.secondaryButton, Is.False);
