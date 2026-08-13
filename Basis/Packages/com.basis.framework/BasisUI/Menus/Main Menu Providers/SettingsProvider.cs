@@ -1117,6 +1117,9 @@ namespace Basis.BasisUI
         {
 #if !BASIS_DISABLE_MICROPHONE
             SMDMicrophone.LoadInMicrophoneData(BasisDeviceManagement.StaticCurrentMode);
+#if UNITY_WEBGL && !UNITY_EDITOR
+            BasisWebAudioCaptureBridge.RequestDevicePermission();
+#endif
 #endif
 
             PanelTabPage tab = PanelTabPage.CreateVertical(tabGroup.Descriptor.ContentParent);

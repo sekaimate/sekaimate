@@ -55,6 +55,12 @@ public static class BasisWebAudioCaptureBridge
         return BasisWebAudioCaptureRequestFromUserGesture() == 1;
     }
 
+    public static void RequestDevicePermission()
+    {
+        EnsureInitialized();
+        BasisWebAudioRequestDevicePermission();
+    }
+
     public static void Stop()
     {
         if (!initialized)
@@ -123,6 +129,9 @@ public static class BasisWebAudioCaptureBridge
 
     [DllImport("__Internal")]
     private static extern int BasisWebAudioCaptureRequestFromUserGesture();
+
+    [DllImport("__Internal")]
+    private static extern void BasisWebAudioRequestDevicePermission();
 
     [DllImport("__Internal")]
     private static extern void BasisWebAudioCaptureStop();

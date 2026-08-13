@@ -237,6 +237,7 @@ mergeInto(LibraryManager.library, {
     initializing: null,
     captureRequested: false,
     captureRequesting: false,
+    permissionProbe: null,
     nextSinkId: 1,
     State: {
       Idle: 0,
@@ -315,6 +316,42 @@ mergeInto(LibraryManager.library, {
         audio.deviceId = { exact: selected.deviceId };
       }
       return { audio: audio, video: false };
+    },
+    acquireStream: async function() {
+      BasisWebAudioDiagnosticsState.markCaptureStage('permission-requested');
+      var stream = await navigator.mediaDevices.getUserMedia(BasisWebAudio.captureConstraints());
+      BasisWebAudioDiagnosticsState.markCaptureStage('stream-ready');
+      await BasisWebAudio.refreshDevices(stream.getAudioTracks()[0]);
+      return stream;
+    },
+    requestDevicePermission: function() {
+      if (BasisWebAudio.stream) {
+        return BasisWebAudio.refreshDevices(BasisWebAudio.stream.getAudioTracks()[0]);
+      }
+      if (BasisWebAudio.permissionProbe) {
+        return BasisWebAudio.permissionProbe;
+      }
+      BasisWebAudio.notifyState(BasisWebAudio.State.RequestingPermission);
+      BasisWebAudio.permissionProbe = BasisWebAudio.acquireStream().then(function(stream) {
+        BasisWebAudioDiagnosticsState.markCaptureError('');
+        if (BasisWebAudio.captureRequested) {
+          BasisWebAudio.stream = stream;
+          BasisWebAudio.requestCapture();
+        } else {
+          stream.getTracks().forEach(function(track) { track.stop(); });
+          BasisWebAudio.notifyState(BasisWebAudio.State.AwaitingUserGesture);
+        }
+        return stream;
+      }).catch(function(error) {
+        BasisWebAudioDiagnosticsState.markCaptureError(error);
+        BasisWebAudio.notifyState(error && error.name === 'NotAllowedError'
+          ? BasisWebAudio.State.PermissionDenied
+          : BasisWebAudio.State.Unavailable);
+        throw error;
+      }).finally(function() {
+        BasisWebAudio.permissionProbe = null;
+      });
+      return BasisWebAudio.permissionProbe;
     },
     selectDevice: function(deviceName) {
       if (BasisWebAudio.selectedDeviceName === deviceName) return;
@@ -404,11 +441,9 @@ mergeInto(LibraryManager.library, {
       BasisWebAudio.notifyState(BasisWebAudio.State.RequestingPermission);
       try {
         BasisWebAudioDiagnosticsState.markCaptureStage('permission-requested');
-        var streamPromise = BasisWebAudio.stream ? null : navigator.mediaDevices.getUserMedia(BasisWebAudio.captureConstraints()).then(async function(stream) {
-          BasisWebAudioDiagnosticsState.markCaptureStage('stream-ready');
-          await BasisWebAudio.refreshDevices(stream.getAudioTracks()[0]);
-          return stream;
-        });
+        var streamPromise = BasisWebAudio.stream
+          ? null
+          : (BasisWebAudio.permissionProbe || BasisWebAudio.acquireStream());
         await BasisWebAudio.ensureInitialized();
         BasisWebAudioDiagnosticsState.markCaptureStage('initialization-complete');
         BasisWebAudioDiagnosticsState.markCaptureStage('context-resuming');
@@ -421,6 +456,9 @@ mergeInto(LibraryManager.library, {
         }
         BasisWebAudioDiagnosticsState.markCaptureStage('stream-awaiting');
         var stream = await streamPromise;
+        if (!stream.active) {
+          stream = await BasisWebAudio.acquireStream();
+        }
         BasisWebAudioDiagnosticsState.markCaptureStage('stream-acquired');
         BasisWebAudio.stream = stream;
         BasisWebAudio.source = BasisWebAudio.context.createMediaStreamSource(stream);
@@ -503,6 +541,11 @@ mergeInto(LibraryManager.library, {
     BasisWebAudio.captureRequested = true;
     BasisWebAudio.requestCapture();
     return 1;
+  },
+
+  BasisWebAudioRequestDevicePermission__deps: ['$BasisWebAudio'],
+  BasisWebAudioRequestDevicePermission: function() {
+    BasisWebAudio.requestDevicePermission().catch(function() {});
   },
 
   BasisWebAudioCaptureStop__deps: ['$BasisWebAudio'],

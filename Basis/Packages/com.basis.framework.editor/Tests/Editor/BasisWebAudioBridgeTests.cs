@@ -11,6 +11,7 @@ public class BasisWebAudioBridgeTests
     private const string InputPath = "Packages/com.basis.framework/Device Management/Devices/Base/BasisInput.cs";
     private const string DiagnosticsBridgePath = "Packages/com.basis.framework/Platform/WebGL/BasisWebAudioDiagnosticsBridge.cs";
     private const string MicrophoneDriverPath = "Packages/com.basis.framework/Drivers/Local/BasisLocalMicrophoneDriver.cs";
+    private const string SettingsProviderPath = "Packages/com.basis.framework/BasisUI/Menus/Main Menu Providers/SettingsProvider.cs";
     private const string MicrophoneIconDriverPath = "Packages/com.basis.framework/Drivers/Local/BasisLocalMicrophoneIconDriver.cs";
     private const string AudioTransmissionPath = "Packages/com.basis.framework/Networking/Transmitters/BasisAudioTransmission.cs";
     private const string AudioReceiverPath = "Packages/com.basis.framework/Networking/Recievers/BasisAudioReceiver.cs";
@@ -53,9 +54,11 @@ public class BasisWebAudioBridgeTests
     public void CaptureRequestsPermissionWithoutTransientActivationDependency()
     {
         string source = File.ReadAllText(BrowserPluginPath);
+        int acquireIndex = source.IndexOf("acquireStream: async function()");
+        int permissionIndex = source.IndexOf("navigator.mediaDevices.getUserMedia", acquireIndex);
         int requestIndex = source.IndexOf("requestCapture: async function()");
-        int permissionIndex = source.IndexOf("var streamPromise = BasisWebAudio.stream ? null : navigator.mediaDevices.getUserMedia", requestIndex);
-        int initializationIndex = source.IndexOf("await BasisWebAudio.ensureInitialized();", permissionIndex);
+        int acquireCallIndex = source.IndexOf("BasisWebAudio.acquireStream()", requestIndex);
+        int initializationIndex = source.IndexOf("await BasisWebAudio.ensureInitialized();", acquireCallIndex);
         int initializationStartIndex = source.IndexOf("ensureInitialized: function()");
         int initializationResumeIndex = source.IndexOf("await BasisWebAudio.context.resume();", initializationStartIndex);
         int processorIndex = source.IndexOf("createScriptProcessor", initializationResumeIndex);
@@ -64,9 +67,11 @@ public class BasisWebAudioBridgeTests
         int gestureInitializationIndex = source.IndexOf("BasisWebAudio.ensureInitialized()", gestureResumeIndex);
         int awaitResumeIndex = source.IndexOf("await resumePromise;", initializationIndex);
 
-        Assert.That(requestIndex, Is.GreaterThanOrEqualTo(0));
-        Assert.That(permissionIndex, Is.GreaterThan(requestIndex));
-        Assert.That(initializationIndex, Is.GreaterThan(permissionIndex));
+        Assert.That(acquireIndex, Is.GreaterThanOrEqualTo(0));
+        Assert.That(permissionIndex, Is.GreaterThan(acquireIndex));
+        Assert.That(requestIndex, Is.GreaterThan(permissionIndex));
+        Assert.That(acquireCallIndex, Is.GreaterThan(requestIndex));
+        Assert.That(initializationIndex, Is.GreaterThan(acquireCallIndex));
         Assert.That(initializationResumeIndex, Is.GreaterThan(initializationStartIndex));
         Assert.That(processorIndex, Is.GreaterThan(initializationResumeIndex));
         Assert.That(gestureIndex, Is.GreaterThanOrEqualTo(0));
@@ -149,6 +154,19 @@ public class BasisWebAudioBridgeTests
         StringAssert.Contains("BasisWebAudioSetCaptureDevice", pluginSource);
         StringAssert.Contains("MicrophoneDevicesChanged", bridgeSource);
         StringAssert.Contains("SMDMicrophone.SetDeviceList", microphoneSource);
+    }
+
+    [Test]
+    public void OpeningMicrophoneSettingsRequestsPermissionBeforeListingDevices()
+    {
+        string pluginSource = File.ReadAllText(BrowserPluginPath);
+        string bridgeSource = File.ReadAllText(CaptureBridgePath);
+        string settingsSource = File.ReadAllText(SettingsProviderPath);
+
+        StringAssert.Contains("requestDevicePermission: function()", pluginSource);
+        StringAssert.Contains("BasisWebAudioRequestDevicePermission", pluginSource);
+        StringAssert.Contains("BasisWebAudioRequestDevicePermission", bridgeSource);
+        StringAssert.Contains("BasisWebAudioCaptureBridge.RequestDevicePermission();", settingsSource);
     }
 
     [Test]
