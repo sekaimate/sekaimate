@@ -1,17 +1,16 @@
 using System.Collections.Generic;
 using Basis.BasisUI;
-using BasisPermissions;
 using NUnit.Framework;
 
 public sealed class BasisIndividualPlayerActionPermissionsTests
 {
-    [TestCase(PermNodes.ModerationKick, IndividualPlayerAdminAction.Kick)]
-    [TestCase(PermNodes.ModerationBan, IndividualPlayerAdminAction.Ban)]
-    [TestCase(PermNodes.ModerationIpBan, IndividualPlayerAdminAction.IpBan)]
-    [TestCase(PermNodes.ModerationTeleport, IndividualPlayerAdminAction.Teleport)]
-    [TestCase(PermNodes.ModerationShout, IndividualPlayerAdminAction.Shout)]
-    [TestCase(PermNodes.ModerationMessage, IndividualPlayerAdminAction.Message)]
-    [TestCase(PermNodes.PermissionsEdit, IndividualPlayerAdminAction.EditPermissions)]
+    [TestCase("basis.moderation.kick", IndividualPlayerAdminAction.Kick)]
+    [TestCase("basis.moderation.ban", IndividualPlayerAdminAction.Ban)]
+    [TestCase("basis.moderation.ipban", IndividualPlayerAdminAction.IpBan)]
+    [TestCase("basis.moderation.teleport", IndividualPlayerAdminAction.Teleport)]
+    [TestCase("basis.moderation.shout", IndividualPlayerAdminAction.Shout)]
+    [TestCase("basis.moderation.message", IndividualPlayerAdminAction.Message)]
+    [TestCase("basis.permissions.edit", IndividualPlayerAdminAction.EditPermissions)]
     public void AllowsOnlyActionMatchingEffectivePermission(
         string permission,
         IndividualPlayerAdminAction expectedAction)
@@ -30,7 +29,7 @@ public sealed class BasisIndividualPlayerActionPermissionsTests
     [Test]
     public void PermissionsViewDoesNotAuthorizeMutatingActions()
     {
-        HashSet<string> permissions = new() { PermNodes.PermissionsView };
+        HashSet<string> permissions = new() { "basis.permissions.view" };
 
         foreach (IndividualPlayerAdminAction action in System.Enum.GetValues(typeof(IndividualPlayerAdminAction)))
         {
@@ -42,9 +41,9 @@ public sealed class BasisIndividualPlayerActionPermissionsTests
     public void AnySpecificActionOrPermissionsViewMakesAdminSectionVisible()
     {
         Assert.IsTrue(IndividualPlayerActionPermissions.CanViewSection(
-            new HashSet<string> { PermNodes.PermissionsView }));
+            new HashSet<string> { "basis.permissions.view" }));
         Assert.IsTrue(IndividualPlayerActionPermissions.CanViewSection(
-            new HashSet<string> { PermNodes.ModerationKick }));
+            new HashSet<string> { "basis.moderation.kick" }));
         Assert.IsFalse(IndividualPlayerActionPermissions.CanViewSection(new HashSet<string>()));
     }
 }
