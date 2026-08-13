@@ -1,12 +1,22 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { cacheControlFor } from './worker.ts';
+import { cacheControlFor, contentEncodingFor, responseInitFor } from './worker.ts';
 
 test('long-lived build artifacts use edge and browser caches', () => {
   assert.equal(
     cacheControlFor('Build/client.wasm'),
-    'public, max-age=86400, s-maxage=31536000, immutable',
+    'public, max-age=86400, s-maxage=31536000, immutable, no-transform',
   );
+});
+
+test('precompressed build artifacts bypass automatic response encoding', () => {
+  const headers = new Headers();
+
+  assert.equal(contentEncodingFor('Build/client.framework.js.gz'), 'gzip');
+  assert.equal(contentEncodingFor('Build/client.wasm.br'), 'br');
+  assert.equal(contentEncodingFor('Build/client.loader.js'), null);
+  assert.equal(responseInitFor('Build/client.data.gz', headers).encodeBody, 'manual');
+  assert.equal(responseInitFor('Build/client.data', headers).encodeBody, undefined);
 });
 
 test('entry point and addressable catalogs can be updated safely', () => {

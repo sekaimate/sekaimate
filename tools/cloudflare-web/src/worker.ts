@@ -26,6 +26,10 @@ interface Environment {
   WEB_BUILD: R2Bucket;
 }
 
+interface CloudflareResponseInit extends ResponseInit {
+  encodeBody?: 'manual';
+}
+
 function keyFromRequest(request: Request): string | null {
   const pathname = new URL(request.url).pathname;
   try {
@@ -42,7 +46,19 @@ export function cacheControlFor(key: string): string {
   if (key.endsWith('/catalog.bin') || key.endsWith('/catalog.hash') || key.endsWith('/settings.json')) {
     return 'public, max-age=300, s-maxage=300, must-revalidate';
   }
-  return 'public, max-age=86400, s-maxage=31536000, immutable';
+  return 'public, max-age=86400, s-maxage=31536000, immutable, no-transform';
+}
+
+export function contentEncodingFor(key: string): 'gzip' | 'br' | null {
+  if (key.endsWith('.gz')) return 'gzip';
+  if (key.endsWith('.br')) return 'br';
+  return null;
+}
+
+export function responseInitFor(key: string, headers: Headers): CloudflareResponseInit {
+  return contentEncodingFor(key) === null
+    ? { headers }
+    : { headers, encodeBody: 'manual' };
 }
 
 function responseHeaders(object: R2ObjectMetadata, key: string): Headers {
@@ -52,6 +68,8 @@ function responseHeaders(object: R2ObjectMetadata, key: string): Headers {
   headers.set('accept-ranges', 'bytes');
   headers.set('cache-control', cacheControlFor(key));
   headers.set('x-content-type-options', 'nosniff');
+  const contentEncoding = contentEncodingFor(key);
+  if (contentEncoding !== null) headers.set('content-encoding', contentEncoding);
   return headers;
 }
 
@@ -91,6 +109,6 @@ export default {
     }
 
     headers.set('content-length', object.size.toString());
-    return new Response(object.body, { headers });
+    return new Response(object.body, responseInitFor(key, headers));
   },
 };
