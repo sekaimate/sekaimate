@@ -657,17 +657,19 @@ namespace BasisServerHandle
             if (added)
             {
                 newPeer.Tag = NetworkServer.AuthenticatedPeerTag;
-                NetworkServer.RebuildPeerSnapshot();
-                // Claim this peer's place in the join order before anything is announced, so the
-                // "only records newer than my own join" rule below has a value to compare against.
-                JoinBroadcast.RegisterPeer(newPeer.Id, JoinBroadcast.NextSeq());
-                BNL.Log($"Peer connected: {newPeer.Id}");
                 //never ever assume the UUID provided by the user is good always recalc on the server.
                 //this means that as long as they pass auth but locally have a bad UUID that only they locally are effected.
                 //there is no way to force a user locally to be a certain UUID, that's not how the internet works.
                 //instead we can make sure all additional clients have them correct.
                 //this only occurs if the server is doing Auth checks.
                 ReadyMessage.playerMetaDataMessage.playerUUID = UUID;
+                BasisServerReductionSystemEvents.AddMessage(newPeer, ReadyMessage.localAvatarSyncMessage, 0);
+                BasisSavedState.AddLastData(newPeer, ReadyMessage);
+                NetworkServer.RebuildPeerSnapshot();
+                // Claim this peer's place in the join order before anything is announced, so the
+                // "only records newer than my own join" rule below has a value to compare against.
+                JoinBroadcast.RegisterPeer(newPeer.Id, JoinBroadcast.NextSeq());
+                BNL.Log($"Peer connected: {newPeer.Id}");
                 PermissionIntegration.StorePlayerMeta(UUID, ReadyMessage.playerMetaDataMessage);
 
                Configuration Config = NetworkServer.Configuration;
@@ -1146,8 +1148,6 @@ namespace BasisServerHandle
                     playerID = (ushort)authClient.Id
                 }
             };
-            BasisServerReductionSystemEvents.AddMessage(authClient, readyMessage.localAvatarSyncMessage, 0);
-            BasisSavedState.AddLastData(authClient, readyMessage);
             return serverReadyMessage;
         }
         /// <summary>
