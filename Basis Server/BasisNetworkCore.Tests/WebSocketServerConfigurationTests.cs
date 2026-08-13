@@ -15,6 +15,7 @@ public sealed class WebSocketServerConfigurationTests
         Assert.Equal(64, configuration.WebSocketPendingSendCapacity);
         Assert.True(configuration.WebSocketUseTls);
         Assert.Equal(string.Empty, configuration.WebSocketCertificatePath);
+        Assert.Equal(string.Empty, configuration.WebSocketCertificateKeyPath);
         Assert.Empty(configuration.WebSocketAllowedOrigins);
     }
 

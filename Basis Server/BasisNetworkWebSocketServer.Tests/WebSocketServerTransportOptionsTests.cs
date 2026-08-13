@@ -86,6 +86,16 @@ public sealed class WebSocketServerTransportOptionsTests
     }
 
     [Fact]
+    public void Validate_RequiresCertificateKeyForTlsEndpoint()
+    {
+        WebSocketServerTransportOptions options = ValidOptions();
+        options.UseTls = true;
+        options.CertificatePath = "/run/certs/certificate.pem";
+
+        Assert.Throws<ArgumentException>(options.Validate);
+    }
+
+    [Fact]
     public void IsOriginAllowed_RejectsUnknownOrMissingOrigin()
     {
         WebSocketServerTransportOptions options = ValidOptions();
@@ -115,6 +125,24 @@ public sealed class WebSocketServerTransportOptionsTests
         Assert.Equal(2048, options.MaximumPayloadLength);
         Assert.Equal(12, options.PendingSendCapacity);
         Assert.True(options.IsOriginAllowed("https://basis.example"));
+    }
+
+    [Fact]
+    public void FromConfiguration_MapsPemCertificateFiles()
+    {
+        Configuration configuration = new()
+        {
+            WebSocketPort = 443,
+            WebSocketAllowedOrigins = new[] { "https://basis.example" },
+            WebSocketUseTls = true,
+            WebSocketCertificatePath = "/etc/letsencrypt/live/basis.example/fullchain.pem",
+            WebSocketCertificateKeyPath = "/etc/letsencrypt/live/basis.example/privkey.pem",
+        };
+
+        WebSocketServerTransportOptions options = WebSocketServerTransportOptions.FromConfiguration(configuration);
+
+        Assert.Equal(configuration.WebSocketCertificatePath, options.CertificatePath);
+        Assert.Equal(configuration.WebSocketCertificateKeyPath, options.CertificateKeyPath);
     }
 
     private static WebSocketServerTransportOptions ValidOptions()

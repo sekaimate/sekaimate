@@ -7,9 +7,9 @@ services:
       WebSocketServerInfoPath: /server-info
       WebSocketAllowedOrigins: ${BASIS_WEBSOCKET_ALLOWED_ORIGINS:?set BASIS_WEBSOCKET_ALLOWED_ORIGINS}
       WebSocketUseTls: "true"
-      WebSocketCertificatePath: /run/certs/basis-server.pfx
-      WebSocketCertificatePassword: ${BASIS_SERVER_CERTIFICATE_PASSWORD:?set BASIS_SERVER_CERTIFICATE_PASSWORD}
+      WebSocketCertificatePath: /etc/letsencrypt/live/${BASIS_SERVER_HOSTNAME:?set BASIS_SERVER_HOSTNAME}/fullchain.pem
+      WebSocketCertificateKeyPath: /etc/letsencrypt/live/${BASIS_SERVER_HOSTNAME:?set BASIS_SERVER_HOSTNAME}/privkey.pem
     ports:
       - "443:4297/tcp"
     volumes:
-      - ${BASIS_SERVER_CERTIFICATE_PATH:?set BASIS_SERVER_CERTIFICATE_PATH}:/run/certs/basis-server.pfx:ro
+      - ${BASIS_SERVER_LETSENCRYPT_DIRECTORY:-/etc/letsencrypt}:/etc/letsencrypt:ro

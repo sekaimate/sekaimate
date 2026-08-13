@@ -12,7 +12,7 @@ public sealed class WebSocketServerTransportOptions
     public int PendingSendCapacity { get; set; } = 64;
     public bool UseTls { get; set; }
     public string CertificatePath { get; set; } = string.Empty;
-    public string CertificatePassword { get; set; } = string.Empty;
+    public string CertificateKeyPath { get; set; } = string.Empty;
     public TimeSpan KeepAliveInterval { get; set; } = TimeSpan.FromSeconds(30);
     public List<string> AllowedOrigins { get; } = new();
 
@@ -27,7 +27,7 @@ public sealed class WebSocketServerTransportOptions
             PendingSendCapacity = configuration.WebSocketPendingSendCapacity,
             UseTls = configuration.WebSocketUseTls,
             CertificatePath = configuration.WebSocketCertificatePath,
-            CertificatePassword = configuration.WebSocketCertificatePassword,
+            CertificateKeyPath = configuration.WebSocketCertificateKeyPath,
         };
         options.AllowedOrigins.AddRange(configuration.WebSocketAllowedOrigins ?? Array.Empty<string>());
         options.Validate();
@@ -63,6 +63,10 @@ public sealed class WebSocketServerTransportOptions
         if (UseTls && string.IsNullOrWhiteSpace(CertificatePath))
         {
             throw new ArgumentException("A certificate path is required for a TLS WebSocket endpoint.", nameof(CertificatePath));
+        }
+        if (UseTls && string.IsNullOrWhiteSpace(CertificateKeyPath))
+        {
+            throw new ArgumentException("A certificate key path is required for a TLS WebSocket endpoint.", nameof(CertificateKeyPath));
         }
         if (AllowedOrigins.Count == 0)
         {
