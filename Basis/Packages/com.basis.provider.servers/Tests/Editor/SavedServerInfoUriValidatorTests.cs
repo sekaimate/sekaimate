@@ -52,5 +52,17 @@ namespace Basis.BasisUI.Tests
             Assert.That(result.Name, Is.EqualTo("Basis"));
             Assert.That(result.Motd, Is.EqualTo("Hello"));
         }
+
+        [Test]
+        public void ParseResponse_MapsBasisServerHealthPayload()
+        {
+            Basis.Network.Core.ServerProbeResult result = BasisWebServerInfoClient.ParseResponse(
+                "{\"listening\":true,\"ready\":true,\"visitors\":3,\"capacity\":24,\"version\":\"1.2.3\"}");
+
+            Assert.That(result.Reachable, Is.True);
+            Assert.That(result.Online, Is.EqualTo(3));
+            Assert.That(result.Max, Is.EqualTo(24));
+            Assert.That(result.Extras["version"], Is.EqualTo("1.2.3"));
+        }
     }
 }
