@@ -2,7 +2,7 @@ import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 
 const DATA = 2;
 const VOICE_CHANNEL = 3;
-const FATAL_RUNTIME_ERROR = /Loading FSB failed|EncodingError|NullReferenceException|Object reference not set|is not approved and will be removed|An error occurred running the Unity content/i;
+const FATAL_RUNTIME_ERROR = /Loading FSB failed|EncodingError|NullReferenceException|Object reference not set|is not approved and will be removed|An error occurred running the Unity content|server has detected an issue with your client or connection|BasisEventDriver\.LateUpdate failed|Browser WebSocket is not open/i;
 
 interface ObservedFrame {
   direction: 'sent' | 'received';
