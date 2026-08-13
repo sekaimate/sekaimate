@@ -12,7 +12,10 @@ export default defineConfig({
     browserName: "chromium",
     headless: true,
     launchOptions: {
-      args: ["--autoplay-policy=no-user-gesture-required"],
+      args: [
+        "--autoplay-policy=no-user-gesture-required",
+        "--host-resolver-rules=MAP *.lvh.me 127.0.0.1",
+      ],
     },
   },
   webServer: {
