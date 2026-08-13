@@ -73,8 +73,9 @@ public class BasisWebMediaPipeBackendTests
         StringAssert.DoesNotContain("https://cdn", worker);
 
         Assert.That(File.Exists("Packages/com.basis.mediapipe/Web~/vision_bundle.mjs"), Is.True);
-        Assert.That(File.Exists("Packages/com.basis.mediapipe/Web~/vision_wasm_internal.js"), Is.True);
-        Assert.That(File.Exists("Packages/com.basis.mediapipe/Web~/vision_wasm_internal.wasm"), Is.True);
+        StringAssert.Contains("vision_wasm_module_internal.js", worker);
+        Assert.That(File.Exists("Packages/com.basis.mediapipe/Web~/vision_wasm_module_internal.js"), Is.True);
+        Assert.That(File.Exists("Packages/com.basis.mediapipe/Web~/vision_wasm_module_internal.wasm"), Is.True);
     }
 
     [Test]
@@ -100,6 +101,8 @@ public class BasisWebMediaPipeBackendTests
 
         StringAssert.Contains("BuildTarget.WebGL", source);
         StringAssert.Contains("Web~", source);
+        StringAssert.Contains("vision_wasm_module_internal.js", source);
+        StringAssert.Contains("vision_wasm_module_internal.wasm", source);
         StringAssert.Contains("face_landmarker.task.bytes", source);
         StringAssert.Contains("hand_landmarker.task.bytes", source);
         StringAssert.Contains("pose_landmarker_lite.task.bytes", source);
