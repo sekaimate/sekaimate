@@ -1,10 +1,10 @@
 mergeInto(LibraryManager.library, {
   $BasisWebClipboard: {
     complete: function(callback, requestId, succeeded, value) {
-      var length = lengthBytesUTF8(value) + 1;
-      var valuePointer = _malloc(length);
-      stringToUTF8(value, valuePointer, length);
-      {{{ makeDynCall('viii', 'callback') }}}(requestId, succeeded, valuePointer);
+      var valueLength = lengthBytesUTF8(value);
+      var valuePointer = _malloc(valueLength + 1);
+      stringToUTF8(value, valuePointer, valueLength + 1);
+      {{{ makeDynCall('viiii', 'callback') }}}(requestId, succeeded, valuePointer, valueLength);
       _free(valuePointer);
     },
     unavailableReason: function(operation) {

@@ -3,11 +3,16 @@ using AOT;
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading.Tasks;
 
 internal sealed class BasisWebClipboardBackend : IBasisClipboardBackend
 {
-    private delegate void OperationCompletedCallback(int requestId, int succeeded, IntPtr valuePointer);
+    private delegate void OperationCompletedCallback(
+        int requestId,
+        int succeeded,
+        IntPtr valuePointer,
+        int valueLength);
 
     private static readonly OperationCompletedCallback OperationCompleted = HandleOperationCompleted;
     private static readonly Dictionary<int, TaskCompletionSource<string>> PendingOperations = new();
@@ -41,7 +46,11 @@ internal sealed class BasisWebClipboardBackend : IBasisClipboardBackend
     }
 
     [MonoPInvokeCallback(typeof(OperationCompletedCallback))]
-    private static void HandleOperationCompleted(int requestId, int succeeded, IntPtr valuePointer)
+    private static void HandleOperationCompleted(
+        int requestId,
+        int succeeded,
+        IntPtr valuePointer,
+        int valueLength)
     {
         if (!PendingOperations.TryGetValue(requestId, out TaskCompletionSource<string> completion))
         {
@@ -49,7 +58,7 @@ internal sealed class BasisWebClipboardBackend : IBasisClipboardBackend
         }
 
         PendingOperations.Remove(requestId);
-        string value = Marshal.PtrToStringUTF8(valuePointer) ?? string.Empty;
+        string value = DecodeUtf8(valuePointer, valueLength);
         if (succeeded == 1)
         {
             completion.TrySetResult(value);
@@ -58,6 +67,18 @@ internal sealed class BasisWebClipboardBackend : IBasisClipboardBackend
         {
             completion.TrySetException(new InvalidOperationException(value));
         }
+    }
+
+    private static string DecodeUtf8(IntPtr pointer, int length)
+    {
+        if (pointer == IntPtr.Zero || length <= 0)
+        {
+            return string.Empty;
+        }
+
+        byte[] bytes = new byte[length];
+        Marshal.Copy(pointer, bytes, 0, length);
+        return Encoding.UTF8.GetString(bytes);
     }
 
     [DllImport("__Internal")]
