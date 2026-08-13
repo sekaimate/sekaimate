@@ -5,27 +5,6 @@ using UnityEngine;
 using UnityEngine.Rendering;
 using GfxAPI = UnityEngine.Rendering.GraphicsDeviceType;
 
-// Public mirror of the native engine state (basis_media_state_t), usable from the
-// editor assembly. Values match BasisNativeMedia.State.
-public enum BasisMediaEngineState
-{
-    Idle = 0,
-    Connecting = 1,
-    Buffering = 2,
-    Playing = 3,
-    Paused = 4,
-    Ended = 5,
-    Error = 6,
-}
-
-// How the engine sizes its jitter buffer (how far behind live video is presented).
-// Values match the native ABI: Fixed=0, Dynamic=1.
-public enum BasisVideoBufferMode
-{
-    Fixed = 0,    // hold BufferMilliseconds exactly
-    Dynamic = 1,  // auto-tune: grow on underrun risk, shrink when over-buffered
-}
-
 // Video codecs the native engine can be asked about. Values match the native
 // probe ABI (basis_media_probe_video_codec).
 public enum BasisVideoCodec
@@ -35,7 +14,6 @@ public enum BasisVideoCodec
     VP9 = 3,
     AV1 = 4,
 }
-
 // Zero-copy live media source backed by the OS-codec engine in basis_media_native.
 //
 // Unlike the CPU IBasisFrameSource path (which decodes into managed byte[] frames

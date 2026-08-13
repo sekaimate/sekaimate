@@ -12,6 +12,7 @@ public class BasisWebMediaBackendTests
     private const string PlayerLoopPath = "Packages/com.basis.mediaplayer/Runtime/Web/BasisWebMediaPlayerLoop.cs";
     private const string NativeMediaPath = "Packages/com.basis.mediaplayer/Runtime/Native/BasisNativeMedia.cs";
     private const string NativeSourcePath = "Packages/com.basis.mediaplayer/Runtime/Native/BasisNativeVideoSource.cs";
+    private const string MediaStatePath = "Packages/com.basis.mediaplayer/Runtime/Core/BasisMediaEngineState.cs";
 
     [Test]
     public void UploadsOnlyNewBrowserVideoFrames()
@@ -141,5 +142,18 @@ public class BasisWebMediaBackendTests
         StringAssert.StartsWith("#if !UNITY_WEBGL || UNITY_EDITOR", source);
         StringAssert.Contains("#if !UNITY_WEBGL || UNITY_EDITOR\n    public BasisNativeVideoSource NativeEngine", player);
         StringAssert.Contains("public BasisPlatformMediaSource PlatformEngine => nativeEngine;", player);
+    }
+
+    [Test]
+    public void MediaStateContractsCompileForNativeAndWebPlayers()
+    {
+        string contracts = File.ReadAllText(MediaStatePath);
+        string nativeSource = File.ReadAllText(NativeSourcePath);
+
+        StringAssert.Contains("public enum BasisMediaEngineState", contracts);
+        StringAssert.Contains("public enum BasisVideoBufferMode", contracts);
+        StringAssert.DoesNotContain("UNITY_WEBGL", contracts);
+        StringAssert.DoesNotContain("public enum BasisMediaEngineState", nativeSource);
+        StringAssert.DoesNotContain("public enum BasisVideoBufferMode", nativeSource);
     }
 }
