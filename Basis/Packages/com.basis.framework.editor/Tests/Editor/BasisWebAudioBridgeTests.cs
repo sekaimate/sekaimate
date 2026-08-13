@@ -117,6 +117,8 @@ public class BasisWebAudioBridgeTests
         StringAssert.Contains("talkMode", pluginSource);
         StringAssert.Contains("localVisemeFrames", pluginSource);
         StringAssert.Contains("remoteVisemeFrames", pluginSource);
+        StringAssert.Contains("remoteMuted", pluginSource);
+        StringAssert.Contains("remoteTalkMode", pluginSource);
         StringAssert.Contains("MarkVisemeProcessed", visemeSource);
         StringAssert.Contains("BasisLocalMicrophoneDriver.ToggleIsPaused", harnessSource);
         StringAssert.Contains("BasisTalkModeManager.SetMode", harnessSource);
