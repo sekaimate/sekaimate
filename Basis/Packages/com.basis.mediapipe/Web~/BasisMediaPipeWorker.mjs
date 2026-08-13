@@ -34,8 +34,8 @@ async function initialize(assetRoot, config) {
   mirror = config.mirror;
   swapHands = config.swapHands;
   const wasmFileset = {
-    wasmLoaderPath: assetRoot + "vision_wasm_internal.js",
-    wasmBinaryPath: assetRoot + "vision_wasm_internal.wasm",
+    wasmLoaderPath: assetRoot + "vision_wasm_module_internal.js",
+    wasmBinaryPath: assetRoot + "vision_wasm_module_internal.wasm",
   };
   const taskOptions = {
     runningMode: "VIDEO",

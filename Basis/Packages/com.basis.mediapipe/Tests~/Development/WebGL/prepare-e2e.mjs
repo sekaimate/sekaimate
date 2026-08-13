@@ -19,8 +19,8 @@ for (const file of ["index.html", "mediapipe-e2e.mjs"]) {
 for (const file of [
   "BasisMediaPipeWorker.mjs",
   "vision_bundle.mjs",
-  "vision_wasm_internal.js",
-  "vision_wasm_internal.wasm",
+  "vision_wasm_module_internal.js",
+  "vision_wasm_module_internal.wasm",
 ]) {
   await cp(`${packageDirectory}/Web~/${file}`, `${outputDirectory}/runtime/${file}`);
 }
