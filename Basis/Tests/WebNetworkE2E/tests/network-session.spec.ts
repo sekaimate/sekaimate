@@ -107,6 +107,18 @@ function hasFrame(
     && (channel === undefined || frame.channel === channel));
 }
 
+function frameCount(
+  trace: NetworkTrace,
+  direction: ObservedFrame['direction'],
+  kind: number,
+  channel?: number,
+): number {
+  return trace.frames.filter(frame =>
+    frame.direction === direction
+    && frame.kind === kind
+    && (channel === undefined || frame.channel === channel)).length;
+}
+
 function hasAvatarFrame(trace: NetworkTrace, direction: ObservedFrame['direction']): boolean {
   return trace.frames.some(frame => frame.direction === direction
     && frame.kind === DATA
@@ -169,6 +181,11 @@ test('real WebGL players authenticate, synchronize, chat, and reconnect through 
   });
   await expect.poll(() => secondTrace.closedConnections).toBeGreaterThanOrEqual(1);
   await expect.poll(() => secondTrace.connections).toBeGreaterThanOrEqual(2);
+  await expect.poll(() => frameCount(secondTrace, 'sent', HELLO)).toBeGreaterThanOrEqual(2);
+  await expect.poll(() => frameCount(secondTrace, 'received', ACCEPT)).toBeGreaterThanOrEqual(2);
+  await expect.poll(() => frameCount(secondTrace, 'received', DATA, AUTH_IDENTITY_CHANNEL)).toBeGreaterThanOrEqual(2);
+  await expect.poll(() => frameCount(secondTrace, 'sent', DATA, AUTH_IDENTITY_CHANNEL)).toBeGreaterThanOrEqual(2);
+  await expect.poll(() => frameCount(secondTrace, 'received', DATA, METADATA_CHANNEL)).toBeGreaterThanOrEqual(2);
 
   const reconnectedChat = `after-reconnect-${runId}`;
   await firstPage.evaluate(message => window.basisNetworkE2ESendChat?.(message), reconnectedChat);

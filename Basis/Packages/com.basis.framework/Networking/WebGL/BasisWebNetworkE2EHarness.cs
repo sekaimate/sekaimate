@@ -19,6 +19,7 @@ namespace Basis.Scripts.Networking
         private string _userName;
         private bool _acceptedReported;
         private bool _authenticatedReported;
+        private bool _observeConnectionState = true;
         private int _remotePlayerCount = -1;
 
         [DllImport("__Internal")]
@@ -44,13 +45,13 @@ namespace Basis.Scripts.Networking
 
         private void Update()
         {
-            if (!_acceptedReported && BasisNetworkConnection.LocalPlayerPeer != null)
+            if (_observeConnectionState && !_acceptedReported && BasisNetworkConnection.LocalPlayerPeer != null)
             {
                 _acceptedReported = true;
                 Report("transport-accepted");
             }
 
-            if (!_authenticatedReported && BasisNetworkConnection.LocalPlayerIsConnected)
+            if (_observeConnectionState && !_authenticatedReported && BasisNetworkConnection.LocalPlayerIsConnected)
             {
                 _authenticatedReported = true;
                 Report("authenticated");
@@ -73,8 +74,10 @@ namespace Basis.Scripts.Networking
         public async void Reconnect()
         {
             Report("reconnect-started");
-            ResetObservedConnectionState();
+            _observeConnectionState = false;
             await BasisConnectionService.ConnectAsync(_entry, _userName);
+            ResetObservedConnectionState();
+            _observeConnectionState = true;
             Report("reconnect-requested");
         }
 
