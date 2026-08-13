@@ -32,6 +32,7 @@ const MIME_TYPES: Readonly<Record<string, string>> = {
 };
 
 function parseOptions(arguments_: string[]): Options {
+  if (arguments_[0] === '--') arguments_ = arguments_.slice(1);
   const values = new Map<string, string>();
   for (let index = 0; index < arguments_.length; index += 2) {
     const name = arguments_[index];
