@@ -175,17 +175,18 @@ public sealed class BasisWebCameraE2EProbe : MonoBehaviour
         cubemap.Create();
         resources.Add(cubemap);
 
-        var equirect = new RenderTexture(
+        var equirectDescriptor = new RenderTextureDescriptor(
             PanoramaWidth,
             PanoramaHeight,
-            0,
-            RenderTextureFormat.ARGBFloat)
+            RenderTextureFormat.ARGBFloat,
+            0)
         {
-            antiAliasing = 1,
+            msaaSamples = 1,
             useMipMap = false,
             autoGenerateMips = false,
             sRGB = false
         };
+        var equirect = new RenderTexture(equirectDescriptor);
         equirect.Create();
         resources.Add(equirect);
 

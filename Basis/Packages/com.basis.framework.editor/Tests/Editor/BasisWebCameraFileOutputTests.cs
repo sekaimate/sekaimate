@@ -86,6 +86,8 @@ public class BasisWebCameraFileOutputTests
         StringAssert.Contains("CaptureFlat", probe);
         StringAssert.Contains("CapturePanorama", probe);
         StringAssert.Contains("BasisWebFileDownload.Save", probe);
+        StringAssert.Contains("var equirectDescriptor = new RenderTextureDescriptor", probe);
+        StringAssert.Contains("new RenderTexture(equirectDescriptor)", probe);
         StringAssert.Contains("window.basisCameraE2E", diagnostics);
     }
 
