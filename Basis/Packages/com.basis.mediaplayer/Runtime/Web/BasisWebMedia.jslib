@@ -27,7 +27,9 @@ mergeInto(LibraryManager.library, {
         playbackStarted: false,
         playRequestCount: 0,
         pauseRequestCount: 0,
+        pauseObserved: false,
         seekRequestCount: 0,
+        seekCompletedCount: 0,
         lastSeekSeconds: -1,
         textureUploadCount: 0,
         audioContextCreated: false,
@@ -110,6 +112,11 @@ mergeInto(LibraryManager.library, {
       if (diagnostics) diagnostics.playbackStarted = true;
       BasisWebMedia.updateDiagnostics(player, 'playing');
     });
+    video.addEventListener('seeked', function() {
+      var diagnostics = BasisWebMedia.ensureDiagnostics();
+      if (diagnostics) diagnostics.seekCompletedCount++;
+      BasisWebMedia.updateDiagnostics(player, 'seek-completed');
+    });
     audioContext.addEventListener('statechange', function() {
       BasisWebMedia.updateDiagnostics(player, 'audio-state');
     });
@@ -182,7 +189,10 @@ mergeInto(LibraryManager.library, {
     if (!player) return;
     player.video.pause();
     var diagnostics = BasisWebMedia.ensureDiagnostics();
-    if (diagnostics) diagnostics.pauseRequestCount++;
+    if (diagnostics) {
+      diagnostics.pauseRequestCount++;
+      diagnostics.pauseObserved = player.video.paused;
+    }
     BasisWebMedia.updateDiagnostics(player, 'paused');
   },
 

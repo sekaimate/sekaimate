@@ -15,7 +15,9 @@ interface WebMediaDiagnostics {
   playbackStarted: boolean;
   playRequestCount: number;
   pauseRequestCount: number;
+  pauseObserved: boolean;
   seekRequestCount: number;
+  seekCompletedCount: number;
   lastSeekSeconds: number;
   textureUploadCount: number;
   audioContextCreated: boolean;
@@ -63,6 +65,7 @@ test("BasisMediaPlayer plays cross-origin video through WebGL texture and WebAud
   await expect.poll(() => page.evaluate(() => window.__basisWebMediaE2E?.audioContextState)).toBe("running");
   await expect.poll(() => page.evaluate(() => window.__basisWebMediaE2E?.pauseRequestCount ?? 0)).toBeGreaterThan(0);
   await expect.poll(() => page.evaluate(() => window.__basisWebMediaE2E?.seekRequestCount ?? 0)).toBeGreaterThan(0);
+  await expect.poll(() => page.evaluate(() => window.__basisWebMediaE2E?.seekCompletedCount ?? 0)).toBeGreaterThan(0);
   await expect.poll(() => page.evaluate(() => window.__basisWebMediaE2E?.currentTime ?? 0)).toBeGreaterThan(0.5);
   const diagnostics = await page.evaluate(() => window.__basisWebMediaE2E);
 
@@ -85,7 +88,9 @@ test("BasisMediaPlayer plays cross-origin video through WebGL texture and WebAud
   });
   expect(diagnostics?.playRequestCount).toBeGreaterThan(0);
   expect(diagnostics?.pauseRequestCount).toBeGreaterThan(0);
+  expect(diagnostics?.pauseObserved).toBe(true);
   expect(diagnostics?.seekRequestCount).toBeGreaterThan(0);
+  expect(diagnostics?.seekCompletedCount).toBeGreaterThan(0);
   expect(diagnostics?.lastSeekSeconds).toBeCloseTo(0.25, 2);
   expect(diagnostics?.textureUploadCount).toBeGreaterThan(0);
   expect(diagnostics?.currentTime).toBeGreaterThan(0);
