@@ -5,6 +5,7 @@ public class BasisWebRecorderAndOpenLipSyncAssemblyTests
 {
     private const string RecorderPath = "Packages/com.basis.developer.recorder/Runtime/BasisAvatarRecorder.cs";
     private const string CommonAssemblyPath = "Packages/com.basis.openlipsync/Basis.OpenLipSync.Runtime.asmdef";
+    private const string CommonAssemblyInfoPath = "Packages/com.basis.openlipsync/Runtime/AssemblyInfo.cs";
     private const string NativeAssemblyPath = "Packages/com.basis.openlipsync/Runtime/Native/Basis.OpenLipSync.NativeBackend.asmdef";
     private const string NativeBackendPath = "Packages/com.basis.openlipsync/Runtime/Native/OpenLipSyncBackend.cs";
 
@@ -41,6 +42,16 @@ public class BasisWebRecorderAndOpenLipSyncAssemblyTests
         StringAssert.Contains("Microsoft.ML.OnnxRuntime.dll", assembly);
         StringAssert.Contains("Basis.OpenLipSync.Runtime", assembly);
         StringAssert.Contains("Microsoft.ML.OnnxRuntime", backend);
+    }
+
+    [Test]
+    public void CommonInternalsAreVisibleOnlyToNativeBackendAssembly()
+    {
+        string source = File.ReadAllText(CommonAssemblyInfoPath);
+
+        StringAssert.Contains(
+            "InternalsVisibleTo(\"Basis.OpenLipSync.NativeBackend\")",
+            source);
     }
 
     [Test]
