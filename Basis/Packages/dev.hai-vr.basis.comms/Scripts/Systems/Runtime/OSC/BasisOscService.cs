@@ -201,6 +201,11 @@ namespace HVR.Basis.Comms
             OSCAcquisitionServer.SceneInstance?.PublishValues(address, values);
         }
 
+        public static string Query(string path)
+        {
+            return OSCAcquisitionServer.SceneInstance.GetOscQueryJson(path);
+        }
+
         public static void UpdateSubscriptions(EntityId ownerId, bool receiveAll, IEnumerable<string> subscribedAddresses, IEnumerable<string> subscribedPrefixes)
         {
             string[] exactAddresses = ToSortedUniqueArray(subscribedAddresses);

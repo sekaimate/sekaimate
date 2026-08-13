@@ -389,6 +389,11 @@ namespace Basis.Shims
             SubmitPublishedValuesToVixxy(resolvedAddress, values);
         }
 
+        public string Query(string path)
+        {
+            return BasisOscService.Query(path);
+        }
+
         private void HandleMessage(OscMessage message)
         {
             if (message == null)
