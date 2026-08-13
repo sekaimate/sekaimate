@@ -11,3 +11,5 @@ pnpm run publish -- \
 ```
 
 Worker名とR2バケット名はドメインから生成されます。明示する場合は`--worker-name`と`--bucket-name`を追加します。スクリプトはR2バケット作成、全ファイルのContent-TypeとContent-Encoding設定、アップロード、WorkerとCustom Domainのデプロイを順番に実行します。
+
+Workerだけを更新するときは`--worker-only`を追加します。WASM、データ、バンドルはブラウザーで1日、Cloudflareエッジで1年キャッシュされます。HTMLとAddressablesカタログには短いキャッシュ期間を適用します。

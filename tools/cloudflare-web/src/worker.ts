@@ -1,12 +1,6 @@
-interface R2Range {
-  offset: number;
-  length: number;
-}
-
 interface R2ObjectBody {
   body: ReadableStream;
   size: number;
-  range?: R2Range;
   httpEtag: string;
   writeHttpMetadata(headers: Headers): void;
 }
@@ -18,7 +12,7 @@ interface R2ObjectMetadata {
 }
 
 interface R2Bucket {
-  get(key: string, options: { range: Headers }): Promise<R2ObjectBody | null>;
+  get(key: string): Promise<R2ObjectBody | null>;
   head(key: string): Promise<R2ObjectMetadata | null>;
 }
 
@@ -37,11 +31,20 @@ function keyFromRequest(request: Request): string | null {
   }
 }
 
-function responseHeaders(object: R2ObjectMetadata): Headers {
+export function cacheControlFor(key: string): string {
+  if (key === 'index.html') return 'no-cache';
+  if (key.endsWith('/catalog.bin') || key.endsWith('/catalog.hash') || key.endsWith('/settings.json')) {
+    return 'public, max-age=300, s-maxage=300, must-revalidate';
+  }
+  return 'public, max-age=86400, s-maxage=31536000, immutable';
+}
+
+function responseHeaders(object: R2ObjectMetadata, key: string): Headers {
   const headers = new Headers();
   object.writeHttpMetadata(headers);
   headers.set('etag', object.httpEtag);
   headers.set('accept-ranges', 'bytes');
+  headers.set('cache-control', cacheControlFor(key));
   headers.set('x-content-type-options', 'nosniff');
   return headers;
 }
@@ -61,22 +64,15 @@ export default {
     if (request.method === 'HEAD') {
       const object = await environment.WEB_BUILD.head(key);
       if (object === null) return new Response('Not Found', { status: 404 });
-      const headers = responseHeaders(object);
+      const headers = responseHeaders(object, key);
       headers.set('content-length', object.size.toString());
       return new Response(null, { headers });
     }
 
-    const object = await environment.WEB_BUILD.get(key, { range: request.headers });
+    const object = await environment.WEB_BUILD.get(key);
     if (object === null) return new Response('Not Found', { status: 404 });
 
-    const headers = responseHeaders(object);
-    if (object.range !== undefined) {
-      const end = object.range.offset + object.range.length - 1;
-      headers.set('content-range', `bytes ${object.range.offset}-${end}/${object.size}`);
-      headers.set('content-length', object.range.length.toString());
-      return new Response(object.body, { status: 206, headers });
-    }
-
+    const headers = responseHeaders(object, key);
     headers.set('content-length', object.size.toString());
     return new Response(object.body, { headers });
   },

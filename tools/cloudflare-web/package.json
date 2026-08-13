@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "publish": "node deploy.ts"
+    "publish": "node deploy.ts",
+    "test": "node --test src/worker.test.ts"
   },
   "devDependencies": {
     "wrangler": "4.121.0"

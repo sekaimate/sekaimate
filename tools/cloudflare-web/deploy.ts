@@ -7,6 +7,7 @@ interface Options {
   buildDirectory: string;
   workerName: string;
   bucketName: string;
+  workerOnly: boolean;
 }
 
 interface Upload {
@@ -33,6 +34,8 @@ const MIME_TYPES: Readonly<Record<string, string>> = {
 
 function parseOptions(arguments_: string[]): Options {
   if (arguments_[0] === '--') arguments_ = arguments_.slice(1);
+  const workerOnly = arguments_.includes('--worker-only');
+  arguments_ = arguments_.filter(argument => argument !== '--worker-only');
   const values = new Map<string, string>();
   for (let index = 0; index < arguments_.length; index += 2) {
     const name = arguments_[index];
@@ -56,6 +59,7 @@ function parseOptions(arguments_: string[]): Options {
     buildDirectory: resolve(buildDirectory),
     workerName: values.get('--worker-name') ?? defaultName,
     bucketName: values.get('--bucket-name') ?? `${defaultName}-web`,
+    workerOnly,
   };
 }
 
@@ -126,8 +130,10 @@ async function main(): Promise<void> {
     throw new Error(`index.html not found in ${options.buildDirectory}`);
   }
 
-  await run('pnpm', ['exec', 'wrangler', 'r2', 'bucket', 'create', options.bucketName], true);
-  await uploadFiles(options, uploads);
+  if (!options.workerOnly) {
+    await run('pnpm', ['exec', 'wrangler', 'r2', 'bucket', 'create', options.bucketName], true);
+    await uploadFiles(options, uploads);
+  }
 
   const scriptDirectory = import.meta.dirname;
   const configPath = join(scriptDirectory, '.wrangler.generated.json');
