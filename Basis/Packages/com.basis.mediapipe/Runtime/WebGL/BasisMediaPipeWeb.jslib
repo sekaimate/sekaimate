@@ -55,6 +55,24 @@ mergeInto(LibraryManager.library, {
             frameRate: { ideal: config.targetFps },
           },
         });
+        if (config.cameraDeviceName) {
+          var devices = await navigator.mediaDevices.enumerateDevices();
+          var selectedDevice = devices.find(function(device) {
+            return device.kind === "videoinput" && device.label === config.cameraDeviceName;
+          });
+          if (selectedDevice) {
+            BasisMediaPipeWeb.stream.getTracks().forEach(function(track) { track.stop(); });
+            BasisMediaPipeWeb.stream = await navigator.mediaDevices.getUserMedia({
+              audio: false,
+              video: {
+                deviceId: { exact: selectedDevice.deviceId },
+                width: { ideal: config.width },
+                height: { ideal: config.height },
+                frameRate: { ideal: config.targetFps },
+              },
+            });
+          }
+        }
         var video = document.createElement("video");
         video.muted = true;
         video.playsInline = true;
@@ -107,7 +125,7 @@ mergeInto(LibraryManager.library, {
   },
 
   BasisMediaPipeWebInitialize: function(
-      enableFace, enableHands, enablePose, mirror, swapHands, width, height, targetFps, onStateChanged, onResult) {
+      enableFace, enableHands, enablePose, mirror, swapHands, cameraDeviceName, width, height, targetFps, onStateChanged, onResult) {
     BasisMediaPipeWeb.stop();
     BasisMediaPipeWeb.onStateChanged = {{{ makeDynCall('vi', 'onStateChanged') }}};
     BasisMediaPipeWeb.onResult = {{{ makeDynCall('vii', 'onResult') }}};
@@ -119,6 +137,7 @@ mergeInto(LibraryManager.library, {
       enablePose: enablePose !== 0,
       mirror: mirror !== 0,
       swapHands: swapHands !== 0,
+      cameraDeviceName: cameraDeviceName ? UTF8ToString(cameraDeviceName) : "",
       width: width,
       height: height,
       targetFps: targetFps,
