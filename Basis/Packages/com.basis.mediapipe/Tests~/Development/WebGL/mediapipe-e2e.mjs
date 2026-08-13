@@ -63,9 +63,9 @@ async function initializeWorker(settings) {
     type: "initialize",
     assetRoot: new URL("./runtime/", import.meta.url).href,
     config: {
-      enableFace: true,
-      enableHands: true,
-      enablePose: true,
+      enableFace: settings.enableFace,
+      enableHands: settings.enableHands,
+      enablePose: settings.enablePose,
       mirror: settings.mirror,
       swapHands: settings.swapHands,
     },
@@ -150,15 +150,23 @@ async function inferUntil(name, predicate) {
 async function run() {
   state.running = true;
   state.error = null;
-  renderState();
+    renderState();
   try {
     await initializeSyntheticCamera();
-    await initializeWorker({ mirror: false, swapHands: false });
+    await initializeWorker({ enableFace: true, enableHands: false, enablePose: false, mirror: false, swapHands: false });
     await inferUntil("face", observation => observation.faceDetected && observation.faceSize > 0);
+
+    worker.terminate();
+    state.ready = false;
+    await initializeWorker({ enableFace: false, enableHands: true, enablePose: false, mirror: false, swapHands: false });
     const originalHand = await inferUntil(
       "hand",
       observation => observation.leftHandCount + observation.rightHandCount === 21,
     );
+
+    worker.terminate();
+    state.ready = false;
+    await initializeWorker({ enableFace: false, enableHands: false, enablePose: true, mirror: false, swapHands: false });
     await inferUntil(
       "pose",
       observation => observation.poseCount === 33 && observation.poseWorldCount === 33,
@@ -166,7 +174,7 @@ async function run() {
 
     worker.terminate();
     state.ready = false;
-    await initializeWorker({ mirror: true, swapHands: true });
+    await initializeWorker({ enableFace: false, enableHands: true, enablePose: false, mirror: true, swapHands: true });
     const swappedHand = await inferUntil(
       "hand",
       observation => observation.leftHandCount + observation.rightHandCount === 21,
