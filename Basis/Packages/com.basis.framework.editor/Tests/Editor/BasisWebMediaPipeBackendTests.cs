@@ -8,6 +8,9 @@ public class BasisWebMediaPipeBackendTests
     private const string BrowserPluginPath = "Packages/com.basis.mediapipe/Runtime/WebGL/BasisMediaPipeWeb.jslib";
     private const string BridgePath = "Packages/com.basis.mediapipe/Runtime/WebGL/BasisMediaPipeWebBackend.cs";
     private const string WorkerPath = "Packages/com.basis.mediapipe/Web~/BasisMediaPipeWorker.mjs";
+    private const string DevelopmentHarnessPath = "Packages/com.basis.mediapipe/Tests/Development/WebGL/index.html";
+    private const string DevelopmentHarnessScriptPath = "Packages/com.basis.mediapipe/Tests/Development/WebGL/mediapipe-e2e.mjs";
+    private const string PlaywrightSpecPath = "Packages/com.basis.mediapipe/Tests/Development/WebGL/mediapipe-worker.spec.mjs";
     private const string WebAssemblyDefinitionPath = "Packages/com.basis.mediapipe/Runtime/WebGL/BasisMediaPipe.WebGL.asmdef";
     private const string NativeAssemblyDefinitionPath = "Packages/com.basis.mediapipe/Runtime/Homuler/BasisMediaPipe.Homuler.asmdef";
 
@@ -33,6 +36,21 @@ public class BasisWebMediaPipeBackendTests
         StringAssert.Contains("BasisMediaPipeBackendRegistry.Register", File.ReadAllText(BridgePath));
         StringAssert.Contains("HomulerMediaPipeBackend", File.ReadAllText(
             "Packages/com.basis.mediapipe/Runtime/Homuler/HomulerMediaPipeBackend.cs"));
+    }
+
+    [Test]
+    public void NativeHomulerBackendRetainsThreadedUnityCameraPath()
+    {
+        string nativeBackend = File.ReadAllText(
+            "Packages/com.basis.mediapipe/Runtime/Homuler/HomulerMediaPipeBackend.cs");
+        AssemblyDefinitionSettings nativeSettings = ReadAssemblyDefinition(NativeAssemblyDefinitionPath);
+
+        Assert.That(nativeSettings.excludePlatforms, Is.EqualTo(new[] { "WebGL" }));
+        StringAssert.Contains("UsesUnityCamera => true", nativeBackend);
+        StringAssert.Contains("new Thread(WorkerLoop)", nativeBackend);
+        StringAssert.Contains("new AutoResetEvent(false)", nativeBackend);
+        StringAssert.Contains("Addressables.LoadAssetAsync<TextAsset>", nativeBackend);
+        StringAssert.Contains("frame.GetPixels32", nativeBackend);
     }
 
     [Test]
@@ -84,6 +102,33 @@ public class BasisWebMediaPipeBackendTests
         StringAssert.Contains("face_landmarker.task.bytes", source);
         StringAssert.Contains("hand_landmarker.task.bytes", source);
         StringAssert.Contains("pose_landmarker_lite.task.bytes", source);
+    }
+
+    [Test]
+    public void DevelopmentE2ECoversWorkerInferenceSettingsAndAvatarSignals()
+    {
+        Assert.That(File.Exists(DevelopmentHarnessPath), Is.True);
+        Assert.That(File.Exists(DevelopmentHarnessScriptPath), Is.True);
+        Assert.That(File.Exists(PlaywrightSpecPath), Is.True);
+
+        string harness = File.ReadAllText(DevelopmentHarnessScriptPath);
+        string spec = File.ReadAllText(PlaywrightSpecPath);
+
+        StringAssert.Contains("new Worker", harness);
+        StringAssert.Contains("captureStream", harness);
+        StringAssert.Contains("createImageBitmap", harness);
+        StringAssert.Contains("faceDetected", harness);
+        StringAssert.Contains("leftHandDetected", harness);
+        StringAssert.Contains("rightHandDetected", harness);
+        StringAssert.Contains("poseDetected", harness);
+        StringAssert.Contains("avatarSignals", harness);
+        StringAssert.Contains("mirror", spec);
+        StringAssert.Contains("swapHands", spec);
+        StringAssert.Contains("faceDetected", spec);
+        StringAssert.Contains("leftHandDetected", spec);
+        StringAssert.Contains("rightHandDetected", spec);
+        StringAssert.Contains("poseDetected", spec);
+        StringAssert.Contains("avatarSignals", spec);
     }
 
     private static AssemblyDefinitionSettings ReadAssemblyDefinition(string path)
