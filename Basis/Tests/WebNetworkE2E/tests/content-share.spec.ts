@@ -68,14 +68,17 @@ async function waitForEvent(
   type: string,
   sphereId?: string,
   contentType?: ContentShareType,
+  contentUrl?: string,
 ): Promise<void> {
   await page.waitForFunction(criteria => (window.basisNetworkE2EEvents ?? []).some(event =>
     event.type === criteria.type
     && (criteria.sphereId === undefined || event.sphereId === criteria.sphereId)
-    && (criteria.contentType === undefined || event.contentType === criteria.contentType)), {
+    && (criteria.contentType === undefined || event.contentType === criteria.contentType)
+    && (criteria.contentUrl === undefined || event.contentUrl === criteria.contentUrl)), {
     type,
     sphereId,
     contentType,
+    contentUrl,
   });
 }
 
@@ -89,10 +92,10 @@ test('Avatar, Prop, World, and Server shares synchronize through Basis Server', 
   const password = process.env.BASIS_SERVER_PASSWORD ?? '';
   const runId = `${Date.now()}-${process.pid}`;
   const shares: ContentShareInput[] = [
-    ['Avatar', 'https://example.test/avatar.BEE', 'avatar-pass'],
-    ['Prop', 'https://example.test/prop.BEE', 'prop-pass'],
-    ['World', 'https://example.test/world.BEE', 'world-pass'],
-    ['Server', 'basis.example.test:4296#server-pass', ''],
+    ['Avatar', requiredEnvironment('BASIS_AVATAR_BEE_URL'), requiredEnvironment('BASIS_AVATAR_BEE_PASSWORD')],
+    ['Prop', requiredEnvironment('BASIS_PROP_BEE_URL'), requiredEnvironment('BASIS_PROP_BEE_PASSWORD')],
+    ['World', requiredEnvironment('BASIS_WORLD_BEE_URL'), requiredEnvironment('BASIS_WORLD_BEE_PASSWORD')],
+    ['Server', requiredEnvironment('BASIS_SHARED_SERVER_CONNECTION'), ''],
   ].map(([contentType, contentUrl, unlockPassword], index) => ({
     sphereId: `web-content-${runId}-${contentType.toLowerCase()}`,
     contentUrl,
@@ -117,8 +120,8 @@ test('Avatar, Prop, World, and Server shares synchronize through Basis Server', 
 
   for (const share of shares) {
     await senderPage.evaluate(input => window.basisNetworkE2EShareContent?.(input), share);
-    await waitForEvent(senderPage, 'content-created', share.sphereId, share.contentType);
-    await waitForEvent(receiverPage, 'content-created', share.sphereId, share.contentType);
+    await waitForEvent(senderPage, 'content-created', share.sphereId, share.contentType, share.contentUrl);
+    await waitForEvent(receiverPage, 'content-created', share.sphereId, share.contentType, share.contentUrl);
   }
 
   await expect.poll(() => hasFrame(senderFrames, 'sent', CONTENT_SHARE_CHANNEL)).toBe(true);
@@ -129,7 +132,7 @@ test('Avatar, Prop, World, and Server shares synchronize through Basis Server', 
   await latePage.goto(playerUrl(buildUrl, webSocketUri, `web-share-late-${runId}`, password));
   await waitForEvent(latePage, 'authenticated');
   for (const share of shares) {
-    await waitForEvent(latePage, 'content-created', share.sphereId, share.contentType);
+    await waitForEvent(latePage, 'content-created', share.sphereId, share.contentType, share.contentUrl);
   }
 
   const explicitlyRemoved = shares[0];
