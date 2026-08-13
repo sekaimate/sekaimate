@@ -33,6 +33,10 @@ public sealed class ServersProviderWebGLContractTests
         StringAssert.Contains("E2EClickEdit", provider);
         StringAssert.Contains("E2EClickRemove", provider);
         StringAssert.Contains("E2EConfirmRemove", provider);
+        int entryStateStart = provider.IndexOf("private sealed class E2EEntryState", System.StringComparison.Ordinal);
+        int stateStart = provider.IndexOf("private sealed class E2EState", entryStateStart, System.StringComparison.Ordinal);
+        string entryState = provider.Substring(entryStateStart, stateStart - entryStateStart);
+        StringAssert.Contains("public bool connectable;", entryState);
     }
 
     [Test]

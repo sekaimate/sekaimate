@@ -19,7 +19,6 @@ namespace Basis.BasisUI
             public string password;
             public string webSocketUri;
             public string serverInfoUri;
-            public bool connectable;
         }
 
         [Serializable]
@@ -32,6 +31,7 @@ namespace Basis.BasisUI
             public string port;
             public string webSocketUri;
             public string serverInfoUri;
+            public bool connectable;
         }
 
         [Serializable]
