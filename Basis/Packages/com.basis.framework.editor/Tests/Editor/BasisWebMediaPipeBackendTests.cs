@@ -68,6 +68,7 @@ public class BasisWebMediaPipeBackendTests
         StringAssert.Contains("HandLandmarker.createFromOptions", worker);
         StringAssert.Contains("PoseLandmarker.createFromOptions", worker);
         StringAssert.Contains("detectForVideo", worker);
+        StringAssert.Contains("appliedConfig", worker);
         StringAssert.Contains("vision_bundle.mjs", worker);
         StringAssert.DoesNotContain("https://cdn", worker);
 
