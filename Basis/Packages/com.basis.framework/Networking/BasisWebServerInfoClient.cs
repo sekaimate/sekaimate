@@ -18,6 +18,11 @@ namespace Basis.Scripts.Networking
             public ushort protocolVersion;
             public string name;
             public string motd;
+            public bool listening;
+            public bool ready;
+            public int visitors;
+            public int capacity;
+            public string version;
         }
 
         public static async Task<ServerProbeResult> ProbeAsync(
@@ -74,15 +79,25 @@ namespace Basis.Scripts.Networking
                 {
                     return new ServerProbeResult { Error = "Server-info response is empty." };
                 }
-                return new ServerProbeResult
+                bool healthPayload = response.listening
+                    || response.ready
+                    || response.capacity > 0
+                    || !string.IsNullOrEmpty(response.version);
+                ServerProbeResult result = new ServerProbeResult
                 {
                     Reachable = true,
-                    Online = response.online,
-                    Max = response.max,
+                    Online = healthPayload
+                        ? (ushort)Math.Min(ushort.MaxValue, Math.Max(0, response.visitors))
+                        : response.online,
+                    Max = healthPayload
+                        ? (ushort)Math.Min(ushort.MaxValue, Math.Max(0, response.capacity))
+                        : response.max,
                     ProtocolVersion = response.protocolVersion,
                     Name = response.name ?? string.Empty,
                     Motd = response.motd ?? string.Empty,
                 };
+                if (!string.IsNullOrEmpty(response.version)) result.Extras["version"] = response.version;
+                return result;
             }
             catch (Exception exception)
             {
