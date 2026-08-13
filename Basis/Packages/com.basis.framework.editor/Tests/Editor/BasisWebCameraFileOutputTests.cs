@@ -60,6 +60,36 @@ public class BasisWebCameraFileOutputTests
     }
 
     [Test]
+    public void WebGlCaptureReadsRenderedPixelsWithoutRequiringAsyncGpuReadback()
+    {
+        string camera = File.ReadAllText(CameraPath);
+        string camera360 = File.ReadAllText(Camera360Path);
+
+        StringAssert.Contains("#if UNITY_WEBGL && !UNITY_EDITOR", camera);
+        StringAssert.Contains("pooledScreenshot.ReadPixels", camera);
+        StringAssert.Contains("#if UNITY_WEBGL && !UNITY_EDITOR", camera360);
+        StringAssert.Contains("readbackTexture.ReadPixels", camera360);
+        StringAssert.Contains("#else\n        AsyncGPUReadback.Request", camera);
+        StringAssert.Contains("#else\n        AsyncGPUReadback.Request", camera360);
+    }
+
+    [Test]
+    public void CameraBrowserE2EProbeIsDevelopmentBuildAndUrlOptInOnly()
+    {
+        const string probePath = "Packages/com.basis.framework/Platform/WebGL/BasisWebCameraE2EProbe.cs";
+        const string diagnosticsPath = "Packages/com.basis.framework/Platform/WebGL/BasisWebCameraE2E.jslib";
+        string probe = File.ReadAllText(probePath);
+        string diagnostics = File.ReadAllText(diagnosticsPath);
+
+        StringAssert.Contains("UNITY_WEBGL && !UNITY_EDITOR && DEVELOPMENT_BUILD", probe);
+        StringAssert.Contains("basisCameraE2E", probe);
+        StringAssert.Contains("CaptureFlat", probe);
+        StringAssert.Contains("CapturePanorama", probe);
+        StringAssert.Contains("BasisWebFileDownload.Save", probe);
+        StringAssert.Contains("window.basisCameraE2E", diagnostics);
+    }
+
+    [Test]
     public void CameraSettingsUseIndexedDbPersistenceWithoutAddingImportOrExport()
     {
         string source = File.ReadAllText(CameraUiPath);
