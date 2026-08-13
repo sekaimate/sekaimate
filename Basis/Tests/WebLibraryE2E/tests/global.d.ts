@@ -1,6 +1,7 @@
 interface BasisLibraryE2EKey {
   mode: 'Avatar' | 'Prop' | 'World';
   pinned: boolean;
+  title: string;
   url: string;
 }
 
@@ -20,12 +21,15 @@ interface BasisLibraryE2ESnapshot {
   dropdowns: Array<{ entries: string[]; title: string; value: string }>;
   instances: BasisLibraryE2EInstance[];
   keys: BasisLibraryE2EKey[];
+  lastError: string;
+  lastRequestId: number;
   ready: boolean;
   search: string;
 }
 
 interface BasisLibraryE2ECommand {
   action: string;
+  requestId: number;
   target?: string;
   value?: string;
 }

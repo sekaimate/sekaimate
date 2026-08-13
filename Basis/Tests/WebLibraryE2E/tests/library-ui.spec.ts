@@ -13,6 +13,7 @@ const fixtures: BeeFixture[] = [
   fixture('Prop', 'BASIS_PROP_BEE_URL', 'BASIS_PROP_BEE_PASSWORD'),
   fixture('World', 'BASIS_WORLD_BEE_URL', 'BASIS_WORLD_BEE_PASSWORD'),
 ];
+let requestId = 0;
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name];
@@ -25,10 +26,15 @@ function fixture(type: ContentType, urlName: string, passwordName: string): BeeF
 }
 
 async function command(page: Page, action: string, target?: string, value?: string): Promise<void> {
-  await page.evaluate(({ action, target, value }) => {
+  requestId += 1;
+  const currentRequestId = requestId;
+  await page.evaluate(({ action, requestId: browserRequestId, target, value }) => {
     if (!window.basisLibraryE2E) throw new Error('Library E2E API is unavailable.');
-    window.basisLibraryE2E.command({ action, target, value });
-  }, { action, target, value });
+    window.basisLibraryE2E.command({ action, requestId: browserRequestId, target, value });
+  }, { action, requestId: currentRequestId, target, value });
+  await expect.poll(() => page.evaluate(() => window.basisLibraryE2E?.snapshot?.lastRequestId)).toBe(currentRequestId);
+  const error = await page.evaluate(() => window.basisLibraryE2E?.snapshot?.lastError ?? 'Missing command result.');
+  if (error) throw new Error(`${action} failed: ${error}`);
 }
 
 async function snapshot(page: Page): Promise<BasisLibraryE2ESnapshot> {
@@ -63,6 +69,13 @@ async function ensureBeeFixtures(page: Page): Promise<void> {
   }
 }
 
+async function searchFixture(page: Page, bee: BeeFixture): Promise<void> {
+  const key = (await snapshot(page)).keys.find(candidate => candidate.url === bee.url);
+  if (!key?.title) throw new Error(`Metadata title is unavailable for ${bee.url}.`);
+  await command(page, 'search', undefined, key.title);
+  await waitForSnapshot(page, value => value.search === key.title);
+}
+
 test.beforeEach(async ({ page, baseURL }) => {
   const url = new URL(baseURL ?? 'http://localhost:4173');
   url.searchParams.set('basisLibraryE2E', '1');
@@ -91,22 +104,23 @@ test('adds real Avatar, Prop, and World BEE files through the visible library di
   for (const bee of fixtures) {
     await command(page, 'select-tab', bee.type);
     await waitForSnapshot(page, value => value.currentPage === bee.type);
-    await command(page, 'search', bee.url);
-    await waitForSnapshot(page, value => value.search === bee.url);
-    await command(page, 'sort', 'DateNewestToOldest');
+    await searchFixture(page, bee);
+    await command(page, 'sort', undefined, 'DateNewestToOldest');
     await waitForSnapshot(page, value => value.dropdowns.some(dropdown => dropdown.value === 'DateNewestToOldest'));
     await command(page, 'click-first-card');
     await waitForSnapshot(page, value => value.buttons.some(button => button.title.length > 0 && button.title !== bee.url));
-    await command(page, 'click-title-key', 'library.pin');
-    await waitForSnapshot(page, value => value.keys.some(key => key.url === bee.url && key.pinned));
-    await command(page, 'click-title-key', 'library.pinned');
+    if (bee.type === 'Prop') {
+      await command(page, 'click-title-key', 'library.pin');
+      await waitForSnapshot(page, value => value.keys.some(key => key.url === bee.url && key.pinned));
+      await command(page, 'click-title-key', 'library.pinned');
+    }
   }
 });
 
 test('loads Avatar, Prop, and World from their real detail overlays', async ({ page }) => {
   for (const bee of fixtures) {
     await command(page, 'select-tab', bee.type);
-    await command(page, 'search', bee.url);
+    await searchFixture(page, bee);
     await command(page, 'click-first-card');
     if (bee.type !== 'Avatar') {
       await command(page, 'set-dropdown-key', 'library.networkType', 'Local');
@@ -114,6 +128,13 @@ test('loads Avatar, Prop, and World from their real detail overlays', async ({ p
     }
     await command(page, 'click-title-key', 'library.load');
     await waitForSnapshot(page, value => value.instances.some(instance => instance.url === bee.url));
+    if (bee.type === 'Prop') {
+      await command(page, 'select-tab', 'Prop');
+      await searchFixture(page, bee);
+      await command(page, 'click-first-card');
+      await command(page, 'click-title-key', 'library.despawn');
+      await waitForSnapshot(page, value => !value.instances.some(instance => instance.url === bee.url));
+    }
   }
 });
 
@@ -121,9 +142,15 @@ test('operates instantiated placement, teleport, persistence, static, and despaw
   const prop = fixtures.find(fixtureValue => fixtureValue.type === 'Prop');
   if (!prop) throw new Error('Prop fixture is missing.');
   await command(page, 'select-tab', 'Prop');
-  await command(page, 'search', prop.url);
+  await searchFixture(page, prop);
   await command(page, 'click-first-card');
-  await command(page, 'set-dropdown-key', 'library.networkType', 'Local');
+  const networkEnabled = Boolean(process.env.BASIS_WEBSOCKET_URI && process.env.BASIS_NETWORK_USER);
+  if (networkEnabled) {
+    await waitForSnapshot(page, value => value.dropdowns.some(dropdown => dropdown.title.length > 0 && dropdown.entries.length >= 3));
+    await command(page, 'set-dropdown-key', 'library.networkType', 'Networked');
+  } else {
+    await command(page, 'set-dropdown-key', 'library.networkType', 'Local');
+  }
   await command(page, 'click-title-key', 'library.load');
   await waitForSnapshot(page, value => value.instances.some(instance => instance.url === prop.url));
   await command(page, 'select-tab', 'Instantiated');
@@ -140,7 +167,7 @@ test('operates instantiated placement, teleport, persistence, static, and despaw
     await waitForSnapshot(page, value => value.instances.some(instance => instance.url === prop.url && instance.static));
   }
 
-  await command(page, 'filter', 'PersistentOnly');
+  await command(page, 'filter', undefined, 'PersistentOnly');
   await waitForSnapshot(page, value => value.dropdowns.some(dropdown => dropdown.value === 'PersistentOnly'));
   await command(page, 'click-tooltip-key', 'library.instantiated.remove.tooltip');
   await command(page, 'click-title-key', 'ui.yes');
@@ -151,7 +178,7 @@ test('shares and deletes each saved content type through its detail overlay', as
   const networkEnabled = Boolean(process.env.BASIS_WEBSOCKET_URI && process.env.BASIS_NETWORK_USER);
   for (const bee of fixtures) {
     await command(page, 'select-tab', bee.type);
-    await command(page, 'search', bee.url);
+    await searchFixture(page, bee);
     await command(page, 'click-first-card');
     if (networkEnabled) {
       await command(page, 'click-title-key', 'library.share');
