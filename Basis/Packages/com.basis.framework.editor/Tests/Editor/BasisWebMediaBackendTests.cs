@@ -7,6 +7,7 @@ public class BasisWebMediaBackendTests
     private const string E2EFixturePath = "Packages/com.basis.mediaplayer/Runtime/Web/BasisWebMediaE2EFixture.cs";
     private const string SecurityPath = "Packages/com.basis.mediaplayer/Runtime/Core/BasisMediaPlayerSecurity.cs";
     private const string WebSecurityPath = "Packages/com.basis.mediaplayer/Runtime/Web/BasisWebMediaSecurityPolicy.cs";
+    private const string PlayerPath = "Packages/com.basis.mediaplayer/Runtime/BasisMediaPlayer.cs";
 
     [Test]
     public void UploadsOnlyNewBrowserVideoFrames()
@@ -95,5 +96,16 @@ public class BasisWebMediaBackendTests
 
         StringAssert.Contains("DNS resolution failed", security);
         StringAssert.DoesNotContain("catch { return null; }", security);
+    }
+
+    [Test]
+    public void BrowserScreenshotUsesGpuReadbackAndDownload()
+    {
+        string source = File.ReadAllText(PlayerPath);
+
+        StringAssert.Contains("BasisWebCameraGpuReadback.ReadInto", source);
+        StringAssert.Contains("BasisWebFileDownload.Save", source);
+        StringAssert.Contains("#else\n        AsyncGPUReadback.Request", source);
+        StringAssert.Contains("File.WriteAllBytes(fullPath, png)", source);
     }
 }
