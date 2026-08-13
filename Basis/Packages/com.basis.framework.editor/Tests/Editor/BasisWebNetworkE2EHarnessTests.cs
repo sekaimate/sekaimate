@@ -27,12 +27,14 @@ public sealed class BasisWebNetworkE2EHarnessTests
     }
 
     [Test]
-    public void BrowserBridgeExposesOnlyHarnessEventsAndCommands()
+    public void RuntimeHarnessReportsObservableJsonWithoutOwningAWebSocket()
     {
+        string source = File.ReadAllText("Packages/com.basis.framework/Networking/WebGL/BasisWebNetworkE2EHarness.cs");
         string bridge = File.ReadAllText("Packages/com.basis.framework/Networking/WebGL/BasisWebNetworkE2E.jslib");
 
-        StringAssert.Contains("BasisWebNetworkE2EReport", bridge);
-        StringAssert.Contains("basisNetworkE2EEvents", bridge);
+        StringAssert.Contains("JsonUtility.ToJson", source);
+        StringAssert.Contains("[BasisWebNetworkE2E]", source);
+        StringAssert.DoesNotContain("new WebSocket", source);
         StringAssert.Contains("basisNetworkE2ESendChat", bridge);
         StringAssert.Contains("basisNetworkE2EReconnect", bridge);
         StringAssert.DoesNotContain("new WebSocket", bridge);
