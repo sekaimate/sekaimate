@@ -70,10 +70,11 @@ async function extensionWorker(context: BrowserContext): Promise<Worker> {
 }
 
 async function registerRuntime(worker: Worker, pageUrl: string): Promise<void> {
-  const origin = new URL(pageUrl).origin;
-  if (!origin.startsWith('http://') && !origin.startsWith('https://')) {
-    throw new Error(`WebXR E2E requires an HTTP(S) build URL: ${origin}`);
+  const url = new URL(pageUrl);
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error(`WebXR E2E requires an HTTP(S) build URL: ${url.origin}`);
   }
+  const matchPattern = `${url.protocol}//${url.hostname}/*`;
 
   const version = await worker.evaluate(() => {
     const extensionGlobal = globalThis as typeof globalThis & ChromeServiceWorkerGlobal;
@@ -99,7 +100,7 @@ async function registerRuntime(worker: Worker, pageUrl: string): Promise<void> {
       world: 'MAIN',
       persistAcrossSessions: false,
     }]);
-  }, { matches: [`${origin}/*`] });
+  }, { matches: [matchPattern] });
 }
 
 export async function launchIwe(testInfo: TestInfo, pageUrl: string): Promise<IweSession> {
