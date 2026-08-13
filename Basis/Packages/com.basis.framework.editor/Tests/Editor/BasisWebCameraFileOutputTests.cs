@@ -66,9 +66,9 @@ public class BasisWebCameraFileOutputTests
         string camera360 = File.ReadAllText(Camera360Path);
 
         StringAssert.Contains("#if UNITY_WEBGL && !UNITY_EDITOR", camera);
-        StringAssert.Contains("pooledScreenshot.ReadPixels", camera);
+        StringAssert.Contains("BasisWebCameraGpuReadback.ReadInto(renderTexture, pooledScreenshot)", camera);
         StringAssert.Contains("#if UNITY_WEBGL && !UNITY_EDITOR", camera360);
-        StringAssert.Contains("readbackTexture.ReadPixels", camera360);
+        StringAssert.Contains("BasisWebCameraGpuReadback.ReadInto(readbackRT, readbackTexture)", camera360);
         StringAssert.Contains("#else\n        AsyncGPUReadback.Request", camera);
         StringAssert.Contains("#else\n        AsyncGPUReadback.Request", camera360);
     }

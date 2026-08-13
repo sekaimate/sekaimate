@@ -997,6 +997,11 @@ public partial class BasisHandHeldCamera : BasisHandHeldCameraInteractable
 
         EnsureTexturePool(readbackSource.width, readbackSource.height, TextureFormat);
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+        BasisWebCameraGpuReadback.ReadInto(readbackSource, pooledScreenshot);
+        SetNormalAfterCapture();
+        SaveScreenshotAsync(pooledScreenshot, photoMetadata);
+#else
         AsyncGPUReadback.Request(readbackSource, 0, request =>
         {
             if (resolved) ReleaseSrgbResolveTarget();
@@ -1015,6 +1020,7 @@ public partial class BasisHandHeldCamera : BasisHandHeldCameraInteractable
             SetNormalAfterCapture();
             SaveScreenshotAsync(pooledScreenshot, photoMetadata);
         });
+#endif
     }
 
     /// <summary>Ensures <see cref="pooledScreenshot"/> matches the required size/format.</summary>

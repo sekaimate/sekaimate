@@ -145,6 +145,18 @@ public partial class BasisHandHeldCamera
 
         RenderTexture readbackRT = equirect;
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+        int width = readbackRT.width;
+        int height = readbackRT.height;
+        var readbackTexture = new Texture2D(width, height, TextureFormat.RGBAFloat, false);
+        BasisWebCameraGpuReadback.ReadInto(readbackRT, readbackTexture);
+        byte[] raw = readbackTexture.GetRawTextureData<byte>().ToArray();
+        Destroy(readbackTexture);
+        ReleaseRT(readbackRT);
+        BasisLocalAvatarDriver.ScaleheadToZero();
+        LogPanoramaCapture(raw, width, height, stereo);
+        Process360AndSave(raw, width, height, exr, photoMetadata, perEyeWidth, fullHeight, stereo, headingDegrees, bakeExposure, bakeContrast, bakeSaturation);
+#else
         AsyncGPUReadback.Request(readbackRT, 0, request =>
         {
             int width = readbackRT.width;
@@ -162,18 +174,31 @@ public partial class BasisHandHeldCamera
             ReleaseRT(readbackRT);
             BasisLocalAvatarDriver.ScaleHeadToZero();
 
-            bool anyNonZero = false;
-            for (int i = 0; i < raw.Length; i += 3988)
-            {
-                if (raw[i] != 0) { anyNonZero = true; break; }
-            }
-            if (!anyNonZero)
-                BasisDebug.LogError($"[360] Rendered image is fully black — RenderToCubemap drew nothing (stereo={stereo}, {width}x{height}). URP likely isn't drawing the scene via RenderToCubemap in this context.");
-            else
-                BasisDebug.Log($"[360] Captured {width}x{height} (stereo={stereo}).");
-
+            LogPanoramaCapture(raw, width, height, stereo);
             Process360AndSave(raw, width, height, exr, photoMetadata, perEyeWidth, fullHeight, stereo, headingDegrees, bakeExposure, bakeContrast, bakeSaturation);
         });
+#endif
+    }
+
+    private static void LogPanoramaCapture(byte[] raw, int width, int height, bool stereo)
+    {
+        bool anyNonZero = false;
+        for (int i = 0; i < raw.Length; i += 3988)
+        {
+            if (raw[i] != 0)
+            {
+                anyNonZero = true;
+                break;
+            }
+        }
+
+        if (!anyNonZero)
+        {
+            BasisDebug.LogError($"[360] Rendered image is fully black — RenderToCubemap drew nothing (stereo={stereo}, {width}x{height}). URP likely isn't drawing the scene via RenderToCubemap in this context.");
+            return;
+        }
+
+        BasisDebug.Log($"[360] Captured {width}x{height} (stereo={stereo}).");
     }
 
 #if UNITY_WEBGL && !UNITY_EDITOR
