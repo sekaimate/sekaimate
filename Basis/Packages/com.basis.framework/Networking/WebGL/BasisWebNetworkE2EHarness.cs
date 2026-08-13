@@ -10,6 +10,7 @@ using Basis.Network.Core;
 using Basis.Scripts.Device_Management;
 using Basis.Scripts.Drivers;
 using Basis.Scripts.BasisSdk.Players;
+using Basis.Scripts.Networking.NetworkedAvatar;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 

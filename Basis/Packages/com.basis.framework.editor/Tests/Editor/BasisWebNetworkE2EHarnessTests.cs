@@ -23,6 +23,7 @@ public sealed class BasisWebNetworkE2EHarnessTests
         StringAssert.Contains("BasisNetworkHandleChat.OnChatMessageReceived", source);
         StringAssert.Contains("BasisNetworkConnection.LocalPlayerIsConnected", source);
         StringAssert.Contains("BasisNetworkPlayers.RemotePlayers.Count", source);
+        StringAssert.Contains("using Basis.Scripts.Networking.NetworkedAvatar;", source);
         StringAssert.Contains("BasisNetworkManagement.Transmitter", source);
     }
 
