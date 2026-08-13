@@ -19,6 +19,7 @@ namespace Basis.BasisUI
             public string password;
             public string webSocketUri;
             public string serverInfoUri;
+            public bool connectable;
         }
 
         [Serializable]
@@ -72,6 +73,7 @@ namespace Basis.BasisUI
                     port = entry.Target?.Get(Basis.Network.Core.ConnectionTarget.Keys.Port) ?? string.Empty,
                     webSocketUri = entry.WebSocketUri ?? string.Empty,
                     serverInfoUri = entry.ServerInfoUri ?? string.Empty,
+                    connectable = row?.ConnectButton?.IsInteractable ?? false,
                 });
             }
             return JsonUtility.ToJson(state);

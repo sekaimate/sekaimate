@@ -8,6 +8,7 @@ interface ServerEntryState {
   port: string;
   webSocketUri: string;
   serverInfoUri: string;
+  connectable: boolean;
 }
 
 interface ServersUIState {
@@ -77,6 +78,11 @@ test('Servers UI manages, probes, connects, and auto-connects to a real Basis Se
   });
 
   await page.goto(buildUrl(webBuildUrl));
+  await expect.poll(async () => (await state(page)).entries.some(entry =>
+    entry.webSocketUri === ''
+    && entry.serverInfoUri === ''
+    && !entry.connectable
+    && entry.description.length > 0)).toBe(true);
   await command(page, { type: 'set-username', value: username });
   await command(page, { type: 'set-auto-connect', boolValue: true });
   await command(page, { type: 'add-start' });
@@ -107,12 +113,14 @@ test('Servers UI manages, probes, connects, and auto-connects to a real Basis Se
   await command(page, {
     type: 'editor-set',
     address,
-    port: '4296',
+    port: '4297',
     password,
     webSocketUri,
     serverInfoUri,
   });
   await command(page, { type: 'editor-save' });
+  await expect.poll(async () => (await state(page)).entries.find(entry => entry.id === saved?.id)?.port)
+    .toBe('4297');
   expect((await state(page)).hostControlsVisible).toBe(false);
 
   await command(page, { type: 'connect', id: saved?.id ?? '' });
