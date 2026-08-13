@@ -751,6 +751,7 @@ public static class BasisLocalMicrophoneDriver
             isPaused = true;
             PlayerPrefs.SetInt(MicrophoneState, 1);
             OnPausedAction?.Invoke(true);
+            BasisWebAudioDiagnosticsBridge.MarkMuted(true);
             BasisDebug.LogError($"Browser microphone unavailable: {state}", BasisDebug.LogTag.Voice);
         }
     }
