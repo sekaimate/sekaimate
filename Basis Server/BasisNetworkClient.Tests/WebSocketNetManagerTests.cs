@@ -120,6 +120,25 @@ public sealed class WebSocketNetManagerTests
         Assert.Equal(DisconnectReason.ConnectionFailed, reason);
     }
 
+    [Fact]
+    public void ExplicitDisconnect_StillRaisesOneDisconnectEventWhenBrowserCloses()
+    {
+        FakeBrowserBridge bridge = new();
+        EventBasedNetListener listener = new();
+        List<DisconnectReason> reasons = new();
+        listener.PeerDisconnectedEvent += (_, info) => reasons.Add(info.Reason);
+        WebSocketNetManager manager = StartedManager(listener, bridge, pendingSendCapacity: 2);
+        NetPeer peer = manager.Connect("wss://basis.example/basis", 443, Writer(1));
+        bridge.Open();
+        bridge.Accept(1);
+
+        peer.Disconnect();
+        bridge.CloseFromBrowser(1000, "client disconnect");
+        bridge.CloseFromBrowser(1000, "duplicate close");
+
+        Assert.Equal(new[] { DisconnectReason.RemoteConnectionClose }, reasons);
+    }
+
     private static WebSocketNetManager StartedManager(
         EventBasedNetListener listener,
         FakeBrowserBridge bridge,

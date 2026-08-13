@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Net;
+using System.Threading;
 using Basis.Network.Core;
 
 namespace Basis.Network.WebSocketClient
@@ -90,7 +91,7 @@ namespace Basis.Network.WebSocketClient
             transport.Rejected += payload => RaiseDisconnected(peer, DisconnectReason.ConnectionRejected, payload);
             transport.Disconnected += close => RaiseDisconnected(
                 peer,
-                peer.IsConnected ? DisconnectReason.RemoteConnectionClose : DisconnectReason.ConnectionFailed,
+                peer.HasAccepted ? DisconnectReason.RemoteConnectionClose : DisconnectReason.ConnectionFailed,
                 WebSocketBrowserClosePayloadCodec.Encode(close));
 
             transport.Connect(absoluteUri, writer.CopyData());
@@ -104,7 +105,8 @@ namespace Basis.Network.WebSocketClient
 
         private void RaiseDisconnected(WebSocketNetPeer peer, DisconnectReason reason, byte[] additionalData)
         {
-            if (!peer.MarkDisconnected()) return;
+            if (!peer.MarkDisconnectEventRaised()) return;
+            peer.MarkDisconnected();
             NetPacketReader reader = NetPacketReader.Create(additionalData, 0, additionalData.Length, null);
             _listener.RaisePeerDisconnected(peer, new DisconnectInfo
             {
@@ -136,6 +138,7 @@ namespace Basis.Network.WebSocketClient
         private readonly int _maximumPayloadLength;
         private readonly NetStatistics _statistics;
         private bool _disconnected;
+        private int _disconnectEventRaised;
         private int _remoteId;
 
         internal WebSocketNetPeer(
@@ -163,6 +166,7 @@ namespace Basis.Network.WebSocketClient
         }
 
         public bool IsConnected { get; private set; }
+        internal bool HasAccepted { get; private set; }
         public int Id => 0;
         public IPAddress Address { get; }
         public int RemoteId => _remoteId;
@@ -177,6 +181,7 @@ namespace Basis.Network.WebSocketClient
             if (_disconnected) return;
             if (remoteId < 0) throw new ArgumentOutOfRangeException(nameof(remoteId));
             _remoteId = remoteId;
+            HasAccepted = true;
             IsConnected = true;
             while (_pendingSends.Count > 0)
             {
@@ -193,6 +198,8 @@ namespace Basis.Network.WebSocketClient
             _pendingSends.Clear();
             return true;
         }
+
+        internal bool MarkDisconnectEventRaised() => Interlocked.Exchange(ref _disconnectEventRaised, 1) == 0;
 
         public void Disconnect()
         {
