@@ -62,11 +62,17 @@ public static class BasisClipboard
         return Service.ReadTextAsync();
     }
 
-    public static async void WriteText(string text)
+    public static void WriteText(string text)
+    {
+        WriteText(text, null);
+    }
+
+    public static async void WriteText(string text, Action onWritten)
     {
         try
         {
             await WriteTextAsync(text);
+            onWritten?.Invoke();
         }
         catch (Exception exception)
         {

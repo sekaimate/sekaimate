@@ -3435,8 +3435,9 @@ namespace Basis.BasisUI
             copyAll.Descriptor.SetDescription(BasisLocalization.Get("settings.main.title.copyBuildInfo.description"));
             copyAll.OnClicked += () =>
             {
-                global::BasisClipboard.WriteText(BuildInfoString());
-                BasisDebug.Log("Copied build info to clipboard.");
+                global::BasisClipboard.WriteText(
+                    BuildInfoString(),
+                    () => BasisDebug.Log("Copied build info to clipboard."));
             };
 
             AddInfoRow(parent, "Version", Application.version);
