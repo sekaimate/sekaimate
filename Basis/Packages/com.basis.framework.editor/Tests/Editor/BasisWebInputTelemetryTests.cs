@@ -71,6 +71,7 @@ public class BasisWebInputTelemetryTests
 
         StringAssert.Contains("window.basisInputE2E", source);
         StringAssert.Contains("Object.freeze", source);
+        StringAssert.Contains("Object.values", source);
         StringAssert.Contains("UTF8ToString", source);
         StringAssert.DoesNotContain("SendMessage", source);
     }
