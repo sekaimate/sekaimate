@@ -9,6 +9,10 @@
 - 2プレイヤーのjoinとremote player生成
 - avatar stateの送受信
 - chatの送受信
+- プレイヤー一覧の検索と名前順ソート
+- 個別プレイヤーUIのmute、volume、pin、highlight、avatar表示、chat表示、block
+- blockの相手側一時block反映
+- 接続者の権限に対応する管理操作だけが個別プレイヤーUIに表示されること
 - Avatar、Prop、World、ServerのContentShare送受信
 - 遅延参加者への既存ContentShare再送
 - 明示削除と共有者切断時のContentShare清掃

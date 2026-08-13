@@ -384,12 +384,28 @@ namespace Basis.Scripts.Networking
             List<string> available = new List<string>();
             foreach (IndividualPlayerAdminAction action in Enum.GetValues(typeof(IndividualPlayerAdminAction)))
             {
-                if (IndividualPlayerActionPermissions.CanUse(BasisNetworkManagement.LocalPermissions, action))
+                if (IndividualPlayerActionPermissions.CanUse(BasisNetworkManagement.LocalPermissions, action)
+                    && TryFindActiveButton(BasisLocalization.Get(GetAdminActionTitleKey(action)), out _))
                 {
                     available.Add(action.ToString());
                 }
             }
             return available.ToArray();
+        }
+
+        private static string GetAdminActionTitleKey(IndividualPlayerAdminAction action)
+        {
+            return action switch
+            {
+                IndividualPlayerAdminAction.Kick => "menu.individualPlayer.kick",
+                IndividualPlayerAdminAction.Ban => "menu.individualPlayer.ban",
+                IndividualPlayerAdminAction.IpBan => "menu.individualPlayer.ipBan",
+                IndividualPlayerAdminAction.Teleport => "menu.individualPlayer.teleportTo",
+                IndividualPlayerAdminAction.Shout => "menu.individualPlayer.shout.enable",
+                IndividualPlayerAdminAction.Message => "menu.individualPlayer.sendMessage",
+                IndividualPlayerAdminAction.EditPermissions => "menu.individualPlayer.grantPermission",
+                _ => string.Empty,
+            };
         }
 
         private void Subscribe()
