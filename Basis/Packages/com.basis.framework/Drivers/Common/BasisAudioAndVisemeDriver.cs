@@ -436,10 +436,10 @@ namespace Basis.Scripts.Drivers
 #if UNITY_WEBGL && !UNITY_EDITOR
             webVolumeVisemeDriver?.ProcessAudioSamples(data, Length);
             float peak = 0f;
-            int sampleCount = Math.Min(Length, data?.Length ?? 0);
+            int sampleCount = System.Math.Min(Length, data?.Length ?? 0);
             for (int index = 0; index < sampleCount; index++)
             {
-                float amplitude = Math.Abs(data[index]);
+                float amplitude = System.Math.Abs(data[index]);
                 if (amplitude > peak) peak = amplitude;
             }
             BasisWebAudioDiagnosticsBridge.MarkVisemeProcessed(Player is BasisLocalPlayer, peak);
