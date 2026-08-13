@@ -16,7 +16,10 @@ self.onmessage = async (event) => {
   try {
     if (event.data.type === "initialize") {
       await initialize(event.data.assetRoot, event.data.config);
-      self.postMessage({ type: "ready" });
+      self.postMessage({
+        type: "ready",
+        appliedConfig: { mirror, swapHands },
+      });
       return;
     }
     if (event.data.type === "frame") {
