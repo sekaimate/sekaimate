@@ -1,12 +1,20 @@
 using System;
+#if !UNITY_WEBGL || UNITY_EDITOR
 using System.Collections.Concurrent;
+#endif
 using System.Collections.Generic;
 using System.Linq;
+#if !UNITY_WEBGL || UNITY_EDITOR
 using System.Threading;
+#endif
 using UnityEngine;
 public static class BasisLogManager
 {
+#if UNITY_WEBGL && !UNITY_EDITOR
+    private static readonly Queue<(string logString, string stackTrace, LogType type)> logQueue = new Queue<(string, string, LogType)>();
+#else
     private static readonly BlockingCollection<(string logString, string stackTrace, LogType type)> logQueue = new BlockingCollection<(string, string, LogType)>();
+#endif
     private static readonly Queue<string> logEntries = new Queue<string>();
     private static readonly Queue<string> errorEntries = new Queue<string>();
     private static readonly Queue<string> warningEntries = new Queue<string>();
@@ -16,9 +24,11 @@ public static class BasisLogManager
 
     static BasisLogManager()
     {
+#if !UNITY_WEBGL || UNITY_EDITOR
         Thread logProcessingThread = new Thread(LogProcessingLoop);
         logProcessingThread.IsBackground = true;
         logProcessingThread.Start();
+#endif
     }
 
     public static List<string> GetCollapsedLogs(LogType type)
@@ -88,9 +98,41 @@ public static class BasisLogManager
     }
     public static void HandleLog(string logString, string stackTrace, LogType type)
     {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        lock (logLock)
+        {
+            logQueue.Enqueue((logString, stackTrace, type));
+        }
+#else
         logQueue.Add((logString, stackTrace, type));
+#endif
     }
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+    internal static void ProcessQueuedLogs()
+    {
+        while (TryDequeueLog(out var logEntry))
+        {
+            AddLog(logEntry.logString, logEntry.stackTrace, logEntry.type);
+            LogChanged = true;
+        }
+    }
+
+    private static bool TryDequeueLog(out (string logString, string stackTrace, LogType type) logEntry)
+    {
+        lock (logLock)
+        {
+            if (logQueue.Count == 0)
+            {
+                logEntry = default;
+                return false;
+            }
+
+            logEntry = logQueue.Dequeue();
+            return true;
+        }
+    }
+#else
     private static void LogProcessingLoop()
     {
         foreach (var logEntry in logQueue.GetConsumingEnumerable())
@@ -99,6 +141,7 @@ public static class BasisLogManager
             LogChanged = true;
         }
     }
+#endif
 
     private static void AddLog(string logString, string stackTrace, LogType type)
     {
