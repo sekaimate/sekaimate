@@ -8,6 +8,8 @@ public class BasisWebMediaBackendTests
     private const string SecurityPath = "Packages/com.basis.mediaplayer/Runtime/Core/BasisMediaPlayerSecurity.cs";
     private const string WebSecurityPath = "Packages/com.basis.mediaplayer/Runtime/Web/BasisWebMediaSecurityPolicy.cs";
     private const string PlayerPath = "Packages/com.basis.mediaplayer/Runtime/BasisMediaPlayer.cs";
+    private const string SyntheticSourcePath = "Packages/com.basis.mediaplayer/Runtime/Sources/BasisSyntheticTestSource.cs";
+    private const string PlayerLoopPath = "Packages/com.basis.mediaplayer/Runtime/Web/BasisWebMediaPlayerLoop.cs";
 
     [Test]
     public void UploadsOnlyNewBrowserVideoFrames()
@@ -107,5 +109,18 @@ public class BasisWebMediaBackendTests
         StringAssert.Contains("BasisWebFileDownload.Save", source);
         StringAssert.Contains("#else\n        AsyncGPUReadback.Request", source);
         StringAssert.Contains("File.WriteAllBytes(fullPath, png)", source);
+    }
+
+    [Test]
+    public void SyntheticSourceUsesPlayerLoopWithoutWebThreads()
+    {
+        string source = File.ReadAllText(SyntheticSourcePath);
+        string playerLoop = File.ReadAllText(PlayerLoopPath);
+
+        StringAssert.Contains("BasisWebMediaPlayerLoop.Register", source);
+        StringAssert.Contains("BasisWebMediaPlayerLoop.Unregister", source);
+        StringAssert.Contains("#else\n        thread = new Thread", source);
+        StringAssert.Contains("PlayerLoop.SetPlayerLoop", playerLoop);
+        StringAssert.DoesNotContain("System.Threading", playerLoop);
     }
 }
