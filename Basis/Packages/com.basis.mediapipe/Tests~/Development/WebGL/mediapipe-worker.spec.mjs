@@ -5,7 +5,7 @@ test("synthetic camera drives MediaPipe worker and avatar signals", async ({ pag
   const browserErrors = [];
   page.on("pageerror", error => browserErrors.push(String(error)));
 
-  await page.goto(new URL("index.html", process.env.BASIS_MEDIAPIPE_E2E_BASE_URL).href);
+  await page.goto(process.env.BASIS_MEDIAPIPE_E2E_BASE_URL);
   await page.waitForFunction(() => Boolean(window.BasisMediaPipeE2E));
   const result = await page.evaluate(() => window.BasisMediaPipeE2E.run());
 
