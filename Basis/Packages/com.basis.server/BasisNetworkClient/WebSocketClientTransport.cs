@@ -1,4 +1,5 @@
 using System;
+using System.Text;
 using Basis.Network.Core;
 
 namespace Basis.Network.WebSocketClient
@@ -35,6 +36,41 @@ namespace Basis.Network.WebSocketClient
 
         public ushort Code { get; }
         public string Reason { get; }
+    }
+
+    public static class WebSocketBrowserClosePayloadCodec
+    {
+        private static readonly UTF8Encoding StrictUtf8 = new UTF8Encoding(false, true);
+
+        public static byte[] Encode(WebSocketBrowserClose close)
+        {
+            byte[] reason = StrictUtf8.GetBytes(close.Reason);
+            byte[] payload = new byte[2 + reason.Length];
+            payload[0] = (byte)(close.Code >> 8);
+            payload[1] = (byte)close.Code;
+            Buffer.BlockCopy(reason, 0, payload, 2, reason.Length);
+            return payload;
+        }
+
+        public static bool TryDecode(byte[] payload, out WebSocketBrowserClose close)
+        {
+            close = default;
+            if (payload == null || payload.Length < 2)
+            {
+                return false;
+            }
+            try
+            {
+                ushort code = (ushort)((payload[0] << 8) | payload[1]);
+                string reason = StrictUtf8.GetString(payload, 2, payload.Length - 2);
+                close = new WebSocketBrowserClose(code, reason);
+                return true;
+            }
+            catch (DecoderFallbackException)
+            {
+                return false;
+            }
+        }
     }
 
     public interface IWebSocketBrowserEventSink

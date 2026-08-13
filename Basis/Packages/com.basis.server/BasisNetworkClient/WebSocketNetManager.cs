@@ -88,8 +88,10 @@ namespace Basis.Network.WebSocketClient
                 _listener.RaiseNetworkReceive(peer, reader, data.Channel, data.DeliveryMethod);
             };
             transport.Rejected += payload => RaiseDisconnected(peer, DisconnectReason.ConnectionRejected, payload);
-            transport.Disconnected += _ => RaiseDisconnected(peer, DisconnectReason.RemoteConnectionClose, Array.Empty<byte>());
-            transport.Error += _ => RaiseDisconnected(peer, DisconnectReason.ConnectionFailed, Array.Empty<byte>());
+            transport.Disconnected += close => RaiseDisconnected(
+                peer,
+                peer.IsConnected ? DisconnectReason.RemoteConnectionClose : DisconnectReason.ConnectionFailed,
+                WebSocketBrowserClosePayloadCodec.Encode(close));
 
             transport.Connect(absoluteUri, writer.CopyData());
             return peer;

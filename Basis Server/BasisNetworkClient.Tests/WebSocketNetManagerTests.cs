@@ -78,6 +78,48 @@ public sealed class WebSocketNetManagerTests
         Assert.Equal(new byte[] { 4, 5, 6 }, received);
     }
 
+    [Fact]
+    public void BrowserClose_AfterAcceptPreservesCodeAndReason()
+    {
+        FakeBrowserBridge bridge = new();
+        EventBasedNetListener listener = new();
+        DisconnectReason? reason = null;
+        WebSocketBrowserClose? browserClose = null;
+        listener.PeerDisconnectedEvent += (_, info) =>
+        {
+            reason = info.Reason;
+            Assert.True(WebSocketBrowserClosePayloadCodec.TryDecode(
+                info.AdditionalData.GetRemainingBytes(),
+                out WebSocketBrowserClose decoded));
+            browserClose = decoded;
+        };
+        WebSocketNetManager manager = StartedManager(listener, bridge, pendingSendCapacity: 2);
+        manager.Connect("ws://127.0.0.1:4297/basis", 4297, Writer(1));
+        bridge.Open();
+        bridge.Accept(1);
+
+        bridge.CloseFromBrowser(1001, "server restart");
+
+        Assert.Equal(DisconnectReason.RemoteConnectionClose, reason);
+        Assert.Equal((ushort)1001, browserClose?.Code);
+        Assert.Equal("server restart", browserClose?.Reason);
+    }
+
+    [Fact]
+    public void BrowserClose_BeforeAcceptReportsConnectionFailure()
+    {
+        FakeBrowserBridge bridge = new();
+        EventBasedNetListener listener = new();
+        DisconnectReason? reason = null;
+        listener.PeerDisconnectedEvent += (_, info) => reason = info.Reason;
+        WebSocketNetManager manager = StartedManager(listener, bridge, pendingSendCapacity: 2);
+        manager.Connect("wss://basis.example/basis", 443, Writer(1));
+
+        bridge.CloseFromBrowser(1006, string.Empty);
+
+        Assert.Equal(DisconnectReason.ConnectionFailed, reason);
+    }
+
     private static WebSocketNetManager StartedManager(
         EventBasedNetListener listener,
         FakeBrowserBridge bridge,
@@ -143,5 +185,7 @@ public sealed class WebSocketNetManagerTests
                 deliveryMethod,
                 payload,
                 1024));
+
+        public void CloseFromBrowser(ushort code, string reason) => _sink!.OnBrowserClose(code, reason);
     }
 }
