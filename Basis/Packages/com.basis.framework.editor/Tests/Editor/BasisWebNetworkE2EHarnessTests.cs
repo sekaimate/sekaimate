@@ -27,6 +27,21 @@ public sealed class BasisWebNetworkE2EHarnessTests
     }
 
     [Test]
+    public void RuntimeHarnessUsesProductionContentShareChannelsAndLifecycleEvents()
+    {
+        string source = File.ReadAllText("Packages/com.basis.framework/Networking/WebGL/BasisWebNetworkE2EHarness.cs");
+
+        StringAssert.Contains("BasisNetworkCommons.ContentShareChannel", source);
+        StringAssert.Contains("BasisNetworkCommons.ContentShareCleanupChannel", source);
+        StringAssert.Contains("BasisContentShareManager.OnSphereCreated", source);
+        StringAssert.Contains("BasisContentShareManager.OnSphereRemoved", source);
+        StringAssert.Contains("ContentShareType.Avatar", source);
+        StringAssert.Contains("ContentShareType.Prop", source);
+        StringAssert.Contains("ContentShareType.World", source);
+        StringAssert.Contains("ContentShareType.Server", source);
+    }
+
+    [Test]
     public void RuntimeHarnessReportsObservableJsonWithoutOwningAWebSocket()
     {
         string source = File.ReadAllText("Packages/com.basis.framework/Networking/WebGL/BasisWebNetworkE2EHarness.cs");
@@ -37,6 +52,8 @@ public sealed class BasisWebNetworkE2EHarnessTests
         StringAssert.DoesNotContain("new WebSocket", source);
         StringAssert.Contains("basisNetworkE2ESendChat", bridge);
         StringAssert.Contains("basisNetworkE2EReconnect", bridge);
+        StringAssert.Contains("basisNetworkE2EShareContent", bridge);
+        StringAssert.Contains("basisNetworkE2ERemoveContent", bridge);
         StringAssert.DoesNotContain("new WebSocket", bridge);
     }
 }
