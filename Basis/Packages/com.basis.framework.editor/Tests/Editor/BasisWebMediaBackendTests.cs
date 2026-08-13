@@ -109,7 +109,8 @@ public class BasisWebMediaBackendTests
 
         StringAssert.Contains("BasisWebCameraGpuReadback.ReadInto", source);
         StringAssert.Contains("BasisWebFileDownload.Save", source);
-        StringAssert.Contains("#else\n        AsyncGPUReadback.Request", source);
+        StringAssert.Contains("#else\n        if (!BasisMediaPlayerSecurity.TrySandboxLogPath", source);
+        StringAssert.Contains("AsyncGPUReadback.Request", source);
         StringAssert.Contains("File.WriteAllBytes(fullPath, png)", source);
     }
 
