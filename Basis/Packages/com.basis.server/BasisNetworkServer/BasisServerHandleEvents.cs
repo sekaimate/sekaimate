@@ -1054,51 +1054,5 @@ namespace BasisServerHandle
             BasisNetworkResourceManagement.SetStatic(modifyResource, Peer);
         }
         #endregion
-        public static void HandleStoreDatabase(NetPacketReader reader, NetPeer peer)
-        {
-            if (NetworkServer.Configuration.DisableWriteUnlessAdminPersistentFlag)
-            {
-                if (!PermissionIntegration.HasValidRequirement(peer, PermNodes.ConfigurationEditor))
-                {
-                    return;
-                }
-            }
-            var dataMessage = new DatabasePrimativeMessage();
-            dataMessage.Deserialize(reader);
-            reader.Recycle();
-
-            var basisData = new BasisData(dataMessage.Name, dataMessage.jsonPayload);
-            BasisPersistentDatabase.AddOrUpdate(basisData);
-        }
-
-        public static void HandleRequestStoreDatabase(NetPacketReader reader, NetPeer peer)
-        {
-            if(NetworkServer.Configuration.DisableReadUnlessAdminPersistentFlag)
-            {
-                if(!PermissionIntegration.HasValidRequirement(peer, PermNodes.ConfigurationEditor))
-                {
-                    return;
-                }
-            }
-            var dataRequest = new DataBaseRequest();
-            dataRequest.Deserialize(reader);
-            reader.Recycle();
-            if (!BasisPersistentDatabase.GetByName(dataRequest.DatabaseID, out var db))
-            {
-                db = new BasisData(dataRequest.DatabaseID, new System.Collections.Concurrent.ConcurrentDictionary<string, object>());
-            }
-
-            var msg = new DatabasePrimativeMessage
-            {
-                Name = db.Name,
-                jsonPayload = db.JsonPayload
-            };
-
-            var writer = NetworkServer.RentWriter();
-            msg.Serialize(writer);
-            BasisNetworkStatistics.RecordOutbound(BasisNetworkCommons.StoreDatabaseChannel, writer.Length);
-            peer.Send(writer, BasisNetworkCommons.StoreDatabaseChannel, DeliveryMethod.ReliableOrdered);
-            NetworkServer.ReturnWriter(writer);
-        }
     }
 }

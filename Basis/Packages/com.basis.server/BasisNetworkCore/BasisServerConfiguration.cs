@@ -35,6 +35,7 @@ public class Configuration
     public string HealthCheckHost = "localhost";
     public ushort HealthCheckPort = 10666;
     public string HealthPath = "/health";
+    public bool HealthIncludeBSRProfiling = false;
     public int BSRSMillisecondDefaultInterval = 50;
     public int BSRBaseMultiplier = 1;
     public float BSRSIncreaseRate = 0.005f;
@@ -84,7 +85,15 @@ public class Configuration
     public int AvatarBundleMinMessages = 4;
     /// <summary>Minimum uncompressed bundle bytes before LZ4 compression is attempted. With LZ4 having near-zero per-call setup, 128 just guards the very smallest cases where LZ4 can't find any redundancy.</summary>
     public int AvatarBundleMinBytes = 128;
+    public bool EnableAvatarDeltaCompression = true;
+    public int AvatarDeltaKeyframeIntervalMs = 500;
+    public int AvatarDeltaKeyframeMaxIntervalMs = 2000;
+    public bool StripAdditionalDataAtLowQuality = true;
+    public bool EnableUplinkAvatarDelta = true;
     public bool EnableBSRProfiling = false;
+    public int BSRMaxDegreeOfParallelism = 0;
+    public int BSRMaxSliceCount = 0;
+    public int VoiceFrameDurationMs = 20;
     public bool DisallowHeadless = false;
 
     // Global lockout defaults applied at server boot. Users need the matching
@@ -143,6 +152,13 @@ public class Configuration
     /// live from the admin panel, and is broadcast to clients in GlobalGetLockState. Default off.
     /// </summary>
     public bool ImagesLocked = false;
+    public bool EndEffectorIKDisabled = false;
+    public bool TextChatLocked = false;
+    public bool VoiceChatLocked = false;
+    public bool MediaPlayerLocked = false;
+    public bool CameraCaptureLocked = false;
+    public bool PropGrabbingLocked = false;
+    public bool SafeDisplayNamesForced = false;
 
     // ── REST API ──────────────────────────────────────────────────────────────
     /// <summary>Set to true to enable the REST management API.</summary>
