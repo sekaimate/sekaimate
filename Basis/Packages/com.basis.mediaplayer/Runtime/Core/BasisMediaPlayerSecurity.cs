@@ -111,4 +111,5 @@ public static class BasisMediaPlayerSecurity
         sandboxed = full;
         return true;
     }
+#endif
 }

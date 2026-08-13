@@ -804,7 +804,7 @@ namespace Basis.BasisUI
                 return;
             }
 
-            AppendText(text);
+            InsertText(text);
             UpdateDisplay();
         }
 

@@ -858,9 +858,11 @@ namespace Basis.BasisUI
 
             // ---- Direct Connection (P2P) controls ----
             PanelElementDescriptor directConnPingField = null;
+            PanelElementDescriptor p2pGroup = null;
+            BasisPanelTint.Handle directConnPingTint = null;
             if (BasisNetworkPlatformCapabilities.SupportsDirectPeerConnections)
             {
-            var p2pGroup = PanelElementDescriptor.CreateNew(PanelElementDescriptor.ElementStyles.Group, root);
+            p2pGroup = PanelElementDescriptor.CreateNew(PanelElementDescriptor.ElementStyles.Group, root);
             p2pGroup.SetTitle(BasisLocalization.Get("menu.individualPlayer.directConnection"));
             p2pGroup.SetDescription(BasisLocalization.Get("menu.individualPlayer.directConnection.description"));
 
@@ -1021,7 +1023,7 @@ namespace Basis.BasisUI
             // IndividualPlayerPanelUpdater.UpdateDirectConnPingField, which also grades the
             // round trip onto the shared tint.
             directConnPingField.SetActive(false);
-            BasisPanelTint.Handle directConnPingTint = BasisPanelTint.Capture(directConnPingField);
+            directConnPingTint = BasisPanelTint.Capture(directConnPingField);
 
             // Per-person policy for *incoming* direct-connection requests from this
             // player. Saved to disc and consulted by BasisP2PIncomingDialog before it
@@ -1663,7 +1665,7 @@ namespace Basis.BasisUI
             updater.BufferField = bufferField;
             updater.DirectConnPingField = directConnPingField;
             updater.DirectConnPingTint = directConnPingTint;
-            updater.DirectConnRebuildFrom = p2pGroup.ContentParent;
+            updater.DirectConnRebuildFrom = p2pGroup?.ContentParent;
             updater.DirectConnRebuildStopAt = networkPage.Descriptor.ContentParent;
 
             // Wire audio debug fields

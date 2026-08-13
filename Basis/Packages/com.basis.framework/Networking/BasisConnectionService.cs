@@ -41,6 +41,20 @@ namespace Basis.Scripts.Networking
         // attempt, distinct from the bundle-load key BasisSceneLoad reports under.
         private const string ConnectionProgressKey = "BasisServerConnection";
 
+        private static ServerDirectoryEntry _lastTarget;
+        private static string _lastUserName;
+
+        public static bool HasReconnectTarget => _lastTarget != null && !string.IsNullOrWhiteSpace(_lastUserName);
+
+        public static Task ReconnectAsync()
+        {
+            if (!HasReconnectTarget)
+            {
+                return Task.CompletedTask;
+            }
+            return ConnectAsync(_lastTarget, _lastUserName);
+        }
+
         public static void ReportConnectionProgress(float progress, string message) =>
             BasisSceneLoad.progressCallback.ReportProgress(ConnectionProgressKey, progress, message ?? string.Empty);
 
@@ -102,6 +116,7 @@ namespace Basis.Scripts.Networking
             _connectInProgress = true;
             try
             {
+                BasisNetworkConnectionWatchdog.NotifyConnectStarting();
                 ReportConnectionProgress(5f, BasisLocalization.Get("menu.servers.status.initializing"));
 
                 if (BasisNetworkConnection.LocalPlayerIsConnected)
@@ -179,31 +194,38 @@ namespace Basis.Scripts.Networking
                     BasisNetworkManagement.Ip = resolvedIp;
                 }
 
+                _lastTarget = isHostMode ? null : entry;
+                _lastUserName = isHostMode ? null : BasisLocalPlayer.Instance.DisplayName;
+
                 ReportConnectionProgress(90f, BasisLocalization.Get("menu.servers.status.connecting"));
                 BasisNetworkManagement.Connect(authenticationPayload);
                 if (BasisDesktopEye.Instance != null)
                 {
                     BasisDesktopEye.Instance.LockEye();
                 }
-                CompleteConnectionProgress();
+                BasisNetworkConnectionWatchdog.NotifyHandshakeStarted();
             }
             catch (TimeoutException tex)
             {
+                BasisNetworkConnectionWatchdog.NotifyConnectAborted();
                 ReportConnectionError(BasisLocalization.Get("menu.servers.error.timeout"));
                 BasisDebug.LogError(tex.ToString());
             }
             catch (InvalidOperationException ex)
             {
+                BasisNetworkConnectionWatchdog.NotifyConnectAborted();
                 ReportConnectionError(ex.Message);
                 BasisDebug.LogError(ex.ToString());
             }
             catch (FormatException ex)
             {
+                BasisNetworkConnectionWatchdog.NotifyConnectAborted();
                 ReportConnectionError(ex.Message);
                 BasisDebug.LogError(ex.ToString());
             }
             catch (Exception ex)
             {
+                BasisNetworkConnectionWatchdog.NotifyConnectAborted();
                 ReportConnectionError(BasisLocalization.Get("menu.servers.error.connectFailed"));
                 BasisDebug.LogError(ex.ToString());
             }

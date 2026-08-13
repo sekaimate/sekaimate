@@ -396,6 +396,8 @@ namespace Basis.Scripts.Drivers
                 subscribedFaceRenderer.DestroyCalled -= TryShutdown;
                 subscribedFaceRenderer = null;
             }
+
+            _cachedEntityId = EntityId.None;
         }
 
 #if UNITY_WEBGL && !UNITY_EDITOR
