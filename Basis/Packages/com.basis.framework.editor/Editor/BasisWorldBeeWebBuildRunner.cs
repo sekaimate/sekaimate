@@ -95,6 +95,17 @@ public static class BasisWorldBeeWebBuildRunner
             }
 
             content.BasisBundleDescription.AssetBundleName = $"web-world-verification-{Guid.NewGuid():N}";
+            if (content.MainCamera == null)
+            {
+                throw new InvalidOperationException("Verification scene must contain a main camera.");
+            }
+
+            Vector3 markerWorldPosition = content.MainCamera.transform.position + content.MainCamera.transform.forward * 3f;
+            BasisBeeRuntimeCapabilityFixture.Attach(
+                content.gameObject,
+                verificationRoot,
+                BasisBeeRuntimeCapabilityFormat.World,
+                content.transform.InverseTransformPoint(markerWorldPosition));
 
             (bool success, string message) = await BasisBundleBuild.SceneBundleBuild(
                 null,

@@ -70,11 +70,19 @@ public static class BasisPropBeeWebBuildRunner
         }
 
         byte[] originalModelMeta = File.ReadAllBytes(SourceModelMetaPath);
+        string verificationFolderName = $"BasisPropBeeVerification_{Guid.NewGuid():N}";
+        string verificationRoot = $"Assets/{verificationFolderName}";
         GameObject buildRoot = null;
         string bundleFolder = null;
 
         try
         {
+            string folderGuid = AssetDatabase.CreateFolder("Assets", verificationFolderName);
+            if (string.IsNullOrWhiteSpace(folderGuid))
+            {
+                throw new InvalidOperationException($"Failed to create verification asset folder: {verificationRoot}");
+            }
+
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             GameObject sourcePrefab = AssetDatabase.LoadAssetAtPath<GameObject>(SourcePrefabPath);
             if (sourcePrefab == null)
@@ -89,6 +97,11 @@ public static class BasisPropBeeWebBuildRunner
             }
 
             content.BasisBundleDescription.AssetBundleName = $"web-prop-verification-{Guid.NewGuid():N}";
+            BasisBeeRuntimeCapabilityFixture.Attach(
+                buildRoot,
+                verificationRoot,
+                BasisBeeRuntimeCapabilityFormat.Prop,
+                new Vector3(0f, 1f, 0f));
 
             (bool success, string message) = await BasisBundleBuild.GameObjectBundleBuild(
                 null,
@@ -159,6 +172,7 @@ public static class BasisPropBeeWebBuildRunner
             }
             finally
             {
+                AssetDatabase.DeleteAsset(verificationRoot);
                 AssetDatabase.Refresh();
                 if (!string.IsNullOrWhiteSpace(bundleFolder) && Directory.Exists(bundleFolder))
                 {

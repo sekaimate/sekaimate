@@ -65,12 +65,20 @@ public static class BasisAvatarBeeWebBuildRunner
         }
 
         byte[] originalAvatarMeta = File.ReadAllBytes(SourceAvatarMetaPath);
+        string verificationFolderName = $"BasisAvatarBeeVerification_{Guid.NewGuid():N}";
+        string verificationRoot = $"Assets/{verificationFolderName}";
         GameObject buildRoot = null;
         string bundleFolder = null;
         Scene verificationScene = default;
 
         try
         {
+            string folderGuid = AssetDatabase.CreateFolder("Assets", verificationFolderName);
+            if (string.IsNullOrWhiteSpace(folderGuid))
+            {
+                throw new InvalidOperationException($"Failed to create verification asset folder: {verificationRoot}");
+            }
+
             verificationScene = EditorSceneManager.NewPreviewScene();
             buildRoot = (GameObject)PrefabUtility.InstantiatePrefab(sourceAvatar, verificationScene);
             if (buildRoot == null)
@@ -90,6 +98,11 @@ public static class BasisAvatarBeeWebBuildRunner
             avatar.BasisBundleDescription = new BasisBundleDescription(
                 $"Web-Avatar-Verification-{Guid.NewGuid():N}",
                 "WebGL avatar BEE verification artifact");
+            BasisBeeRuntimeCapabilityFixture.Attach(
+                buildRoot,
+                verificationRoot,
+                BasisBeeRuntimeCapabilityFormat.Avatar,
+                new Vector3(0f, 1.5f, 0f));
 
             (bool success, string message) = await BasisBundleBuild.GameObjectBundleBuild(
                 null,
@@ -156,6 +169,7 @@ public static class BasisAvatarBeeWebBuildRunner
                 EditorSceneManager.ClosePreviewScene(verificationScene);
             }
 
+            AssetDatabase.DeleteAsset(verificationRoot);
             AssetDatabase.Refresh();
             if (!string.IsNullOrWhiteSpace(bundleFolder) && Directory.Exists(bundleFolder))
             {
