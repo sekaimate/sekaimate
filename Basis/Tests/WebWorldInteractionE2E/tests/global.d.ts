@@ -32,4 +32,5 @@ interface BasisWorldInteractionSnapshot {
 
 interface Window {
   basisWorldInteractionE2E?: BasisWorldInteractionSnapshot;
+  transformHandles?: Map<'left' | 'right', object>;
 }
