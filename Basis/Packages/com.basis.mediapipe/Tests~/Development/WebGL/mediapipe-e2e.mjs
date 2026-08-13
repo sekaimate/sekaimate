@@ -31,6 +31,7 @@ const state = {
 let worker;
 let pendingResult;
 let cameraStream;
+let cameraTrack;
 let timestampMs = 0;
 
 function renderState() {
@@ -77,6 +78,7 @@ async function initializeWorker(settings) {
 
 async function initializeSyntheticCamera() {
   cameraStream = sourceCanvas.captureStream(30);
+  [cameraTrack] = cameraStream.getVideoTracks();
   cameraPreview.srcObject = cameraStream;
   sourceContext.fillStyle = "#000";
   sourceContext.fillRect(0, 0, sourceCanvas.width, sourceCanvas.height);
@@ -88,7 +90,9 @@ async function loadFixture(name) {
   image.src = new URL(`./fixtures/${fixtureNames[name]}`, import.meta.url).href;
   await image.decode();
   sourceContext.drawImage(image, 0, 0, sourceCanvas.width, sourceCanvas.height);
-  await new Promise(resolve => setTimeout(resolve, 70));
+  cameraTrack.requestFrame?.();
+  await new Promise(resolve => cameraPreview.requestVideoFrameCallback(resolve));
+  await new Promise(resolve => cameraPreview.requestVideoFrameCallback(resolve));
 }
 
 function decodeResult(buffer, fixture) {
