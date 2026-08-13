@@ -26,6 +26,16 @@ public static class BasisHeadlessBuild
 
     public static void BuildWeb()
     {
+        BuildWeb(false);
+    }
+
+    public static void BuildWebE2E()
+    {
+        BuildWeb(true);
+    }
+
+    private static void BuildWeb(bool developmentBuild)
+    {
         string buildPath = RequireArgument("customBuildPath");
         if (Directory.Exists(buildPath) && Directory.EnumerateFileSystemEntries(buildPath).Any())
         {
@@ -33,10 +43,10 @@ public static class BasisHeadlessBuild
         }
 
         EnsureActiveBuildTarget(BuildTarget.WebGL);
-        BuildPlayer(BuildTarget.WebGL, CreateWebBuildPlayerOptions(buildPath));
+        BuildPlayer(BuildTarget.WebGL, CreateWebBuildPlayerOptions(buildPath, developmentBuild));
     }
 
-    public static BuildPlayerOptions CreateWebBuildPlayerOptions(string buildPath)
+    public static BuildPlayerOptions CreateWebBuildPlayerOptions(string buildPath, bool developmentBuild = false)
     {
         return new BuildPlayerOptions
         {
@@ -44,7 +54,7 @@ public static class BasisHeadlessBuild
             locationPathName = buildPath,
             target = BuildTarget.WebGL,
             targetGroup = BuildTargetGroup.WebGL,
-            options = BuildOptions.None
+            options = developmentBuild ? BuildOptions.Development : BuildOptions.None
         };
     }
 

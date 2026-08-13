@@ -2,6 +2,62 @@ mergeInto(LibraryManager.library, {
   $BasisWebMedia: {
     nextId: 1,
     players: {},
+    diagnostics: null,
+    ensureDiagnostics: function() {
+      if (BasisWebMedia.diagnostics) return BasisWebMedia.diagnostics;
+      var enabled = false;
+      try {
+        enabled = new URLSearchParams(window.location.search).get('basisMediaE2E') === '1';
+      } catch (error) {
+        return null;
+      }
+      if (!enabled) return null;
+      BasisWebMedia.diagnostics = {
+        phase: 'initializing',
+        mediaId: 0,
+        htmlVideoElement: false,
+        sourceUrl: '',
+        corsMode: '',
+        crossOriginRequest: false,
+        codecSupport: '',
+        videoWidth: 0,
+        videoHeight: 0,
+        currentTime: 0,
+        paused: true,
+        playbackStarted: false,
+        playRequestCount: 0,
+        textureUploadCount: 0,
+        audioContextCreated: false,
+        mediaElementSourceCreated: false,
+        gainConnected: false,
+        destinationConnected: false,
+        audioContextState: '',
+        errorCode: 0,
+      };
+      window.__basisWebMediaE2E = BasisWebMedia.diagnostics;
+      return BasisWebMedia.diagnostics;
+    },
+    updateDiagnostics: function(player, phase) {
+      var diagnostics = BasisWebMedia.ensureDiagnostics();
+      if (!diagnostics || !player) return;
+      diagnostics.phase = phase;
+      diagnostics.mediaId = player.id;
+      diagnostics.htmlVideoElement = player.video instanceof HTMLVideoElement;
+      diagnostics.sourceUrl = player.video.currentSrc || player.video.src;
+      diagnostics.corsMode = player.video.crossOrigin || '';
+      try {
+        diagnostics.crossOriginRequest = new URL(diagnostics.sourceUrl).origin !== window.location.origin;
+      } catch (error) {
+        diagnostics.crossOriginRequest = false;
+      }
+      diagnostics.codecSupport = player.video.canPlayType('video/mp4; codecs="avc1.42E01E, mp4a.40.2"');
+      diagnostics.videoWidth = player.video.videoWidth;
+      diagnostics.videoHeight = player.video.videoHeight;
+      diagnostics.currentTime = player.video.currentTime;
+      diagnostics.paused = player.video.paused;
+      diagnostics.audioContextState = player.audioContext.state;
+      diagnostics.errorCode = player.error;
+    },
   },
 
   BasisWebMediaCreate__deps: ['$BasisWebMedia'],
@@ -25,6 +81,7 @@ mergeInto(LibraryManager.library, {
 
     var id = BasisWebMedia.nextId++;
     var player = {
+      id: id,
       video: video,
       audioContext: audioContext,
       source: source,
@@ -40,8 +97,29 @@ mergeInto(LibraryManager.library, {
       video.pause();
       gain.gain.value = 0;
       player.error = 2;
+      BasisWebMedia.updateDiagnostics(player, 'error');
     };
+    video.addEventListener('loadedmetadata', function() {
+      BasisWebMedia.updateDiagnostics(player, 'metadata');
+    });
+    video.addEventListener('playing', function() {
+      var diagnostics = BasisWebMedia.ensureDiagnostics();
+      if (diagnostics) diagnostics.playbackStarted = true;
+      BasisWebMedia.updateDiagnostics(player, 'playing');
+    });
+    audioContext.addEventListener('statechange', function() {
+      BasisWebMedia.updateDiagnostics(player, 'audio-state');
+    });
     BasisWebMedia.players[id] = player;
+    var diagnostics = BasisWebMedia.ensureDiagnostics();
+    if (diagnostics) {
+      diagnostics.audioContextCreated = window.AudioContext && audioContext instanceof window.AudioContext ||
+        (window.webkitAudioContext && audioContext instanceof window.webkitAudioContext);
+      diagnostics.mediaElementSourceCreated = source instanceof MediaElementAudioSourceNode;
+      diagnostics.gainConnected = true;
+      diagnostics.destinationConnected = true;
+    }
+    BasisWebMedia.updateDiagnostics(player, 'created');
     if (video.requestVideoFrameCallback) {
       var markFrame = function() {
         if (player.destroyed) return;
@@ -69,6 +147,7 @@ mergeInto(LibraryManager.library, {
     player.gain.disconnect();
     player.audioContext.close();
     delete BasisWebMedia.players[mediaId];
+    BasisWebMedia.updateDiagnostics(player, 'destroyed');
   },
 
   BasisWebMediaPlay__deps: ['$BasisWebMedia'],
@@ -76,6 +155,8 @@ mergeInto(LibraryManager.library, {
     var player = BasisWebMedia.players[mediaId];
     if (!player) return;
     player.error = 0;
+    var diagnostics = BasisWebMedia.ensureDiagnostics();
+    if (diagnostics) diagnostics.playRequestCount++;
     if (!player.video.muted) {
       var resumeRequest = player.audioContext.resume();
       if (resumeRequest) {
@@ -86,8 +167,10 @@ mergeInto(LibraryManager.library, {
     if (playRequest) {
       playRequest.catch(function(error) {
         player.error = error && error.name === 'NotAllowedError' ? 1 : 2;
+        BasisWebMedia.updateDiagnostics(player, 'play-error');
       });
     }
+    BasisWebMedia.updateDiagnostics(player, 'play-requested');
   },
 
   BasisWebMediaPause__deps: ['$BasisWebMedia'],
@@ -169,11 +252,15 @@ mergeInto(LibraryManager.library, {
       GLctx.bindTexture(GLctx.TEXTURE_2D, texture);
       GLctx.pixelStorei(GLctx.UNPACK_FLIP_Y_WEBGL, true);
       GLctx.texSubImage2D(GLctx.TEXTURE_2D, 0, 0, 0, GLctx.RGBA, GLctx.UNSIGNED_BYTE, player.video);
+      var diagnostics = BasisWebMedia.ensureDiagnostics();
+      if (diagnostics) diagnostics.textureUploadCount++;
+      BasisWebMedia.updateDiagnostics(player, 'texture-uploaded');
       return 1;
     } catch (error) {
       player.video.pause();
       player.gain.gain.value = 0;
       player.error = 3;
+      BasisWebMedia.updateDiagnostics(player, 'texture-error');
       return 0;
     } finally {
       GLctx.pixelStorei(GLctx.UNPACK_FLIP_Y_WEBGL, previousFlip);
