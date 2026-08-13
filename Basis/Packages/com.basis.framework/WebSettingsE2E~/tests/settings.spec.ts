@@ -70,7 +70,7 @@ test("opens every regular Settings tab, changes every bound control, and persist
   expect(exercise.succeeded, exercise.error).toBe(true);
   expect(exercise.authorized).toBe(false);
   assertTabsOpened(exercise, regularTabKeys);
-  expect(tabKeys(exercise)).not.toEqual(expect.arrayContaining(privilegedTabKeys));
+  expect(tabKeys(exercise)).not.toEqual(expect.arrayContaining([...privilegedTabKeys]));
 
   const boundControls = exercise.tabs.flatMap((tab) => tab.controls).filter((control) => control.bindingKey !== "");
   expect(boundControls.length).toBeGreaterThan(0);
@@ -109,7 +109,7 @@ test("shows Moderator and Admin only under their permission conditions", async (
   await page.goto(withMode(buildUrl as string, "regular"));
   await waitUntilReady(page);
   const regular = await request(page, "snapshotAll");
-  expect(tabKeys(regular)).not.toEqual(expect.arrayContaining(privilegedTabKeys));
+  expect(tabKeys(regular)).not.toEqual(expect.arrayContaining([...privilegedTabKeys]));
 
   await page.goto(withMode(buildUrl as string, "authorized"));
   await waitUntilReady(page);
