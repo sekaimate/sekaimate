@@ -77,10 +77,10 @@ namespace Basis.BasisUI
                     SetTextField(BasisLocalization.Get("ui.search"), command.value ?? string.Empty, true);
                     break;
                 case "sort":
-                    SetDropdown(string.Empty, command.value, 0);
+                    SetDropdown(string.Empty, command.value);
                     break;
                 case "filter":
-                    SetDropdown(string.Empty, command.value, 1);
+                    SetDropdown(string.Empty, command.value);
                     break;
                 case "click-title-key":
                     ClickTitle(command.target);
@@ -98,7 +98,7 @@ namespace Basis.BasisUI
                     SetPassword(BasisLocalization.Get(command.target), command.value ?? string.Empty);
                     break;
                 case "set-dropdown-key":
-                    SetDropdown(BasisLocalization.Get(command.target), NetworkDisplayValue(command.value), -1);
+                    SetDropdown(BasisLocalization.Get(command.target), NetworkDisplayValue(command.value));
                     break;
                 case "toggle-key":
                     Toggle(BasisLocalization.Get(command.target));
@@ -177,11 +177,14 @@ namespace Basis.BasisUI
             field.OnComponentUsed();
         }
 
-        private static void SetDropdown(string title, string value, int untitledIndex)
+        private static void SetDropdown(string title, string value)
         {
             IEnumerable<PanelDropdown> dropdowns = ActiveComponents<PanelDropdown>();
             PanelDropdown dropdown = string.IsNullOrEmpty(title)
-                ? dropdowns.Where(candidate => string.IsNullOrEmpty(candidate.Descriptor.Title)).ElementAtOrDefault(untitledIndex)
+                ? dropdowns.LastOrDefault(candidate =>
+                    string.IsNullOrEmpty(candidate.Descriptor.Title)
+                    && candidate.Entries != null
+                    && candidate.Entries.Contains(value))
                 : dropdowns.LastOrDefault(candidate => string.Equals(candidate.Descriptor.Title, title, StringComparison.Ordinal));
             if (dropdown == null || dropdown.Entries == null || !dropdown.Entries.Contains(value))
             {
