@@ -8,6 +8,7 @@ using Basis.BasisUI;
 using Basis.Scripts.BasisSdk.Interactions;
 using Basis.Scripts.Device_Management.Devices;
 using Basis.Scripts.Device_Management.Devices.Desktop;
+using Basis.Scripts.Drivers;
 using Basis.Scripts.TransformBinders.BoneControl;
 using Basis.Scripts.UI.UI_Panels;
 using UnityEngine;
@@ -263,12 +264,38 @@ internal sealed class BasisWebWorldInteractionE2E : MonoBehaviour
         snapshot.rightHandInputReady = rightInput != null;
         snapshot.leftDirectTouching = leftInput != null && BasisDirectTouch.Instance?.IsDeviceTouching(leftInput) == true;
         snapshot.rightDirectTouching = rightInput != null && BasisDirectTouch.Instance?.IsDeviceTouching(rightInput) == true;
+        if (leftInput != null)
+        {
+            snapshot.leftDirectTouchFingertip = GetFingertip(leftInput);
+            snapshot.leftPinch = ReadPinch(leftInput);
+        }
         if (snapshot.leftDirectTouching && !wasLeftTouching) snapshot.directTouchStarts++;
         if (!snapshot.leftDirectTouching && wasLeftTouching) snapshot.directTouchEnds++;
         if (snapshot.rightDirectTouching && !wasRightTouching) snapshot.directTouchStarts++;
         if (!snapshot.rightDirectTouching && wasRightTouching) snapshot.directTouchEnds++;
         wasLeftTouching = snapshot.leftDirectTouching;
         wasRightTouching = snapshot.rightDirectTouching;
+    }
+
+    private static Vector3 GetFingertip(BasisInput input)
+    {
+        BasisTransformMapping mapping = BasisLocalAvatarDriver.Mapping;
+        if (mapping != null && input.TryGetRole(out BasisBoneTrackedRole role))
+        {
+            Transform distal = role == BasisBoneTrackedRole.LeftHand ? mapping.LeftIndex[2] : mapping.RightIndex[2];
+            bool hasDistal = role == BasisBoneTrackedRole.LeftHand ? mapping.HasLeftIndex[2] : mapping.HasRightIndex[2];
+            if (hasDistal && distal != null)
+            {
+                return distal.position + distal.forward * BasisDirectTouch.DistalTipOffset;
+            }
+        }
+        return input.RaycastCoord.position + input.RaycastCoord.rotation * (Vector3.forward * BasisDirectTouch.FingerLength);
+    }
+
+    private static float ReadPinch(BasisInput input)
+    {
+        var property = input.GetType().GetProperty("Pinch");
+        return property?.PropertyType == typeof(float) ? (float)property.GetValue(input) : 0f;
     }
 
     private void ResolveHandInputs()
@@ -345,6 +372,8 @@ internal sealed class BasisWebWorldInteractionE2E : MonoBehaviour
         public int directTouchClicks;
         public Vector3 directTouchCenter;
         public Vector3 directTouchNormal;
+        public Vector3 leftDirectTouchFingertip;
+        public float leftPinch;
     }
 }
 #endif

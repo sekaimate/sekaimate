@@ -28,9 +28,41 @@ interface BasisWorldInteractionSnapshot {
   directTouchClicks: number;
   directTouchCenter: { x: number; y: number; z: number };
   directTouchNormal: { x: number; y: number; z: number };
+  leftDirectTouchFingertip: { x: number; y: number; z: number };
+  leftPinch: number;
 }
 
 interface Window {
   basisWorldInteractionE2E?: BasisWorldInteractionSnapshot;
-  transformHandles?: Map<'left' | 'right', object>;
+  transformHandles?: Map<'left' | 'right', {
+    position: {
+      x: number;
+      y: number;
+      z: number;
+      set(x: number, y: number, z: number): void;
+    };
+  }>;
+  basisWebXR?: {
+    schemaVersion: number;
+    supported: boolean;
+    sessionActive: boolean;
+    referenceSpace: string;
+    frame: number;
+    lastError: string;
+    snapshot: {
+      sources: Array<{ handedness: string; handTracked: boolean }>;
+    };
+    basisState?: {
+      schemaVersion: number;
+      frame: number;
+      sessionActive: boolean;
+      headDevice: boolean;
+      leftHandDevice: boolean;
+      rightHandDevice: boolean;
+      leftHandTracked: boolean;
+      rightHandTracked: boolean;
+      leftPinch: number;
+      rightPinch: number;
+    };
+  };
 }
