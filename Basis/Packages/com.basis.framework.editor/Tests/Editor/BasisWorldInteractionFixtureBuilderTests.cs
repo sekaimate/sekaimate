@@ -61,4 +61,18 @@ public class BasisWorldInteractionFixtureBuilderTests
         Assert.That(pickup.InputKey, Is.EqualTo(BasisInteractableObject.BasisInputKey.PrimaryButtonGetState));
         Assert.That(pickup.OnPickupUse, Is.Not.Null);
     }
+
+    [Test]
+    public void PoolCueUsesPickupOnCueGripObject()
+    {
+        contentObject = new GameObject("WorldContent");
+        BasisScene content = contentObject.AddComponent<BasisScene>();
+        content.SpawnPoint = contentObject.transform;
+
+        fixtureRoot = BasisWorldInteractionFixtureBuilder.Create(content);
+        Component cueGrip = fixtureRoot.GetComponentsInChildren<Component>(true)
+            .Single(component => component.GetType().Name == "CueGrip");
+
+        Assert.That(cueGrip.GetComponent<BasisPickupInteractable>(), Is.Not.Null);
+    }
 }

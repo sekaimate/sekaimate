@@ -117,14 +117,22 @@ public static class BasisWorldInteractionFixtureBuilder
         cue.transform.localRotation = Quaternion.Euler(0f, 90f, 0f);
         SetLayerRecursively(cue);
 
-        BasisPickupInteractable pickup = cue.GetComponentInChildren<BasisPickupInteractable>(true);
+        Component cueGrip = cue.GetComponentsInChildren<Component>(true)
+            .FirstOrDefault(component => component != null && component.GetType().Name == "CueGrip");
+        if (cueGrip == null)
+        {
+            throw new InvalidOperationException("Pool cue fixture does not contain CueGrip.");
+        }
+
+        BasisPickupInteractable pickup = cueGrip.GetComponent<BasisPickupInteractable>();
         if (pickup == null)
         {
-            pickup = cue.AddComponent<BasisPickupInteractable>();
-            Rigidbody rigidbody = cue.GetComponent<Rigidbody>() ?? cue.AddComponent<Rigidbody>();
+            pickup = cueGrip.gameObject.AddComponent<BasisPickupInteractable>();
+            Rigidbody rigidbody = cueGrip.GetComponent<Rigidbody>() ?? cueGrip.gameObject.AddComponent<Rigidbody>();
             rigidbody.isKinematic = true;
             pickup.RigidRef = rigidbody;
             pickup.GenerateColliderMesh = false;
+            pickup.OnPickupUse = new UnityEngine.Events.UnityEvent<BasisPickUpUseMode>();
         }
         pickup.AutoHold = BasisInteractableObject.BasisAutoHold.DesktopOnly;
     }
