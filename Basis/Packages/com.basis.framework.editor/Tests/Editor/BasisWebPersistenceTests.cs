@@ -5,6 +5,11 @@ using UnityEditor;
 
 public class BasisWebPersistenceTests
 {
+    private const string E2EProbePath =
+        "Packages/com.basis.framework/Platform/WebGL/BasisWebPersistenceE2EProbe.cs";
+    private const string E2EPluginPath =
+        "Packages/com.basis.framework/Platform/WebGL/BasisWebPersistenceE2E.jslib";
+
     [Test]
     public void WebPersistenceUsesUnityAutomaticSyncWithoutManualBridge()
     {
@@ -172,5 +177,62 @@ public class BasisWebPersistenceTests
 
         StringAssert.Contains("autoSyncPersistentDataPath: true,", configured);
         StringAssert.DoesNotContain("autoSyncPersistentDataPath: false", configured);
+    }
+
+    [Test]
+    public void DevelopmentWebBuildExposesExplicitPersistenceReloadProbe()
+    {
+        string probe = File.ReadAllText(E2EProbePath);
+        string plugin = File.ReadAllText(E2EPluginPath);
+
+        StringAssert.StartsWith("#if UNITY_WEBGL && !UNITY_EDITOR && DEVELOPMENT_BUILD", probe);
+        StringAssert.Contains("basisPersistenceE2E", probe);
+        StringAssert.Contains("case \"seed\"", probe);
+        StringAssert.Contains("case \"verify\"", probe);
+        StringAssert.Contains("window.basisPersistenceE2E", plugin);
+        StringAssert.DoesNotContain("location.reload", plugin);
+    }
+
+    [Test]
+    public void PersistenceReloadProbeCoversUserOwnedWebState()
+    {
+        string probe = File.ReadAllText(E2EProbePath);
+
+        StringAssert.Contains("BasisDataStoreAvatarKeys.AddNewKey", probe);
+        StringAssert.Contains("BasisDataStoreItemKeys.AddNewKey", probe);
+        StringAssert.Contains("BundledContentHolder.Mode.Prop", probe);
+        StringAssert.Contains("BundledContentHolder.Mode.World", probe);
+        StringAssert.Contains("BasisActionDriver.SaveFromDriver", probe);
+        StringAssert.Contains("BasisSettingsSystem.SaveString", probe);
+        StringAssert.Contains("BasisHandHeldCameraUI.CameraSettings", probe);
+    }
+
+    [Test]
+    public void PersistenceReloadProbeVerifiesThroughProductionReaders()
+    {
+        string probe = File.ReadAllText(E2EProbePath);
+
+        StringAssert.Contains("BasisDataStoreAvatarKeys.LoadKeys", probe);
+        StringAssert.Contains("BasisDataStoreItemKeys.LoadKeys", probe);
+        StringAssert.Contains("BasisActionDriver.LoadApplyToDriverAsync", probe);
+        StringAssert.Contains("BasisSettingsSystem.LoadString", probe);
+        StringAssert.Contains("File.ReadAllText(CameraSettingsPath)", probe);
+        StringAssert.Contains("avatar =", probe);
+        StringAssert.Contains("prop =", probe);
+        StringAssert.Contains("world =", probe);
+        StringAssert.Contains("binding =", probe);
+        StringAssert.Contains("camera =", probe);
+        StringAssert.Contains("settings =", probe);
+    }
+
+    [Test]
+    public void PersistenceReloadProbeBrowserPluginIsWebGlOnly()
+    {
+        PluginImporter importer = AssetImporter.GetAtPath(E2EPluginPath) as PluginImporter;
+
+        Assert.That(importer, Is.Not.Null);
+        Assert.That(importer.GetCompatibleWithAnyPlatform(), Is.False);
+        Assert.That(importer.GetCompatibleWithEditor(), Is.False);
+        Assert.That(importer.GetCompatibleWithPlatform(BuildTarget.WebGL), Is.True);
     }
 }
