@@ -68,6 +68,7 @@ namespace BasisDidLink
             public ReadyMessage ReadyMessage;
             public Challenge Challenge;
             public Did Did;
+            public NetPeer Peer;
         }
         public int CheckForDuplicates(Did Did)
         {
@@ -121,7 +122,8 @@ namespace BasisDidLink
                     {
                         Did = playerDid,
                         Challenge = MakeChallenge(playerDid),
-                        ReadyMessage = readyMessage
+                        ReadyMessage = readyMessage,
+                        Peer = newPeer
                     };
 
                     if (AuthIdentity.TryAdd(newPeer.Id, OnAuth))
@@ -249,12 +251,36 @@ namespace BasisDidLink
 
         public void RemoveConnection(int NetPeer)
         {
-            AuthIdentity.TryRemove(NetPeer, out var authIdentity);
-            if (_timeouts.TryRemove(NetPeer, out var cts))
+            RemoveConnection(NetPeer, null);
+        }
+
+        public bool RemoveConnection(int Id, NetPeer Expected)
+        {
+            bool Removed;
+            OnAuth Entry;
+            if (Expected == null)
+            {
+                Removed = AuthIdentity.TryRemove(Id, out Entry);
+            }
+            else
+            {
+                Removed = AuthIdentity.TryGetValue(Id, out Entry)
+                       && Equals(Entry.Peer, Expected)
+                       && ((ICollection<KeyValuePair<int, OnAuth>>)AuthIdentity)
+                              .Remove(new KeyValuePair<int, OnAuth>(Id, Entry));
+            }
+
+            if (!Removed)
+            {
+                return false;
+            }
+
+            if (_timeouts.TryRemove(Id, out var cts))
             {
                 try { cts.Cancel(); } catch { }
                 cts.Dispose();
             }
+            return true;
         }
         public bool IsNetPeerAdmin(string UUID)
         {
