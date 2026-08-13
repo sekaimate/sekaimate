@@ -191,9 +191,17 @@ test('two WebGL clients run capture, Opus, network, playback, talk modes, mute, 
   await reset(sender);
   await reset(receiver);
   await activateAudio(sender);
-  await receiver.locator('#unity-canvas').click({ position: { x: 480, y: 300 } });
+  await activateAudio(receiver);
 
   await expect.poll(() => sender.evaluate(() => window.BasisWebAudioDiagnostics?.verifySender())).toMatchObject({
+    passed: true,
+    failures: [],
+  });
+  await expect.poll(() => sender.evaluate(() => window.BasisWebAudioDiagnostics?.verifyReceiver())).toMatchObject({
+    passed: true,
+    failures: [],
+  });
+  await expect.poll(() => receiver.evaluate(() => window.BasisWebAudioDiagnostics?.verifySender())).toMatchObject({
     passed: true,
     failures: [],
   });
@@ -202,9 +210,15 @@ test('two WebGL clients run capture, Opus, network, playback, talk modes, mute, 
     failures: [],
   });
   await expect.poll(() => hasVoiceFrame(senderFrames, 'sent')).toBe(true);
+  await expect.poll(() => hasVoiceFrame(senderFrames, 'received')).toBe(true);
+  await expect.poll(() => hasVoiceFrame(receiverFrames, 'sent')).toBe(true);
   await expect.poll(() => hasVoiceFrame(receiverFrames, 'received')).toBe(true);
   await expect.poll(() => snapshot(sender).then(value => value.localVisemeFrames)).toBeGreaterThan(0);
   await expect.poll(() => snapshot(sender).then(value => value.localVisemePeak)).toBeGreaterThan(0);
+  await expect.poll(() => snapshot(sender).then(value => value.remoteVisemeFrames)).toBeGreaterThan(0);
+  await expect.poll(() => snapshot(sender).then(value => value.remoteVisemePeak)).toBeGreaterThan(0);
+  await expect.poll(() => snapshot(receiver).then(value => value.localVisemeFrames)).toBeGreaterThan(0);
+  await expect.poll(() => snapshot(receiver).then(value => value.localVisemePeak)).toBeGreaterThan(0);
   await expect.poll(() => snapshot(receiver).then(value => value.remoteVisemeFrames)).toBeGreaterThan(0);
   await expect.poll(() => snapshot(receiver).then(value => value.remoteVisemePeak)).toBeGreaterThan(0);
 
