@@ -16,7 +16,7 @@ using UnityEngine.UI;
 
 namespace Basis.BasisUI
 {
-    public class ServersProvider : BasisMenuActionProvider<BasisMainMenu>
+    public partial class ServersProvider : BasisMenuActionProvider<BasisMainMenu>
     {
         [RuntimeInitializeOnLoadMethod]
         public static void AddToMenu()
@@ -112,6 +112,9 @@ namespace Basis.BasisUI
                 BasisMenuPanel.PanelStyles.Page);
             BoundButton?.BindActiveStateToAddressablesInstance(panel);
             _panel = panel;
+#if UNITY_WEBGL && !UNITY_EDITOR && DEVELOPMENT_BUILD
+            ActiveInstance = this;
+#endif
 
             panel.OnInstanceReleased += OnPanelClosed;
 
@@ -151,6 +154,9 @@ namespace Basis.BasisUI
             _pendingDefaultHighlight = false;
             UnsubscribeSourceEvents();
             _panel = null;
+#if UNITY_WEBGL && !UNITY_EDITOR && DEVELOPMENT_BUILD
+            if (ActiveInstance == this) ActiveInstance = null;
+#endif
         }
 
         private void SubscribeSourceEvents()
@@ -265,6 +271,16 @@ namespace Basis.BasisUI
             _advancedToggle.SetTitle(BasisLocalization.Get("ui.advanced"));
             int advancedStart = container.childCount;
 
+#if !UNITY_WEBGL || UNITY_EDITOR
+            BuildHostSection(container);
+#endif
+            BuildAutoConnectSection(container);
+
+            PanelSectionToggleHelpers.FinalizeFlatSectionFromIndex(_advancedToggle, container, advancedStart, false, null);
+        }
+
+        private void BuildHostSection(RectTransform container)
+        {
             _hostStackDropdown = PanelDropdown.CreateNewEntry(container);
             _hostStackDropdown.Descriptor.SetTitle(BasisLocalization.Get("menu.servers.hostStack"));
             PopulateHostStackDropdown();
@@ -351,13 +367,14 @@ namespace Basis.BasisUI
             _hostButton.Descriptor.SetDescription(BasisLocalization.Get("menu.servers.hostMode.description"));
             _hostButton.Descriptor.SetHeight(70);
             _hostButton.OnClicked += () => _ = ConnectToAsync(CreateHostEntry(ReadHostStackId()), isHostMode: true);
+        }
 
+        private void BuildAutoConnectSection(RectTransform container)
+        {
             _autoConnectToggle = PanelToggle.CreateNewEntry(container);
             _autoConnectToggle.Descriptor.SetTitle(BasisLocalization.Get("menu.servers.autoConnect"));
             _autoConnectToggle.Descriptor.SetDescription(BasisLocalization.Get("menu.servers.autoConnect.description"));
             _autoConnectToggle.AssignBinding(BasisSettingsDefaults.AutoConnect);
-
-            PanelSectionToggleHelpers.FinalizeBoxedSectionFromIndex(_advancedToggle, container, advancedStart, false, null);
         }
 
         private void PopulateHostStackDropdown()
@@ -723,6 +740,13 @@ namespace Basis.BasisUI
             row.ConnectButton.Descriptor.SetTitle(BasisLocalization.Get(
                 isCurrentServer ? "menu.servers.reconnect" : "menu.servers.connect"));
             row.ConnectButton.OnClicked += () => _ = ConnectToAsync(entry);
+#if UNITY_WEBGL && !UNITY_EDITOR
+            if (!HasBrowserEndpoints(entry))
+            {
+                row.ConnectButton.SetInteractable(false, BasisLocalization.Get("menu.servers.browserEndpointRequired"));
+                row.Group.SetDescription(BasisLocalization.Get("menu.servers.browserEndpointRequired"));
+            }
+#endif
 
             if (entry.CanEdit)
             {
@@ -858,6 +882,18 @@ namespace Basis.BasisUI
 
         private async Task QueryAndUpdateAsync(ServerDirectoryEntry entry, CancellationToken ct)
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            if (!HasBrowserEndpoints(entry))
+            {
+                if (_rows.TryGetValue(entry.Id, out ServerRow unavailableRow)
+                    && unavailableRow.Group != null
+                    && unavailableRow.Group.gameObject != null)
+                {
+                    unavailableRow.Group.SetDescription(BasisLocalization.Get("menu.servers.browserEndpointRequired"));
+                }
+                return;
+            }
+#endif
             ServerProbeResult result;
             try
             {
@@ -957,10 +993,28 @@ namespace Basis.BasisUI
             if (!string.IsNullOrEmpty(lastId))
             {
                 ServerDirectoryEntry found = FindEntry(lastId);
-                if (found != null) return found;
+                if (IsConnectableInCurrentPlayer(found)) return found;
             }
-            return FindEntry(SavedServersDirectorySource.DefaultServerId);
+            ServerDirectoryEntry defaultEntry = FindEntry(SavedServersDirectorySource.DefaultServerId);
+            return IsConnectableInCurrentPlayer(defaultEntry) ? defaultEntry : null;
         }
+
+        private static bool IsConnectableInCurrentPlayer(ServerDirectoryEntry entry)
+        {
+            if (entry == null) return false;
+#if UNITY_WEBGL && !UNITY_EDITOR
+            return HasBrowserEndpoints(entry);
+#else
+            return true;
+#endif
+        }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+        private static bool HasBrowserEndpoints(ServerDirectoryEntry entry) =>
+            entry != null
+            && !string.IsNullOrWhiteSpace(entry.WebSocketUri)
+            && !string.IsNullOrWhiteSpace(entry.ServerInfoUri);
+#endif
 
         private async Task ConnectToAsync(ServerDirectoryEntry entry, bool isHostMode = false)
         {

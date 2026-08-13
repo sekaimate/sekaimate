@@ -172,6 +172,10 @@
       "value": "Server Info URI"
     },
     {
+      "key": "menu.servers.browserEndpointRequired",
+      "value": "ブラウザー接続には登録済みのWebSocket URIとServer Info URIが必要です。"
+    },
+    {
       "key": "menu.servers.hostPeerLimit",
       "value": "ピア上限"
     },
