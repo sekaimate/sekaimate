@@ -5,7 +5,9 @@ using System.Linq;
 using System.Threading.Tasks;
 using Basis.Scripts.BasisSdk;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 public static class BasisAvatarBeeWebBuildRunner
 {
@@ -65,10 +67,12 @@ public static class BasisAvatarBeeWebBuildRunner
         byte[] originalAvatarMeta = File.ReadAllBytes(SourceAvatarMetaPath);
         GameObject buildRoot = null;
         string bundleFolder = null;
+        Scene verificationScene = default;
 
         try
         {
-            buildRoot = (GameObject)PrefabUtility.InstantiatePrefab(sourceAvatar);
+            verificationScene = EditorSceneManager.NewPreviewScene();
+            buildRoot = (GameObject)PrefabUtility.InstantiatePrefab(sourceAvatar, verificationScene);
             if (buildRoot == null)
             {
                 throw new InvalidOperationException($"Failed to instantiate verification avatar: {SourceAvatarPath}");
@@ -145,6 +149,11 @@ public static class BasisAvatarBeeWebBuildRunner
             if (buildRoot != null)
             {
                 UnityEngine.Object.DestroyImmediate(buildRoot);
+            }
+
+            if (verificationScene.IsValid())
+            {
+                EditorSceneManager.ClosePreviewScene(verificationScene);
             }
 
             AssetDatabase.Refresh();
