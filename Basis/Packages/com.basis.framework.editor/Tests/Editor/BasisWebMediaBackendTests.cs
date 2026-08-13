@@ -15,6 +15,7 @@ public class BasisWebMediaBackendTests
     private const string NativeMediaPath = "Packages/com.basis.mediaplayer/Runtime/Native/BasisNativeMedia.cs";
     private const string NativeSourcePath = "Packages/com.basis.mediaplayer/Runtime/Native/BasisNativeVideoSource.cs";
     private const string MediaStatePath = "Packages/com.basis.mediaplayer/Runtime/Core/BasisMediaEngineState.cs";
+    private const string ShimsPath = "Packages/com.basis.shim/Shims/BasisShims.cs";
 
     [Test]
     public void UploadsOnlyNewBrowserVideoFrames()
@@ -170,5 +171,13 @@ public class BasisWebMediaBackendTests
         StringAssert.Contains("BasisWebMediaSeek(handle", source);
         StringAssert.Contains("public string Transport", source);
         StringAssert.Contains("public void SetAudioLatencyUs(long latencyUs)", source);
+    }
+
+    [Test]
+    public void BrowserDownloadsExcludeNativeDnsResolution()
+    {
+        string source = File.ReadAllText(ShimsPath);
+
+        StringAssert.Contains("#if !UNITY_WEBGL || UNITY_EDITOR\n\t\t\tstring dnsReason", source);
     }
 }

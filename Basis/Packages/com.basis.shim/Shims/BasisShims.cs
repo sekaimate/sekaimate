@@ -138,12 +138,14 @@ namespace Basis
 				return;
 			}
 
+#if !UNITY_WEBGL || UNITY_EDITOR
 			string dnsReason = await BasisMediaPlayerSecurity.ValidateResolvedHostAsync( stringUrl );
 			if( dnsReason != null )
 			{
 				callback( new IBasisImageDownload( null, null, "Security Failure: " + dnsReason ) );
 				return;
 			}
+#endif
 
 			UnityWebRequest www = new UnityWebRequest( stringUrl );
 			www.redirectLimit = 0;
@@ -302,12 +304,14 @@ namespace Basis
 				return;
 			}
 
+#if !UNITY_WEBGL || UNITY_EDITOR
 			string dnsReason = await BasisMediaPlayerSecurity.ValidateResolvedHostAsync( stringUrl );
 			if( dnsReason != null )
 			{
 				callback( new IBasisStringDownload( null, "Security Failure: " + dnsReason ) );
 				return;
 			}
+#endif
 
 			UnityWebRequest www = UnityWebRequest.Get( stringUrl );
 			www.redirectLimit = 0;
