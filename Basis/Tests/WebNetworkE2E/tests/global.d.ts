@@ -39,6 +39,7 @@ interface Window {
   basisNetworkE2EEvents?: BasisNetworkE2EEvent[];
   basisNetworkE2ESendChat?: (message: string) => void;
   basisNetworkE2EReconnect?: () => void;
+  basisNetworkE2ECloseMenus?: () => void;
   basisNetworkE2ESetAvatar?: (input: BasisNetworkE2EAvatarInput) => void;
   basisNetworkE2EShareContent?: (input: BasisNetworkE2EContentShareInput) => void;
   basisNetworkE2ERemoveContent?: (sphereId: string) => void;

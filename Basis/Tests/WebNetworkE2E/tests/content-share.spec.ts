@@ -187,6 +187,10 @@ test('Avatar, Prop, World, and Server shares synchronize through Basis Server', 
   assertNoRuntimeErrors(senderRuntimeErrors, receiverRuntimeErrors);
   await senderPage.locator('#unity-canvas').click({ position: { x: 480, y: 300 } });
   await receiverPage.locator('#unity-canvas').click({ position: { x: 480, y: 300 } });
+  await senderPage.evaluate(() => window.basisNetworkE2ECloseMenus?.());
+  await receiverPage.evaluate(() => window.basisNetworkE2ECloseMenus?.());
+  await waitForEvent(senderPage, 'menus-closed');
+  await waitForEvent(receiverPage, 'menus-closed');
 
   for (const share of shares) {
     await senderPage.evaluate(input => window.basisNetworkE2EShareContent?.(input), share);

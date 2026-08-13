@@ -80,6 +80,12 @@ namespace Basis.Scripts.Networking
             Report("chat-sent", message);
         }
 
+        public void CloseMenus()
+        {
+            BasisUIManagement.CloseAllMenus();
+            Report("menus-closed");
+        }
+
         public void SetMuted(string value)
         {
 #if !BASIS_DISABLE_MICROPHONE

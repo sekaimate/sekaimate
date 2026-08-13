@@ -8,6 +8,9 @@ mergeInto(LibraryManager.library, {
     window.basisNetworkE2EReconnect = function() {
       Module.SendMessage('Basis Web Network E2E', 'Reconnect');
     };
+    window.basisNetworkE2ECloseMenus = function() {
+      Module.SendMessage('Basis Web Network E2E', 'CloseMenus');
+    };
     window.basisNetworkE2ESetMuted = function(muted) {
       Module.SendMessage('Basis Web Network E2E', 'SetMuted', muted ? 'true' : 'false');
     };

@@ -84,6 +84,17 @@ public sealed class BasisWebNetworkE2EHarnessTests
     }
 
     [Test]
+    public void RuntimeHarnessCanCloseMenusBeforeVisualAssertions()
+    {
+        string source = File.ReadAllText("Packages/com.basis.framework/Networking/WebGL/BasisWebNetworkE2EHarness.cs");
+        string bridge = File.ReadAllText("Packages/com.basis.framework/Networking/WebGL/BasisWebNetworkE2E.jslib");
+
+        StringAssert.Contains("BasisUIManagement.CloseAllMenus", source);
+        StringAssert.Contains("menus-closed", source);
+        StringAssert.Contains("basisNetworkE2ECloseMenus", bridge);
+    }
+
+    [Test]
     public void RuntimeHarnessDrivesProductionPlayerPanelsAndReportsTheirState()
     {
         string source = File.ReadAllText("Packages/com.basis.framework/Networking/WebGL/BasisWebNetworkE2EHarness.cs");
