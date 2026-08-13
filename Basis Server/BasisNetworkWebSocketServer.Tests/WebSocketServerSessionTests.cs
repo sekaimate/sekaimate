@@ -80,6 +80,91 @@ public sealed class WebSocketServerSessionTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => session.RunAsync(CancellationToken.None));
     }
 
+    [Fact]
+    public async Task RunAsync_ReassemblesFragmentedBinaryMessages()
+    {
+        List<string> events = new();
+        byte[] hello = Frame(WebSocketFrameKind.Hello, new byte[] { 10 });
+        FakeWebSocket socket = new(events);
+        socket.QueueReceive(hello[..2], WebSocketMessageType.Binary, endOfMessage: false);
+        socket.QueueReceive(hello[2..], WebSocketMessageType.Binary, endOfMessage: true);
+        socket.QueueReceive(Frame(WebSocketFrameKind.Disconnect, Array.Empty<byte>()), WebSocketMessageType.Binary, endOfMessage: true);
+        RecordingHandler handler = new(events);
+        await using WebSocketServerSession session = new(
+            socket,
+            handler,
+            MaximumPayloadLength,
+            new IPEndPoint(IPAddress.Loopback, 12345),
+            PeerId);
+
+        await session.RunAsync(CancellationToken.None);
+
+        Assert.Equal(
+            new[] { "handler:hello", "send:Accept", "handler:disconnected" },
+            events);
+    }
+
+    [Fact]
+    public async Task RunAsync_ClosesTextMessagesAsUnsupportedData()
+    {
+        List<string> events = new();
+        FakeWebSocket socket = new(events);
+        socket.QueueReceive(new byte[] { 1 }, WebSocketMessageType.Text, endOfMessage: true);
+        await using WebSocketServerSession session = new(
+            socket,
+            new RecordingHandler(events),
+            MaximumPayloadLength,
+            new IPEndPoint(IPAddress.Loopback, 12345),
+            PeerId);
+
+        await session.RunAsync(CancellationToken.None);
+
+        Assert.Equal(WebSocketCloseStatus.InvalidMessageType, socket.CloseStatus);
+    }
+
+    [Fact]
+    public async Task RunAsync_ClosesOversizedMessagesAsMessageTooBig()
+    {
+        List<string> events = new();
+        FakeWebSocket socket = new(events);
+        socket.QueueReceive(new byte[MaximumPayloadLength], WebSocketMessageType.Binary, endOfMessage: false);
+        socket.QueueReceive(new byte[WebSocketFrameCodec.HeaderLength + 1], WebSocketMessageType.Binary, endOfMessage: true);
+        await using WebSocketServerSession session = new(
+            socket,
+            new RecordingHandler(events),
+            MaximumPayloadLength,
+            new IPEndPoint(IPAddress.Loopback, 12345),
+            PeerId);
+
+        await session.RunAsync(CancellationToken.None);
+
+        Assert.Equal(WebSocketCloseStatus.MessageTooBig, socket.CloseStatus);
+    }
+
+    [Fact]
+    public async Task RunAsync_EchoesClientCloseStatus()
+    {
+        List<string> events = new();
+        FakeWebSocket socket = new(events);
+        socket.QueueReceive(
+            Array.Empty<byte>(),
+            WebSocketMessageType.Close,
+            endOfMessage: true,
+            WebSocketCloseStatus.EndpointUnavailable,
+            "server restart");
+        await using WebSocketServerSession session = new(
+            socket,
+            new RecordingHandler(events),
+            MaximumPayloadLength,
+            new IPEndPoint(IPAddress.Loopback, 12345),
+            PeerId);
+
+        await session.RunAsync(CancellationToken.None);
+
+        Assert.Equal(WebSocketCloseStatus.EndpointUnavailable, socket.CloseStatus);
+        Assert.Equal("server restart", socket.CloseStatusDescription);
+    }
+
     private static byte[] Frame(WebSocketFrameKind kind, byte[] payload)
     {
         return WebSocketFrameCodec.Encode(
@@ -168,8 +253,15 @@ public sealed class WebSocketServerSessionTests
 
     private sealed class FakeWebSocket : WebSocket
     {
+        private readonly record struct ReceiveChunk(
+            byte[] Payload,
+            WebSocketMessageType MessageType,
+            bool EndOfMessage,
+            WebSocketCloseStatus? CloseStatus,
+            string? CloseDescription);
+
         private readonly List<string> _events;
-        private readonly Queue<byte[]> _receivedMessages;
+        private readonly Queue<ReceiveChunk> _receivedMessages;
         private WebSocketState _state = WebSocketState.Open;
         private WebSocketCloseStatus? _closeStatus;
         private string? _closeStatusDescription;
@@ -179,7 +271,27 @@ public sealed class WebSocketServerSessionTests
         public FakeWebSocket(List<string> events, params byte[][] receivedMessages)
         {
             _events = events;
-            _receivedMessages = new Queue<byte[]>(receivedMessages);
+            _receivedMessages = new Queue<ReceiveChunk>(receivedMessages.Select(message => new ReceiveChunk(
+                message,
+                WebSocketMessageType.Binary,
+                true,
+                null,
+                null)));
+        }
+
+        public void QueueReceive(
+            byte[] payload,
+            WebSocketMessageType messageType,
+            bool endOfMessage,
+            WebSocketCloseStatus? closeStatus = null,
+            string? closeDescription = null)
+        {
+            _receivedMessages.Enqueue(new ReceiveChunk(
+                payload,
+                messageType,
+                endOfMessage,
+                closeStatus,
+                closeDescription));
         }
 
         public override WebSocketCloseStatus? CloseStatus => _closeStatus;
@@ -220,12 +332,19 @@ public sealed class WebSocketServerSessionTests
             ArraySegment<byte> buffer,
             CancellationToken cancellationToken)
         {
-            byte[] message = _receivedMessages.Dequeue();
-            message.CopyTo(buffer.Array!, buffer.Offset);
+            ReceiveChunk message = _receivedMessages.Dequeue();
+            message.Payload.CopyTo(buffer.Array!, buffer.Offset);
+            if (message.MessageType == WebSocketMessageType.Close)
+            {
+                _closeStatus = message.CloseStatus;
+                _closeStatusDescription = message.CloseDescription;
+            }
             return Task.FromResult(new WebSocketReceiveResult(
-                message.Length,
-                WebSocketMessageType.Binary,
-                true));
+                message.Payload.Length,
+                message.MessageType,
+                message.EndOfMessage,
+                message.CloseStatus,
+                message.CloseDescription));
         }
 
         public override Task SendAsync(

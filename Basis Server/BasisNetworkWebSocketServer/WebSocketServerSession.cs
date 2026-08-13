@@ -7,6 +7,21 @@ namespace Basis.Network.WebSocketServer;
 
 public sealed class WebSocketServerSession : IAsyncDisposable
 {
+    private sealed class PeerClosedException : Exception
+    {
+        public PeerClosedException(WebSocketCloseStatus? closeStatus, string? closeDescription)
+        {
+            CloseStatus = closeStatus;
+            CloseDescription = closeDescription;
+        }
+
+        public WebSocketCloseStatus? CloseStatus { get; }
+        public string? CloseDescription { get; }
+    }
+
+    private sealed class InvalidMessageTypeException : Exception;
+    private sealed class MessageTooBigException : Exception;
+
     private readonly record struct QueuedFrame(byte Channel, DeliveryMethod DeliveryMethod, byte[] Payload);
 
     private readonly WebSocket _socket;
@@ -107,6 +122,34 @@ public sealed class WebSocketServerSession : IAsyncDisposable
                         .ConfigureAwait(false);
                 }
             }
+        }
+        catch (PeerClosedException exception)
+        {
+            await CloseAsync(
+                exception.CloseStatus ?? WebSocketCloseStatus.NormalClosure,
+                exception.CloseDescription ?? string.Empty,
+                CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (InvalidMessageTypeException)
+        {
+            await CloseAsync(
+                WebSocketCloseStatus.InvalidMessageType,
+                "Only binary WebSocket messages are accepted.",
+                CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (MessageTooBigException)
+        {
+            await CloseAsync(
+                WebSocketCloseStatus.MessageTooBig,
+                "WebSocket message exceeds the configured maximum length.",
+                CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (WebSocketProtocolException exception)
+        {
+            await CloseAsync(
+                WebSocketCloseStatus.ProtocolError,
+                exception.Message,
+                CancellationToken.None).ConfigureAwait(false);
         }
         finally
         {
@@ -227,15 +270,15 @@ public sealed class WebSocketServerSession : IAsyncDisposable
             ValueWebSocketReceiveResult result = await _socket.ReceiveAsync(buffer, cancellationToken).ConfigureAwait(false);
             if (result.MessageType == WebSocketMessageType.Close)
             {
-                throw new WebSocketException("The client closed the WebSocket without a Basis disconnect frame.");
+                throw new PeerClosedException(_socket.CloseStatus, _socket.CloseStatusDescription);
             }
             if (result.MessageType != WebSocketMessageType.Binary)
             {
-                throw new WebSocketProtocolException("Only binary WebSocket messages are accepted.");
+                throw new InvalidMessageTypeException();
             }
             if (writer.WrittenCount + result.Count > maximumEncodedLength)
             {
-                throw new WebSocketProtocolException("WebSocket message exceeds the configured maximum length.");
+                throw new MessageTooBigException();
             }
 
             writer.Advance(result.Count);
