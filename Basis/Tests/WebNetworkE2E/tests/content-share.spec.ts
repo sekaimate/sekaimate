@@ -31,6 +31,34 @@ interface BeeRequestEvidence {
   contentRange: string | undefined;
 }
 
+const FATAL_RUNTIME_ERROR = /Loading FSB failed|EncodingError|NullReferenceException|Object reference not set|avatar-load-failed|content-load-failed|An error occurred running the Unity content/i;
+
+function observeRuntimeErrors(page: Page, label: string): string[] {
+  const errors: string[] = [];
+  page.on('console', message => {
+    if (message.type() !== 'error' || !FATAL_RUNTIME_ERROR.test(message.text())) return;
+    const error = `${label} console: ${message.text()}`;
+    errors.push(error);
+    console.error(error);
+  });
+  page.on('pageerror', exception => {
+    const error = `${label} page: ${exception.message}`;
+    errors.push(error);
+    console.error(error);
+  });
+  page.on('dialog', dialog => {
+    if (!FATAL_RUNTIME_ERROR.test(dialog.message())) return;
+    const error = `${label} dialog: ${dialog.message()}`;
+    errors.push(error);
+    console.error(error);
+  });
+  return errors;
+}
+
+function assertNoRuntimeErrors(...errorLists: string[][]): void {
+  expect(errorLists.flat(), 'Unity runtime errors were rendered during E2E.').toEqual([]);
+}
+
 function requiredEnvironment(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) {
@@ -145,6 +173,8 @@ test('Avatar, Prop, World, and Server shares synchronize through Basis Server', 
   const receiverContext = await browser.newContext();
   const senderPage = await senderContext.newPage();
   const receiverPage = await receiverContext.newPage();
+  const senderRuntimeErrors = observeRuntimeErrors(senderPage, 'sender');
+  const receiverRuntimeErrors = observeRuntimeErrors(receiverPage, 'receiver');
   const senderFrames = observeFrames(senderPage, webSocketUri);
   const receiverFrames = observeFrames(receiverPage, webSocketUri);
   const beeShares = shares.filter(share => share.contentType !== 'Server');
@@ -154,6 +184,7 @@ test('Avatar, Prop, World, and Server shares synchronize through Basis Server', 
   const senderAuth = await waitForEvent(senderPage, 'authenticated');
   await receiverPage.goto(playerUrl(buildUrl, webSocketUri, `web-share-receiver-${runId}`, password));
   const receiverAuth = await waitForEvent(receiverPage, 'authenticated');
+  assertNoRuntimeErrors(senderRuntimeErrors, receiverRuntimeErrors);
   await senderPage.locator('#unity-canvas').click({ position: { x: 480, y: 300 } });
   await receiverPage.locator('#unity-canvas').click({ position: { x: 480, y: 300 } });
 
@@ -170,6 +201,7 @@ test('Avatar, Prop, World, and Server shares synchronize through Basis Server', 
   await waitForEvent(senderPage, 'avatar-load-complete', undefined, 'Avatar', avatarShare.contentUrl);
   await receiverPage.evaluate(input => window.basisNetworkE2ESetAvatar?.(input), avatarShare);
   await waitForEvent(receiverPage, 'avatar-load-complete', undefined, 'Avatar', avatarShare.contentUrl);
+  assertNoRuntimeErrors(senderRuntimeErrors, receiverRuntimeErrors);
   await verifyRenderedCapability(senderPage, 'Avatar', 'RemoteAvatar', receiverAuth.localPlayerId);
   await verifyRenderedCapability(receiverPage, 'Avatar', 'RemoteAvatar', senderAuth.localPlayerId);
   await expect.poll(() => hasFrame(senderFrames, 'sent', AVATAR_CHANGE_CHANNEL)).toBe(true);
@@ -188,6 +220,7 @@ test('Avatar, Prop, World, and Server shares synchronize through Basis Server', 
     await waitForEvent(senderPage, 'content-load-complete', share.sphereId, share.contentType, share.contentUrl);
     await receiverPage.evaluate(sphereId => window.basisNetworkE2ELoadContent?.(sphereId), share.sphereId);
     await waitForEvent(receiverPage, 'content-load-complete', share.sphereId, share.contentType, share.contentUrl);
+    assertNoRuntimeErrors(senderRuntimeErrors, receiverRuntimeErrors);
     await verifyRenderedCapability(senderPage, format, 'Content');
     await verifyRenderedCapability(receiverPage, format, 'Content');
     await expect.poll(() => receiverBeeRequests.some(request =>
@@ -202,8 +235,10 @@ test('Avatar, Prop, World, and Server shares synchronize through Basis Server', 
 
   const lateContext = await browser.newContext();
   const latePage = await lateContext.newPage();
+  const lateRuntimeErrors = observeRuntimeErrors(latePage, 'late');
   await latePage.goto(playerUrl(buildUrl, webSocketUri, `web-share-late-${runId}`, password));
   await waitForEvent(latePage, 'authenticated');
+  assertNoRuntimeErrors(senderRuntimeErrors, receiverRuntimeErrors, lateRuntimeErrors);
   for (const share of shares) {
     await waitForEvent(latePage, 'content-created', share.sphereId, share.contentType, share.contentUrl);
   }
@@ -224,4 +259,5 @@ test('Avatar, Prop, World, and Server shares synchronize through Basis Server', 
 
   await receiverContext.close();
   await lateContext.close();
+  assertNoRuntimeErrors(senderRuntimeErrors, receiverRuntimeErrors, lateRuntimeErrors);
 });

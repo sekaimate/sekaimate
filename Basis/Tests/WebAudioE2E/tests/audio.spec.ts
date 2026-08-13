@@ -2,6 +2,7 @@ import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 
 const DATA = 2;
 const VOICE_CHANNEL = 3;
+const FATAL_RUNTIME_ERROR = /Loading FSB failed|EncodingError|NullReferenceException|Object reference not set|An error occurred running the Unity content/i;
 
 interface ObservedFrame {
   direction: 'sent' | 'received';
@@ -45,6 +46,32 @@ interface NetworkEvent {
   localPlayerId: number;
   remotePlayerCount: number;
   avatarStateReady: boolean;
+}
+
+function observeRuntimeErrors(page: Page, label: string): string[] {
+  const errors: string[] = [];
+  page.on('console', message => {
+    if (message.type() !== 'error' || !FATAL_RUNTIME_ERROR.test(message.text())) return;
+    const error = `${label} console: ${message.text()}`;
+    errors.push(error);
+    console.error(error);
+  });
+  page.on('pageerror', exception => {
+    const error = `${label} page: ${exception.message}`;
+    errors.push(error);
+    console.error(error);
+  });
+  page.on('dialog', dialog => {
+    if (!FATAL_RUNTIME_ERROR.test(dialog.message())) return;
+    const error = `${label} dialog: ${dialog.message()}`;
+    errors.push(error);
+    console.error(error);
+  });
+  return errors;
+}
+
+function assertNoRuntimeErrors(...errorLists: string[][]): void {
+  expect(errorLists.flat(), 'Unity runtime errors were rendered during E2E.').toEqual([]);
 }
 
 declare global {
@@ -145,6 +172,7 @@ test('denied getUserMedia permission reports the production capture failure', as
   const password = process.env.BASIS_SERVER_PASSWORD ?? '';
   const context = await browser.newContext();
   const page = await context.newPage();
+  const runtimeErrors = observeRuntimeErrors(page, 'permission-denied');
   const client = await context.newCDPSession(page);
   await client.send('Browser.setPermission', {
     permission: { name: 'audioCapture' },
@@ -161,6 +189,7 @@ test('denied getUserMedia permission reports the production capture failure', as
   await expect.poll(() => snapshot(page).then(value => value.captureState)).toBe(4);
   await expect.poll(() => snapshot(page).then(value => value.permissionGranted)).toBe(false);
   await expect.poll(() => snapshot(page).then(value => value.muted)).toBe(true);
+  assertNoRuntimeErrors(runtimeErrors);
   await context.close();
 });
 
@@ -175,6 +204,8 @@ test('two WebGL clients run capture, Opus, network, playback, talk modes, mute, 
   await grantMicrophone(receiverContext, buildUrl);
   const sender = await senderContext.newPage();
   const receiver = await receiverContext.newPage();
+  const senderRuntimeErrors = observeRuntimeErrors(sender, 'sender');
+  const receiverRuntimeErrors = observeRuntimeErrors(receiver, 'receiver');
   const senderFrames = observeFrames(sender, webSocketUri);
   const receiverFrames = observeFrames(receiver, webSocketUri);
 
@@ -192,6 +223,7 @@ test('two WebGL clients run capture, Opus, network, playback, talk modes, mute, 
   await reset(receiver);
   await activateAudio(sender);
   await activateAudio(receiver);
+  assertNoRuntimeErrors(senderRuntimeErrors, receiverRuntimeErrors);
 
   await expect.poll(() => sender.evaluate(() => window.BasisWebAudioDiagnostics?.verifySender())).toMatchObject({
     passed: true,
@@ -243,6 +275,7 @@ test('two WebGL clients run capture, Opus, network, playback, talk modes, mute, 
   await expect.poll(() => snapshot(sender).then(value => value.networkPacketsSent)).toBeGreaterThan(packetsBeforeUnmute);
 
   expect(senderAuth.localPlayerId).not.toBe(receiverAuth.localPlayerId);
+  assertNoRuntimeErrors(senderRuntimeErrors, receiverRuntimeErrors);
   await senderContext.close();
   await receiverContext.close();
 });
