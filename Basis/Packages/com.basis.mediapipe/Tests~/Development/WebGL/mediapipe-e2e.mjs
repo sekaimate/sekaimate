@@ -92,7 +92,6 @@ async function loadFixture(name) {
   sourceContext.drawImage(image, 0, 0, sourceCanvas.width, sourceCanvas.height);
   cameraTrack.requestFrame?.();
   await new Promise(resolve => cameraPreview.requestVideoFrameCallback(resolve));
-  await new Promise(resolve => cameraPreview.requestVideoFrameCallback(resolve));
 }
 
 function decodeResult(buffer, fixture) {
