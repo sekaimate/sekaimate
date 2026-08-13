@@ -11,64 +11,61 @@ namespace BasisNetworkCore
     public static class BasisNetworkIDDatabase
     {
         public static ConcurrentDictionary<string, ushort> UshortNetworkDatabase = new ConcurrentDictionary<string, ushort>();
+        private static readonly object AssignmentLock = new object();
         private static int counter = -1; // Start at -1 so the first increment becomes 0
         private static int exhaustedLogged;
         public static void AddOrFindNetworkID(NetPeer NetPeer, string UniqueStringID)
         {
-            if (UshortNetworkDatabase.TryGetValue(UniqueStringID, out ushort Value)) // This should basically never happen!
+            ushort value;
+            bool assignedNewId;
+            lock (AssignmentLock)
             {
-                // We already know about it, let's just give it back to that player
+                assignedNewId = !UshortNetworkDatabase.TryGetValue(UniqueStringID, out value);
+                if (assignedNewId)
+                {
+                    int newCounter = Interlocked.Increment(ref counter);
+                    if (newCounter > ushort.MaxValue)
+                    {
+                        Interlocked.Decrement(ref counter);
+                        if (Interlocked.Exchange(ref exhaustedLogged, 1) == 0)
+                        {
+                            BNL.LogError($"NetID space exhausted ({ushort.MaxValue} ids assigned since the server was last empty); dropping request for {UniqueStringID}.");
+                        }
+                        return;
+                    }
+
+                    value = (ushort)newCounter;
+                    UshortNetworkDatabase[UniqueStringID] = value;
+                }
+            }
+
+            if (!assignedNewId)
+            {
                 ServerNetIDMessage SNIM = new ServerNetIDMessage
                 {
                     NetIDMessage = new NetIDMessage() { playerID = UniqueStringID },
-                    UshortUniqueIDMessage = new UshortUniqueIDMessage() { UniqueIDUshort = Value }
+                    UshortUniqueIDMessage = new UshortUniqueIDMessage() { UniqueIDUshort = value }
                 };
                 NetDataWriter Writer = NetworkServer.RentWriter();
                 SNIM.Serialize(Writer);
                 NetworkServer.TrySend(NetPeer, Writer, BasisNetworkCommons.netIDAssignChannel, DeliveryMethod.ReliableOrdered);
                 NetworkServer.ReturnWriter(Writer);
-                BNL.Log($"Sent existing NetID ({Value}) for {UniqueStringID} to peer {NetPeer.Id}");
+                BNL.Log($"Sent existing NetID ({value}) for {UniqueStringID} to peer {NetPeer.Id}");
             }
             else
             {
-                // Log that we are assigning a new ID
-                BNL.Log($"No existing ID found for {UniqueStringID}. Assigning a new ID.");
-
-                // Generate a new unique ushort ID (thread-safe increment)
-                int newCounter = Interlocked.Increment(ref counter);
-
-                // Check if we exceeded the ushort range
-                if (newCounter > ushort.MaxValue)
-                {
-                    Interlocked.Decrement(ref counter); // Roll back
-                    // Log-and-drop, never throw: ids arrive per client message, so at the ceiling a
-                    // throw per request became an exception storm (stack trace string per message)
-                    // through the message processor. The requester simply gets no assignment.
-                    if (Interlocked.Exchange(ref exhaustedLogged, 1) == 0)
-                    {
-                        BNL.LogError($"NetID space exhausted ({ushort.MaxValue} ids assigned since the server was last empty); dropping request for {UniqueStringID}.");
-                    }
-                    return;
-                }
-
-                ushort newID = (ushort)newCounter;
-
-                // Add to the database
-                UshortNetworkDatabase[UniqueStringID] = newID;
-                BNL.Log($"New ID {newID} assigned to {UniqueStringID}");
-
-                // Notify the requesting peer and broadcast to others
+                BNL.Log($"New ID {value} assigned to {UniqueStringID}");
                 ServerNetIDMessage SUIMA = new ServerNetIDMessage
                 {
                     NetIDMessage = new NetIDMessage() { playerID = UniqueStringID },
-                    UshortUniqueIDMessage = new UshortUniqueIDMessage() { UniqueIDUshort = newID }
+                    UshortUniqueIDMessage = new UshortUniqueIDMessage() { UniqueIDUshort = value }
                 };
                 NetDataWriter Writer = NetworkServer.RentWriter();
                 SUIMA.Serialize(Writer);
 
                 NetworkServer.BroadcastMessageToClients(Writer, BasisNetworkCommons.netIDAssignChannel, NetworkServer.PeerSnapshot, DeliveryMethod.ReliableOrdered);
                 NetworkServer.ReturnWriter(Writer);
-                BNL.Log($"Broadcasted new ID ({newID}) for {UniqueStringID} to all connected peers.");
+                BNL.Log($"Broadcasted new ID ({value}) for {UniqueStringID} to all connected peers.");
             }
         }
 
