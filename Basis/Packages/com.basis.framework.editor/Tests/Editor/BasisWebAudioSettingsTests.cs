@@ -11,6 +11,14 @@ public class BasisWebAudioSettingsTests
         "Packages/com.basis.sdk/Sounds/boop off.wav",
     };
 
+    private static readonly string[] BrowserUiSounds =
+    {
+        "Packages/com.basis.sdk/Sounds/button hover.wav",
+        "Packages/com.basis.sdk/Sounds/button press 2.wav",
+        "Packages/com.basis.sdk/Sounds/button press.wav",
+        "Packages/com.basis.sdk/Sounds/shuttersound.mp3",
+    };
+
     [Test]
     public void SteamAudioDoesNotEnableWebGlRuntime()
     {
@@ -31,6 +39,22 @@ public class BasisWebAudioSettingsTests
             Assert.That(importer, Is.Not.Null, path);
             AudioImporterSampleSettings settings = importer.defaultSampleSettings;
             Assert.That(settings.loadType, Is.EqualTo(AudioClipLoadType.DecompressOnLoad), path);
+            Assert.That(settings.preloadAudioData, Is.False, path);
+        }
+    }
+
+    [Test]
+    public void BrowserUiSoundsUseCompressedWebGlOverrides()
+    {
+        foreach (string path in BrowserUiSounds)
+        {
+            AudioImporter importer = AssetImporter.GetAtPath(path) as AudioImporter;
+
+            Assert.That(importer, Is.Not.Null, path);
+            Assert.That(importer.ContainsSampleSettingsOverride("WebGL"), Is.True, path);
+            AudioImporterSampleSettings settings = importer.GetOverrideSampleSettings("WebGL");
+            Assert.That(settings.loadType, Is.EqualTo(AudioClipLoadType.CompressedInMemory), path);
+            Assert.That(settings.compressionFormat, Is.EqualTo(AudioCompressionFormat.AAC), path);
             Assert.That(settings.preloadAudioData, Is.False, path);
         }
     }

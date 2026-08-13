@@ -171,14 +171,12 @@ test('denied getUserMedia permission reports the production capture failure', as
   const webSocketUri = requiredEnvironment('BASIS_WEBSOCKET_URI');
   const password = process.env.BASIS_SERVER_PASSWORD ?? '';
   const context = await browser.newContext();
+  await context.addInitScript(() => {
+    navigator.mediaDevices.getUserMedia = () => Promise.reject(
+      new DOMException('Microphone permission denied by E2E.', 'NotAllowedError'));
+  });
   const page = await context.newPage();
   const runtimeErrors = observeRuntimeErrors(page, 'permission-denied');
-  const client = await context.newCDPSession(page);
-  await client.send('Browser.setPermission', {
-    permission: { name: 'audioCapture' },
-    setting: 'denied',
-    origin: new URL(buildUrl).origin,
-  });
 
   await page.goto(playerUrl(buildUrl, webSocketUri, `web-audio-denied-${Date.now()}`, password));
   await waitForEvent(page, 'authenticated');

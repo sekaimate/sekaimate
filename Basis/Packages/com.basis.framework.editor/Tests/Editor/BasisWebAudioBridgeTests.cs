@@ -44,6 +44,19 @@ public class BasisWebAudioBridgeTests
     }
 
     [Test]
+    public void CaptureResumesExistingAudioContextBeforeAwaitingInitialization()
+    {
+        string source = File.ReadAllText(BrowserPluginPath);
+        int resumeIndex = source.IndexOf("var resumePromise = BasisWebAudio.context ? BasisWebAudio.context.resume() : null;");
+        int initializationIndex = source.IndexOf("await BasisWebAudio.ensureInitialized();", resumeIndex);
+        int awaitResumeIndex = source.IndexOf("await resumePromise;", initializationIndex);
+
+        Assert.That(resumeIndex, Is.GreaterThanOrEqualTo(0));
+        Assert.That(initializationIndex, Is.GreaterThan(resumeIndex));
+        Assert.That(awaitResumeIndex, Is.GreaterThan(initializationIndex));
+    }
+
+    [Test]
     public void MicrophoneToggleSoundUsesWebAudioInsteadOfUnityAudioSourceOnWebGl()
     {
         string pluginSource = File.ReadAllText(BrowserPluginPath);

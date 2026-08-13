@@ -12,7 +12,10 @@ export default defineConfig({
     headless: true,
     trace: 'retain-on-failure',
     launchOptions: {
-      args: ['--use-fake-device-for-media-stream'],
+      args: [
+        '--use-fake-device-for-media-stream',
+        '--use-fake-ui-for-media-stream',
+      ],
     },
   },
 });

@@ -322,8 +322,13 @@ mergeInto(LibraryManager.library, {
       BasisWebAudio.captureRequesting = true;
       BasisWebAudio.notifyState(BasisWebAudio.State.RequestingPermission);
       try {
+        var resumePromise = BasisWebAudio.context ? BasisWebAudio.context.resume() : null;
         await BasisWebAudio.ensureInitialized();
-        await BasisWebAudio.context.resume();
+        if (!resumePromise) {
+          BasisWebAudio.notifyState(BasisWebAudio.State.AwaitingUserGesture);
+          return;
+        }
+        await resumePromise;
         if (BasisWebAudio.stream) {
           BasisWebAudio.stream.getAudioTracks().forEach(function(track) { track.enabled = true; });
           BasisWebAudio.notifyState(BasisWebAudio.State.Running);
