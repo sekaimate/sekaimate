@@ -235,6 +235,12 @@ namespace Basis.Scripts.Drivers
             // Face visibility setup. Not every avatar has a face mesh (far avatars, generic
             // imports without face wiring) — those skip visibility tracking entirely.
             Player.FaceIsVisible = false;
+            if (Player.FaceRenderer != null)
+            {
+                Player.FaceRenderer.Check = null;
+                GameObject.Destroy(Player.FaceRenderer);
+                Player.FaceRenderer = null;
+            }
             if (RemotePlayer.BasisAvatar == null)
             {
                 BasisDebug.LogError("Missing Avatar On Remote", BasisDebug.LogTag.Avatar);

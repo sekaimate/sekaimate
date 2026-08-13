@@ -447,29 +447,28 @@ namespace Basis.Scripts.Drivers
             BasisAvatarModelCache.RecordPosesCached(Mapping, LocalPlayer.BasisAvatar.Animator);
             LocalPlayer.FaceIsVisible = false;
 
+            if (LocalPlayer.FaceRenderer != null)
+            {
+                LocalPlayer.FaceRenderer.Check = null;
+                GameObject.Destroy(LocalPlayer.FaceRenderer);
+                LocalPlayer.FaceRenderer = null;
+            }
+
             if (Avatar == null)
             {
                 BasisDebug.LogError("Missing Avatar");
             }
-            if (Avatar.FaceVisemeMesh == null)
+            SkinnedMeshRenderer faceVisemeMesh = Avatar.FaceVisemeMesh;
+            if (faceVisemeMesh == null)
             {
                 BasisDebug.Log("Missing Face for " + LocalPlayer.DisplayName, BasisDebug.LogTag.Avatar);
             }
-
-            LocalPlayer.UpdateFaceVisibility(Avatar.FaceVisemeMesh.isVisible);
-
-            if (LocalPlayer.FaceRenderer != null)
+            else
             {
-                // Mute before the deferred destroy: the outgoing avatar's renderer fires a
-                // final OnBecameInvisible during its end-of-frame teardown, and that late
-                // notification would stomp the visibility state just set up for the
-                // incoming avatar.
-                LocalPlayer.FaceRenderer.Check = null;
-                GameObject.Destroy(LocalPlayer.FaceRenderer);
+                LocalPlayer.UpdateFaceVisibility(faceVisemeMesh.isVisible);
+                LocalPlayer.FaceRenderer = BasisHelpers.GetOrAddComponent<BasisMeshRendererCheck>(faceVisemeMesh.gameObject);
+                LocalPlayer.FaceRenderer.Check += LocalPlayer.UpdateFaceVisibility;
             }
-
-            LocalPlayer.FaceRenderer = BasisHelpers.GetOrAddComponent<BasisMeshRendererCheck>(Avatar.FaceVisemeMesh.gameObject);
-            LocalPlayer.FaceRenderer.Check += LocalPlayer.UpdateFaceVisibility;
 
             if (BasisLocalFacialBlinkDriver.MeetsRequirements(Avatar))
             {
