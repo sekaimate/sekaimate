@@ -211,6 +211,8 @@ test('denied getUserMedia permission reports the production capture failure', as
 });
 
 test('two WebGL clients run capture, Opus, network, playback, talk modes, and mute', async ({ browser }) => {
+  const manualConfirmation = process.env.BASIS_MANUAL_CONFIRMATION === '1';
+  if (manualConfirmation) test.setTimeout(0);
   const buildUrl = requiredEnvironment('BASIS_WEB_BUILD_URL');
   const webSocketUri = requiredEnvironment('BASIS_WEBSOCKET_URI');
   const password = process.env.BASIS_SERVER_PASSWORD ?? '';
@@ -325,6 +327,11 @@ test('two WebGL clients run capture, Opus, network, playback, talk modes, and mu
 
   expect(senderAuth.localPlayerId).not.toBe(receiverAuth.localPlayerId);
   assertNoRuntimeErrors(senderRuntimeErrors, receiverRuntimeErrors);
+  if (manualConfirmation) {
+    await sender.evaluate(() => window.basisNetworkE2ESetTalkMode?.('Normal'));
+    await receiver.evaluate(() => window.basisNetworkE2ESetTalkMode?.('Normal'));
+    await Promise.all([sender.waitForEvent('close'), receiver.waitForEvent('close')]);
+  }
   await senderContext.close();
   await receiverContext.close();
 });
