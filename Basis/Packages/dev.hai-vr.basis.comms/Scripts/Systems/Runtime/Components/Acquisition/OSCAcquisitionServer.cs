@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Basis.BasisUI;
 using HVR.Basis.Comms.OSC;
+using HVR.Basis.Comms.OSC.Lyuma;
 using HVR.Osushi;
 using Newtonsoft.Json;
 using UnityEngine;
@@ -69,6 +70,13 @@ namespace HVR.Basis.Comms
 
             try
             {
+#if UNITY_WEBGL && !UNITY_EDITOR
+                BasisOscRelayClient.Start(ReceiveRelayMessages);
+                lock (_queryLock)
+                {
+                    EnsureOscQueryRoot();
+                }
+#else
                 _client = new HVROsc(OurFakeServerPort);
                 _client.Start();
                 _client.SetReceiverOscPort(ExternalProgramReceiverPort);
@@ -80,6 +88,7 @@ namespace HVR.Basis.Comms
                 }
 
                 _osushi.Start();
+#endif
                 _running = true;
 
                 if (_lastWakeUp != null)
@@ -110,11 +119,15 @@ namespace HVR.Basis.Comms
 
         private void SimulateInstance()
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            return;
+#else
             if (_client == null) return;
 
             // Hybrid design: background thread receives/decodes UDP, main thread routes callbacks.
             var messages = _client.DrainReceivedMessages();
             BasisOscService.SubmitRawMessages(messages);
+#endif
         }
 
         private void OnDisable()
@@ -135,6 +148,9 @@ namespace HVR.Basis.Comms
         {
             _running = false;
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+            BasisOscRelayClient.Stop();
+#else
             if (_client != null)
             {
                 try
@@ -160,12 +176,22 @@ namespace HVR.Basis.Comms
                 }
                 _osushi = null;
             }
+#endif
         }
 
         public void SendWakeUpMessage(string wakeUp)
         {
             _lastWakeUp = wakeUp;
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+            if (!_running) return;
+
+            TrySendRelayMessage(new SimpleOSC.OSCMessage
+            {
+                path = "/avatar/change",
+                arguments = new object[] { wakeUp },
+            });
+#else
             if (_client == null) return;
 
             try
@@ -176,6 +202,7 @@ namespace HVR.Basis.Comms
             {
                 BasisDebug.LogWarning($"Failed to send wake up message ({e.Message})", BasisDebug.LogTag.LocalNetwork);
             }
+#endif
         }
 
         public void PublishValue(string address, OscData value)
@@ -191,15 +218,18 @@ namespace HVR.Basis.Comms
                 return;
             }
 
-            lock (_queryLock)
-            {
-                EnsureOscQueryRoot();
-                OsushiNode leaf = EnsureQueryNode(normalizedAddress);
-                leaf.ACCESS = PublishAccess;
-                leaf.TYPE = BuildTypeTag(values);
-                leaf.VALUE = BuildQueryValues(values);
-            }
+            RecordPublishedValues(normalizedAddress, values);
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+            if (_running)
+            {
+                TrySendRelayMessage(new SimpleOSC.OSCMessage
+                {
+                    path = normalizedAddress,
+                    arguments = BuildOscArguments(values),
+                });
+            }
+#else
             if (_client != null)
             {
                 try
@@ -211,7 +241,55 @@ namespace HVR.Basis.Comms
                     BasisDebug.LogWarning($"Failed to publish OSC value ({e.Message})", BasisDebug.LogTag.LocalNetwork);
                 }
             }
+#endif
         }
+
+        public string GetOscQueryJson(string rawUrl)
+        {
+            return GetOscQueryResponse(rawUrl);
+        }
+
+        private void RecordPublishedValues(string normalizedAddress, OscData[] values)
+        {
+            lock (_queryLock)
+            {
+                EnsureOscQueryRoot();
+                OsushiNode leaf = EnsureQueryNode(normalizedAddress);
+                leaf.ACCESS = PublishAccess;
+                leaf.TYPE = BuildTypeTag(values);
+                leaf.VALUE = BuildQueryValues(values);
+            }
+        }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+        private void ReceiveRelayMessages(List<SimpleOSC.OSCMessage> messages)
+        {
+            int count = messages.Count;
+            for (int i = 0; i < count; i++)
+            {
+                SimpleOSC.OSCMessage message = messages[i];
+                string normalizedAddress = NormalizeQueryAddress(message.path);
+                if (normalizedAddress != null)
+                {
+                    RecordPublishedValues(normalizedAddress, OscData.ConvertArguments(message.arguments));
+                }
+            }
+
+            BasisOscService.SubmitRawMessages(messages);
+        }
+
+        private static void TrySendRelayMessage(SimpleOSC.OSCMessage message)
+        {
+            try
+            {
+                BasisOscRelayClient.Send(message);
+            }
+            catch (Exception e)
+            {
+                BasisDebug.LogWarning($"Failed to relay OSC value ({e.Message})", BasisDebug.LogTag.Networking);
+            }
+        }
+#endif
 
         public void UpdateSubscriptions(EntityId ownerId, IEnumerable<string> subscribedAddresses, IEnumerable<string> subscribedPrefixes)
         {
