@@ -12,6 +12,9 @@ public class BasisWebAudioBridgeTests
     private const string AudioTransmissionPath = "Packages/com.basis.framework/Networking/Transmitters/BasisAudioTransmission.cs";
     private const string AudioReceiverPath = "Packages/com.basis.framework/Networking/Recievers/BasisAudioReceiver.cs";
     private const string RemoteAudioDriverPath = "Packages/com.basis.framework/Drivers/Remote/BasisRemoteAudioDriver.cs";
+    private const string VisemeDriverPath = "Packages/com.basis.framework/Drivers/Common/BasisAudioAndVisemeDriver.cs";
+    private const string NetworkHarnessPath = "Packages/com.basis.framework/Networking/WebGL/BasisWebNetworkE2EHarness.cs";
+    private const string NetworkHarnessPluginPath = "Packages/com.basis.framework/Networking/WebGL/BasisWebNetworkE2E.jslib";
 
     [Test]
     public void BrowserAudioPluginIsEnabledOnlyForWebGl()
@@ -100,5 +103,24 @@ public class BasisWebAudioBridgeTests
         StringAssert.Contains("BasisWebAudioDiagnosticsBridge.MarkNetworkSent", transmissionSource);
         StringAssert.Contains("BasisWebAudioDiagnosticsBridge.MarkNetworkReceived", receiverSource);
         StringAssert.Contains("BasisWebAudioDiagnosticsBridge.MarkOpusDecoded", receiverSource);
+    }
+
+    [Test]
+    public void BrowserDiagnosticsMeasureMuteTalkModeAndLipSync()
+    {
+        string pluginSource = File.ReadAllText(BrowserPluginPath);
+        string visemeSource = File.ReadAllText(VisemeDriverPath);
+        string harnessSource = File.ReadAllText(NetworkHarnessPath);
+        string harnessPluginSource = File.ReadAllText(NetworkHarnessPluginPath);
+
+        StringAssert.Contains("muted", pluginSource);
+        StringAssert.Contains("talkMode", pluginSource);
+        StringAssert.Contains("localVisemeFrames", pluginSource);
+        StringAssert.Contains("remoteVisemeFrames", pluginSource);
+        StringAssert.Contains("MarkVisemeProcessed", visemeSource);
+        StringAssert.Contains("BasisLocalMicrophoneDriver.ToggleIsPaused", harnessSource);
+        StringAssert.Contains("BasisTalkModeManager.SetMode", harnessSource);
+        StringAssert.Contains("basisNetworkE2ESetMuted", harnessPluginSource);
+        StringAssert.Contains("basisNetworkE2ESetTalkMode", harnessPluginSource);
     }
 }
