@@ -148,6 +148,7 @@ MonoBehaviour:
   - UnityEngine.Animation
   - UnityEngine.AudioSource
   - BasisWebRuntimePcmAudioSource
+  - Basis.ImagePickup.BasisImagePickupObject
   - UnityEngine.AudioLowPassFilter
   - UnityEngine.AudioHighPassFilter
   - UnityEngine.AudioReverbFilter

@@ -53,6 +53,27 @@ public class BasisWorldInteractionFixtureBuilderTests
     }
 
     [Test]
+    public void SceneContentPoliceApprovesEveryWorldFixtureBehaviour()
+    {
+        contentObject = new GameObject("WorldContent");
+        BasisScene content = contentObject.AddComponent<BasisScene>();
+        content.SpawnPoint = contentObject.transform;
+
+        fixtureRoot = BasisWorldInteractionFixtureBuilder.Create(content);
+        ContentPoliceSelector selector = AssetDatabase.LoadAssetAtPath<ContentPoliceSelector>(
+            "Packages/com.basis.sdk/Settings/SceneContentPoliceSelector.asset");
+        string[] unapprovedTypeNames = fixtureRoot.GetComponentsInChildren<MonoBehaviour>(true)
+            .Where(component => component != null)
+            .Select(component => component.GetType().FullName)
+            .Where(typeName => !selector.ApprovedTypeNames.Contains(typeName))
+            .Distinct()
+            .OrderBy(typeName => typeName)
+            .ToArray();
+
+        Assert.That(unapprovedTypeNames, Is.Empty);
+    }
+
+    [Test]
     public void PickupUsesDesktopAutoHoldAndIndependentUseKey()
     {
         contentObject = new GameObject("WorldContent");
