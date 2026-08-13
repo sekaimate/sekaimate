@@ -1,11 +1,15 @@
 #if UNITY_WEBGL && !UNITY_EDITOR && DEVELOPMENT_BUILD
 using System;
 using System.Collections;
+using System.Collections.Generic;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Threading;
+using Basis.BasisUI;
 using Basis.Network.Core;
 using Basis.Scripts.Device_Management;
 using Basis.Scripts.Drivers;
+using Basis.Scripts.BasisSdk.Players;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -181,6 +185,118 @@ namespace Basis.Scripts.Networking
             }
         }
 
+        public void OpenPlayerList()
+        {
+            BasisMainMenu.OpenWithProvider(UserListProvider.StaticTitle);
+            StartCoroutine(ReportPlayerListAfterLayout());
+        }
+
+        public void SetPlayerSearch(string query)
+        {
+            if (TryFindActiveComponent(
+                    BasisLocalization.Get("ui.search.label"),
+                    out PanelTextField searchField))
+            {
+                searchField.SetValue(query ?? string.Empty);
+            }
+            StartCoroutine(ReportPlayerListAfterLayout());
+        }
+
+        public void SetPlayerSort(string sort)
+        {
+            if (TryFindActiveComponent(
+                    BasisLocalization.Get("menu.players.sortMode"),
+                    out PanelDropdown sortDropdown))
+            {
+                sortDropdown.SetValue(sort ?? string.Empty);
+            }
+            StartCoroutine(ReportPlayerListAfterLayout());
+        }
+
+        public void OpenPlayer(string displayName)
+        {
+            if (TryFindActiveButton(displayName, out PanelButton playerButton))
+            {
+                playerButton.OnClick();
+                StartCoroutine(ReportPlayerStateAfterUiUpdate());
+                return;
+            }
+            Report("player-ui-action-rejected", displayName);
+        }
+
+        public void PlayerUiAction(string localizationKey)
+        {
+            string title = BasisLocalization.Get(localizationKey ?? string.Empty);
+            if (TryFindActiveButton(title, out PanelButton button))
+            {
+                button.OnClick();
+                StartCoroutine(ReportPlayerStateAfterUiUpdate());
+                return;
+            }
+            Report("player-ui-action-rejected", localizationKey);
+        }
+
+        public void SetPlayerVolume(string serializedVolume)
+        {
+            if (float.TryParse(
+                    serializedVolume,
+                    NumberStyles.Float,
+                    CultureInfo.InvariantCulture,
+                    out float volume)
+                && TryFindActiveComponent(
+                    BasisLocalization.Get("menu.individualPlayer.volumeOverride"),
+                    out PanelSlider slider))
+            {
+                slider.SetValue(Mathf.Clamp(volume, 0f, 1.5f));
+                StartCoroutine(ReportPlayerStateAfterUiUpdate());
+                return;
+            }
+            Report("player-ui-action-rejected", "volume");
+        }
+
+        public void ConfirmDialogue(string accepted)
+        {
+            BasisMenuDialoguePanel dialogue = BasisMainMenu.Instance?.Dialogue;
+            if (dialogue == null)
+            {
+                Report("player-ui-action-rejected", "dialogue");
+                return;
+            }
+
+            if (accepted == "1")
+            {
+                dialogue.AcceptButton.OnClick();
+            }
+            else
+            {
+                dialogue.DeclineButton.OnClick();
+            }
+            StartCoroutine(ReportPlayerStateAfterUiUpdate());
+        }
+
+        public async void ReportPlayerState()
+        {
+            BasisRemotePlayer player = IndividualPlayerProvider.remotePlayer;
+            if (player == null)
+            {
+                Report("individual-player-state-rejected", "no-selected-player");
+                return;
+            }
+
+            BasisPlayerSettingsData settings = await BasisPlayerSettingsManager.RequestPlayerSettings(player.UUID);
+            Report(
+                "individual-player-state",
+                player.DisplayName,
+                volume: settings.VolumeLevel,
+                pinned: PinnedPlayers.IsPinned(player.UUID),
+                highlighted: IndividualPlayerProvider.HasHighlight,
+                avatarVisible: settings.AvatarVisible,
+                chatVisible: settings.ChatVisible,
+                blocked: settings.IsBlocked,
+                temporarilyBlocked: player.TempBlocked,
+                availableAdminActions: GetAvailableAdminActions());
+        }
+
         public async void Reconnect()
         {
             Report("reconnect-started");
@@ -200,6 +316,80 @@ namespace Basis.Scripts.Networking
 
             Report("connect-requested");
             _ = BasisConnectionService.ConnectAsync(_entry, _userName);
+        }
+
+        private IEnumerator ReportPlayerListAfterLayout()
+        {
+            yield return null;
+            yield return null;
+
+            List<PlayerListEntry> entries = new List<PlayerListEntry>();
+            foreach (BasisNetworkPlayer player in BasisNetworkPlayers.Players.Values)
+            {
+                string visibleTitle = player.Player != null && player.Player.IsLocal
+                    ? BasisLocalization.Get("menu.players.you", player.SafeDisplayName)
+                    : player.SafeDisplayName;
+                if (TryFindActiveButton(visibleTitle, out PanelButton button))
+                {
+                    entries.Add(new PlayerListEntry
+                    {
+                        displayName = player.SafeDisplayName,
+                        siblingIndex = button.transform.GetSiblingIndex(),
+                    });
+                }
+            }
+            entries.Sort((left, right) => left.siblingIndex.CompareTo(right.siblingIndex));
+
+            string[] labels = new string[entries.Count];
+            for (int index = 0; index < entries.Count; index++)
+            {
+                labels[index] = entries[index].displayName;
+            }
+            Report("player-list-state", visibleLabels: labels);
+        }
+
+        private IEnumerator ReportPlayerStateAfterUiUpdate()
+        {
+            yield return new WaitForSecondsRealtime(0.25f);
+            ReportPlayerState();
+        }
+
+        private static bool TryFindActiveButton(string title, out PanelButton result)
+        {
+            return TryFindActiveComponent(title, out result);
+        }
+
+        private static bool TryFindActiveComponent<T>(string title, out T result)
+            where T : PanelComponent
+        {
+            T[] components = FindObjectsByType<T>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+            for (int index = 0; index < components.Length; index++)
+            {
+                T component = components[index];
+                if (component != null
+                    && component.isActiveAndEnabled
+                    && component.Descriptor != null
+                    && string.Equals(component.Descriptor.Title, title, StringComparison.Ordinal))
+                {
+                    result = component;
+                    return true;
+                }
+            }
+            result = null;
+            return false;
+        }
+
+        private static string[] GetAvailableAdminActions()
+        {
+            List<string> available = new List<string>();
+            foreach (IndividualPlayerAdminAction action in Enum.GetValues(typeof(IndividualPlayerAdminAction)))
+            {
+                if (IndividualPlayerActionPermissions.CanUse(BasisNetworkManagement.LocalPermissions, action))
+                {
+                    available.Add(action.ToString());
+                }
+            }
+            return available.ToArray();
         }
 
         private void Subscribe()
@@ -274,7 +464,16 @@ namespace Basis.Scripts.Networking
             ushort senderPlayerId = 0,
             string sphereId = "",
             string contentType = "",
-            string contentUrl = "")
+            string contentUrl = "",
+            string[] visibleLabels = null,
+            float volume = 0f,
+            bool pinned = false,
+            bool highlighted = false,
+            bool avatarVisible = false,
+            bool chatVisible = false,
+            bool blocked = false,
+            bool temporarilyBlocked = false,
+            string[] availableAdminActions = null)
         {
             int localPlayerId = BasisNetworkConnection.LocalPlayerPeer?.RemoteId ?? -1;
             bool avatarStateReady = BasisNetworkManagement.Transmitter != null;
@@ -290,6 +489,15 @@ namespace Basis.Scripts.Networking
                 sphereId = sphereId ?? string.Empty,
                 contentType = contentType ?? string.Empty,
                 contentUrl = contentUrl ?? string.Empty,
+                visibleLabels = visibleLabels ?? Array.Empty<string>(),
+                volume = volume,
+                pinned = pinned,
+                highlighted = highlighted,
+                avatarVisible = avatarVisible,
+                chatVisible = chatVisible,
+                blocked = blocked,
+                temporarilyBlocked = temporarilyBlocked,
+                availableAdminActions = availableAdminActions ?? Array.Empty<string>(),
             };
             string json = JsonUtility.ToJson(payload);
             Debug.Log("[BasisWebNetworkE2E] " + json);
@@ -367,6 +575,21 @@ namespace Basis.Scripts.Networking
             public string sphereId;
             public string contentType;
             public string contentUrl;
+            public string[] visibleLabels;
+            public float volume;
+            public bool pinned;
+            public bool highlighted;
+            public bool avatarVisible;
+            public bool chatVisible;
+            public bool blocked;
+            public bool temporarilyBlocked;
+            public string[] availableAdminActions;
+        }
+
+        private sealed class PlayerListEntry
+        {
+            public string displayName;
+            public int siblingIndex;
         }
 
         [Serializable]

@@ -105,6 +105,7 @@ test('player list and individual player actions use the live two-client session'
   expect(state.blocked).toBe(true);
 
   await secondPage.evaluate(() => window.basisNetworkE2EOpenPlayerList?.());
+  await waitForEvent(secondPage, 'player-list-state');
   await secondPage.evaluate(name => window.basisNetworkE2EOpenPlayer?.(name), firstName);
   await secondPage.evaluate(() => window.basisNetworkE2EPlayerState?.());
   await waitForEvent(secondPage, 'individual-player-state');

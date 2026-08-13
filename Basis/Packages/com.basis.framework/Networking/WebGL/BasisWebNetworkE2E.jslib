@@ -17,6 +17,30 @@ mergeInto(LibraryManager.library, {
     window.basisNetworkE2ELoadContent = function(sphereId) {
       Module.SendMessage('Basis Web Network E2E', 'LoadContent', sphereId);
     };
+    window.basisNetworkE2EOpenPlayerList = function() {
+      Module.SendMessage('Basis Web Network E2E', 'OpenPlayerList');
+    };
+    window.basisNetworkE2EPlayerSearch = function(query) {
+      Module.SendMessage('Basis Web Network E2E', 'SetPlayerSearch', query);
+    };
+    window.basisNetworkE2EPlayerSort = function(sort) {
+      Module.SendMessage('Basis Web Network E2E', 'SetPlayerSort', sort);
+    };
+    window.basisNetworkE2EOpenPlayer = function(displayName) {
+      Module.SendMessage('Basis Web Network E2E', 'OpenPlayer', displayName);
+    };
+    window.basisNetworkE2EPlayerUiAction = function(localizationKey) {
+      Module.SendMessage('Basis Web Network E2E', 'PlayerUiAction', localizationKey);
+    };
+    window.basisNetworkE2EPlayerVolume = function(volume) {
+      Module.SendMessage('Basis Web Network E2E', 'SetPlayerVolume', String(volume));
+    };
+    window.basisNetworkE2EConfirmDialogue = function(accepted) {
+      Module.SendMessage('Basis Web Network E2E', 'ConfirmDialogue', accepted ? '1' : '0');
+    };
+    window.basisNetworkE2EPlayerState = function() {
+      Module.SendMessage('Basis Web Network E2E', 'ReportPlayerState');
+    };
     window.basisNetworkE2EEvents.push(event);
     window.dispatchEvent(new CustomEvent('basis-network-e2e', { detail: event }));
   },

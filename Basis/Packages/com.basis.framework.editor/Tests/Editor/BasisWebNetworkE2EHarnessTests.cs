@@ -81,7 +81,7 @@ public sealed class BasisWebNetworkE2EHarnessTests
         StringAssert.Contains("PanelDropdown", source);
         StringAssert.Contains("PanelButton", source);
         StringAssert.Contains("PanelSlider", source);
-        StringAssert.Contains("Dialogue.AcceptButton.OnClick", source);
+        StringAssert.Contains("dialogue.AcceptButton.OnClick", source);
         StringAssert.Contains("BasisPlayerSettingsManager.RequestPlayerSettings", source);
         StringAssert.Contains("IndividualPlayerActionPermissions.CanUse", source);
         StringAssert.Contains("basisNetworkE2EOpenPlayerList", bridge);
