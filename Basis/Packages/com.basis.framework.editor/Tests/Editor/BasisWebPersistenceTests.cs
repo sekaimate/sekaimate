@@ -203,6 +203,7 @@ public class BasisWebPersistenceTests
         StringAssert.Contains("BundledContentHolder.Mode.Prop", probe);
         StringAssert.Contains("BundledContentHolder.Mode.World", probe);
         StringAssert.Contains("BasisActionDriver.SaveFromDriver", probe);
+        StringAssert.Contains("WaitForWebDeviceMode", probe);
         StringAssert.Contains("BasisSettingsSystem.SaveString", probe);
         StringAssert.Contains("BasisHandHeldCameraUI.CameraSettings", probe);
     }

@@ -1,4 +1,5 @@
 #if UNITY_WEBGL && !UNITY_EDITOR && DEVELOPMENT_BUILD
+using Basis.Scripts.Device_Management;
 using Basis.Scripts.Settings;
 using Basis.Scripts.TransformBinders.BoneControl;
 using Basis.Scripts.UI.UI_Panels;
@@ -58,6 +59,7 @@ public static class BasisWebPersistenceE2EProbe
 
     private static async Task Seed()
     {
+        await WaitForWebDeviceMode();
         await BasisDataStoreAvatarKeys.LoadKeys();
         await BasisDataStoreAvatarKeys.AddNewKey(new BasisDataStoreAvatarKeys.AvatarKey
         {
@@ -85,6 +87,7 @@ public static class BasisWebPersistenceE2EProbe
 
     private static async Task<ProbeResult> Verify()
     {
+        await WaitForWebDeviceMode();
         await BasisDataStoreAvatarKeys.LoadKeys();
         await BasisDataStoreItemKeys.LoadKeys();
         await BasisActionDriver.LoadApplyToDriverAsync();
@@ -120,6 +123,24 @@ public static class BasisWebPersistenceE2EProbe
             Url = url,
             Pass = password
         };
+    }
+
+    private static async Task WaitForWebDeviceMode()
+    {
+        float deadline = Time.realtimeSinceStartup + 60f;
+        while (BasisDeviceManagement.Instance == null ||
+               BasisDeviceManagement.StaticCurrentMode != BasisConstants.Web ||
+               !BasisActionDriver.GetBindings(
+                       BasisActionDriver.ActionId.SetMovementVectorFromPrimary2DAxis)
+                   .Contains(BasisBoneTrackedRole.LeftHand))
+        {
+            if (Time.realtimeSinceStartup >= deadline)
+            {
+                throw new TimeoutException("Web device mode did not initialize within 60 seconds.");
+            }
+
+            await Task.Yield();
+        }
     }
 
     private static bool ContainsItem(
