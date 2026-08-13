@@ -1,3 +1,9 @@
+import {
+  BROWSER_CACHE_CLEAR_PATH,
+  browserCacheClearResponse,
+  injectBrowserCacheControls,
+} from './browser-cache.ts';
+
 interface R2ObjectBody {
   body: ReadableStream;
   size: number;
@@ -51,6 +57,11 @@ function responseHeaders(object: R2ObjectMetadata, key: string): Headers {
 
 export default {
   async fetch(request: Request, environment: Environment): Promise<Response> {
+    const requestUrl = new URL(request.url);
+    if (requestUrl.pathname === BROWSER_CACHE_CLEAR_PATH) {
+      return browserCacheClearResponse(request);
+    }
+
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       return new Response('Method Not Allowed', {
         status: 405,
@@ -73,6 +84,12 @@ export default {
     if (object === null) return new Response('Not Found', { status: 404 });
 
     const headers = responseHeaders(object, key);
+    if (key === 'index.html') {
+      headers.delete('content-length');
+      const html = await new Response(object.body).text();
+      return new Response(injectBrowserCacheControls(html), { headers });
+    }
+
     headers.set('content-length', object.size.toString());
     return new Response(object.body, { headers });
   },
