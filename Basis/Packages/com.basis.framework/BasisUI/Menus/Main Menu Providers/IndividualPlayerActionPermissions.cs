@@ -1,5 +1,5 @@
 using System.Collections.Generic;
-using BasisNetworkCore.Security;
+using BasisPermissions;
 
 namespace Basis.BasisUI
 {

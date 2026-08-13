@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 using Basis.BasisUI;
-using BasisNetworkCore.Security;
+using BasisPermissions;
 using NUnit.Framework;
 
 public sealed class BasisIndividualPlayerActionPermissionsTests
