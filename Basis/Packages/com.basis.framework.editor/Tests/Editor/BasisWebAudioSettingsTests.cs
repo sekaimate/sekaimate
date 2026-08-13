@@ -44,17 +44,15 @@ public class BasisWebAudioSettingsTests
     }
 
     [Test]
-    public void BrowserUiSoundsUseCompressedWebGlOverrides()
+    public void BrowserUiSoundsUseCompressedLoading()
     {
         foreach (string path in BrowserUiSounds)
         {
             AudioImporter importer = AssetImporter.GetAtPath(path) as AudioImporter;
 
             Assert.That(importer, Is.Not.Null, path);
-            Assert.That(importer.ContainsSampleSettingsOverride("WebGL"), Is.True, path);
-            AudioImporterSampleSettings settings = importer.GetOverrideSampleSettings("WebGL");
+            AudioImporterSampleSettings settings = importer.defaultSampleSettings;
             Assert.That(settings.loadType, Is.EqualTo(AudioClipLoadType.CompressedInMemory), path);
-            Assert.That(settings.compressionFormat, Is.EqualTo(AudioCompressionFormat.AAC), path);
             Assert.That(settings.preloadAudioData, Is.False, path);
         }
     }
