@@ -33,6 +33,10 @@
 __pycache__/
 *.pyc
 
+/Basis/Tests/WebAudioE2E/node_modules/
+/Basis/Tests/WebAudioE2E/playwright-report/
+/Basis/Tests/WebAudioE2E/test-results/
+
 CLAUDE.md
 .claude
 .wolf
