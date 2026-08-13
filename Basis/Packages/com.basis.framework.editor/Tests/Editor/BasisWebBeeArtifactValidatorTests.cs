@@ -69,6 +69,16 @@ public class BasisWebBeeArtifactValidatorTests
         Assert.That(valid, Is.True, error);
     }
 
+    [Test]
+    public void AcceptsSingleWebGlPropSectionWithBasisPropMetadata()
+    {
+        BasisBundleConnector connector = CreateConnector("GameObject", "BasisProp");
+
+        bool valid = BasisWebBeeArtifactValidator.TryValidateProp(connector, 64, 200, out string error);
+
+        Assert.That(valid, Is.True, error);
+    }
+
     [TestCase("Scene", "BasisAvatar")]
     [TestCase("GameObject", "BasisProp")]
     public void RejectsAvatarArtifactWithWrongModeOrContentType(string assetMode, string componentName)
@@ -78,6 +88,28 @@ public class BasisWebBeeArtifactValidatorTests
         bool valid = BasisWebBeeArtifactValidator.TryValidateAvatar(connector, 64, 200, out _);
 
         Assert.That(valid, Is.False);
+    }
+
+    [Test]
+    public void RejectsPropSectionWithoutBasisPropMetadata()
+    {
+        BasisBundleConnector connector = CreateConnector("GameObject", "MeshRenderer");
+
+        bool valid = BasisWebBeeArtifactValidator.TryValidateProp(connector, 64, 200, out string error);
+
+        Assert.That(valid, Is.False);
+        StringAssert.Contains("BasisProp", error);
+    }
+
+    [Test]
+    public void RejectsSceneSectionWhenValidatingProp()
+    {
+        BasisBundleConnector connector = CreateConnector("Scene", "BasisProp");
+
+        bool valid = BasisWebBeeArtifactValidator.TryValidateProp(connector, 64, 200, out string error);
+
+        Assert.That(valid, Is.False);
+        StringAssert.Contains("GameObject", error);
     }
 
     private static BasisBundleConnector CreateConnector(string assetMode = "Scene", string componentName = null)
