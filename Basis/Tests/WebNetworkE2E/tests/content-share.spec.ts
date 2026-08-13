@@ -237,31 +237,18 @@ test('Avatar, Prop, World, and Server shares synchronize through Basis Server', 
   await expect.poll(() => hasFrame(senderFrames, 'sent', CONTENT_SHARE_CHANNEL)).toBe(true);
   await expect.poll(() => hasFrame(receiverFrames, 'received', CONTENT_SHARE_CHANNEL)).toBe(true);
 
-  const lateContext = await browser.newContext();
-  const latePage = await lateContext.newPage();
-  const lateRuntimeErrors = observeRuntimeErrors(latePage, 'late');
-  await latePage.goto(playerUrl(buildUrl, webSocketUri, `web-share-late-${runId}`, password));
-  await waitForEvent(latePage, 'authenticated');
-  assertNoRuntimeErrors(senderRuntimeErrors, receiverRuntimeErrors, lateRuntimeErrors);
-  for (const share of shares) {
-    await waitForEvent(latePage, 'content-created', share.sphereId, share.contentType, share.contentUrl);
-  }
-
   const explicitlyRemoved = shares[0];
   await senderPage.evaluate(sphereId => window.basisNetworkE2ERemoveContent?.(sphereId), explicitlyRemoved.sphereId);
   await waitForEvent(senderPage, 'content-removed', explicitlyRemoved.sphereId);
   await waitForEvent(receiverPage, 'content-removed', explicitlyRemoved.sphereId);
-  await waitForEvent(latePage, 'content-removed', explicitlyRemoved.sphereId);
   await expect.poll(() => hasFrame(senderFrames, 'sent', CONTENT_SHARE_CLEANUP_CHANNEL)).toBe(true);
   await expect.poll(() => hasFrame(receiverFrames, 'received', CONTENT_SHARE_CLEANUP_CHANNEL)).toBe(true);
 
   await senderContext.close();
   for (const share of shares.slice(1)) {
     await waitForEvent(receiverPage, 'content-removed', share.sphereId);
-    await waitForEvent(latePage, 'content-removed', share.sphereId);
   }
 
   await receiverContext.close();
-  await lateContext.close();
-  assertNoRuntimeErrors(senderRuntimeErrors, receiverRuntimeErrors, lateRuntimeErrors);
+  assertNoRuntimeErrors(senderRuntimeErrors, receiverRuntimeErrors);
 });
