@@ -81,8 +81,11 @@ sysinfo.txt
 *.unitypackage.meta
 *.app
 *.exe
+*.x86
 *.x86_64
 *.arm64
+*.dSYM
+*.ipa
 
 # Crashlytics generated file
 crashlytics-build.properties
@@ -135,3 +138,8 @@ csc.*
 
 # Thry Editor (Poiyomi)
 Thry
+
+# JavaScript dependencies and test output
+node_modules/
+playwright-report/
+test-results/
