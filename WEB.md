@@ -50,4 +50,4 @@ return await verifyPropBee(page, {
 });
 ```
 
-この検証は960×600のCanvasでLibraryを開き、BEEを追加し、Propカードの`Spawn`を実行して配置を確定します。成功条件はBEEのHTTP Range応答が`206`であること、`Library provider successfully created item`が出力されること、ブラウザーのコンソールエラーが0件であることです。UIレイアウトを変更した場合は`coordinates`で座標を明示的に上書きします。
+この検証は1280×720のブラウザー内に表示された960×600のCanvasでLibraryを開き、BEEを追加し、Propカードの`Spawn`を実行して配置を確定します。その後ページを再読込し、永続化されたLibraryエントリから同じPropをもう一度Spawnします。成功条件はBEEのHTTP Range応答が`206`であること、復号後の`Attempting Asset Bundle Load`、instantiate後の`Library provider successfully created item`、再読込後の`Process On Disc Meta Data Async`が出力されること、ブラウザーのコンソールエラーが0件であることです。UIレイアウトを変更した場合は`coordinates`で座標を明示的に上書きします。
