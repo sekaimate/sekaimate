@@ -424,6 +424,33 @@ mergeInto(LibraryManager.library, {
     BasisWebAudio.stopCapture();
   },
 
+  BasisWebAudioPlayMicrophoneToggleSound__deps: ['$BasisWebAudio'],
+  BasisWebAudioPlayMicrophoneToggleSound: function(muted, volume) {
+    BasisWebAudio.ensureInitialized().then(function() {
+      var context = BasisWebAudio.context;
+      var oscillator = context.createOscillator();
+      var gain = context.createGain();
+      var startTime = context.currentTime;
+      var duration = 0.08;
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(muted ? 440 : 660, startTime);
+      oscillator.frequency.exponentialRampToValueAtTime(muted ? 330 : 880, startTime + duration);
+      gain.gain.setValueAtTime(Math.max(0, Math.min(1, volume)) * 0.12, startTime);
+      gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start(startTime);
+      oscillator.stop(startTime + duration);
+      oscillator.onended = function() {
+        oscillator.disconnect();
+        gain.disconnect();
+      };
+      if (context.state === 'suspended') {
+        context.resume();
+      }
+    }).catch(function() {});
+  },
+
   BasisWebAudioPlaybackCreateSink__deps: ['$BasisWebAudio'],
   BasisWebAudioPlaybackCreateSink: function() {
     return BasisWebAudio.nextSinkId++;

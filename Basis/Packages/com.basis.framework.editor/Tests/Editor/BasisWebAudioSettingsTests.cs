@@ -22,7 +22,7 @@ public class BasisWebAudioSettingsTests
     }
 
     [Test]
-    public void MicrophoneToggleSoundsArePreloadedForWebGl()
+    public void MicrophoneToggleSoundsDoNotPreloadBrowserIncompatibleCompressedData()
     {
         foreach (string path in MicrophoneToggleSounds)
         {
@@ -31,7 +31,7 @@ public class BasisWebAudioSettingsTests
             Assert.That(importer, Is.Not.Null, path);
             AudioImporterSampleSettings settings = importer.defaultSampleSettings;
             Assert.That(settings.loadType, Is.EqualTo(AudioClipLoadType.DecompressOnLoad), path);
-            Assert.That(settings.preloadAudioData, Is.True, path);
+            Assert.That(settings.preloadAudioData, Is.False, path);
         }
     }
 }

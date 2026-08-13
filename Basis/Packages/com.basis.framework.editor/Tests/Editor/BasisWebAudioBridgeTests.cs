@@ -9,6 +9,7 @@ public class BasisWebAudioBridgeTests
     private const string PlaybackBridgePath = "Packages/com.basis.framework/Platform/WebGL/BasisWebAudioPlaybackBridge.cs";
     private const string DiagnosticsBridgePath = "Packages/com.basis.framework/Platform/WebGL/BasisWebAudioDiagnosticsBridge.cs";
     private const string MicrophoneDriverPath = "Packages/com.basis.framework/Drivers/Local/BasisLocalMicrophoneDriver.cs";
+    private const string MicrophoneIconDriverPath = "Packages/com.basis.framework/Drivers/Local/BasisLocalMicrophoneIconDriver.cs";
     private const string AudioTransmissionPath = "Packages/com.basis.framework/Networking/Transmitters/BasisAudioTransmission.cs";
     private const string AudioReceiverPath = "Packages/com.basis.framework/Networking/Recievers/BasisAudioReceiver.cs";
     private const string RemoteAudioDriverPath = "Packages/com.basis.framework/Drivers/Remote/BasisRemoteAudioDriver.cs";
@@ -40,6 +41,20 @@ public class BasisWebAudioBridgeTests
         StringAssert.Contains("navigator.userActivation.isActive", source);
         StringAssert.Contains("visibilitychange", source);
         StringAssert.Contains("document.hidden", source);
+    }
+
+    [Test]
+    public void MicrophoneToggleSoundUsesWebAudioInsteadOfUnityAudioSourceOnWebGl()
+    {
+        string pluginSource = File.ReadAllText(BrowserPluginPath);
+        string bridgeSource = File.ReadAllText(CaptureBridgePath);
+        string iconDriverSource = File.ReadAllText(MicrophoneIconDriverPath);
+
+        StringAssert.Contains("BasisWebAudioPlayMicrophoneToggleSound", pluginSource);
+        StringAssert.Contains("context.createOscillator()", pluginSource);
+        StringAssert.Contains("BasisWebAudioPlayMicrophoneToggleSound", bridgeSource);
+        StringAssert.Contains("BasisWebAudioCaptureBridge.PlayMicrophoneToggleSound", iconDriverSource);
+        StringAssert.Contains("#if UNITY_WEBGL && !UNITY_EDITOR", iconDriverSource);
     }
 
     [Test]

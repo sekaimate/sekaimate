@@ -62,6 +62,12 @@ public static class BasisWebAudioCaptureBridge
         frameOffset = 0;
     }
 
+    public static void PlayMicrophoneToggleSound(bool muted, float volume)
+    {
+        EnsureInitialized();
+        BasisWebAudioPlayMicrophoneToggleSound(muted ? 1 : 0, volume);
+    }
+
     [MonoPInvokeCallback(typeof(StateChangedCallback))]
     private static void HandleStateChanged(int state)
     {
@@ -96,5 +102,8 @@ public static class BasisWebAudioCaptureBridge
 
     [DllImport("__Internal")]
     private static extern void BasisWebAudioCaptureStop();
+
+    [DllImport("__Internal")]
+    private static extern void BasisWebAudioPlayMicrophoneToggleSound(int muted, float volume);
 }
 #endif
