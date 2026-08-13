@@ -208,7 +208,7 @@ public sealed class BasisWebCameraE2EProbe : MonoBehaviour
         }
         else
         {
-            byte[] rgba = BasisHandHeldCamera.TonemapEquirectToRgba32(raw, PanoramaWidth, PanoramaHeight, 1f, 1f, 1f);
+            byte[] rgba = TonemapEquirectToRgba32(raw, PanoramaWidth, PanoramaHeight);
             var output = new Texture2D(PanoramaWidth, PanoramaHeight, TextureFormat.RGBA32, false);
             resources.Add(output);
             output.LoadRawTextureData(rgba);
@@ -220,6 +220,32 @@ public sealed class BasisWebCameraE2EProbe : MonoBehaviour
         string contentType = exr ? "application/octet-stream" : "image/png";
         BasisWebFileDownload.Save($"Screenshot360_Mono_E2E_{PanoramaWidth}x{PanoramaHeight}.{extension}", imageData, contentType);
         Publish(mode, "downloaded", PanoramaWidth, PanoramaHeight, CountDistinctPixelSamples(raw, 16));
+    }
+
+    private static byte[] TonemapEquirectToRgba32(byte[] linearFloatRgba, int width, int height)
+    {
+        int pixelCount = width * height;
+        byte[] output = new byte[pixelCount * 4];
+        for (int pixel = 0; pixel < pixelCount; pixel++)
+        {
+            int sourceIndex = pixel * 16;
+            int outputIndex = pixel * 4;
+            output[outputIndex] = ToSrgbByte(BitConverter.ToSingle(linearFloatRgba, sourceIndex));
+            output[outputIndex + 1] = ToSrgbByte(BitConverter.ToSingle(linearFloatRgba, sourceIndex + 4));
+            output[outputIndex + 2] = ToSrgbByte(BitConverter.ToSingle(linearFloatRgba, sourceIndex + 8));
+            output[outputIndex + 3] = 255;
+        }
+        return output;
+    }
+
+    private static byte ToSrgbByte(float linear)
+    {
+        if (linear <= 0f) return 0;
+        if (linear >= 1f) return 255;
+        float srgb = linear <= 0.0031308f
+            ? linear * 12.92f
+            : 1.055f * Mathf.Pow(linear, 1f / 2.4f) - 0.055f;
+        return (byte)Mathf.RoundToInt(srgb * 255f);
     }
 
     private static int CountDistinctPixelSamples(byte[] raw, int bytesPerPixel)

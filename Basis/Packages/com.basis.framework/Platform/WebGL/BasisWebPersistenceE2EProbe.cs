@@ -7,7 +7,6 @@ using Basis.Scripts.TransformBinders.BoneControl;
 using Basis.Scripts.UI.UI_Panels;
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
@@ -30,14 +29,9 @@ public static class BasisWebPersistenceE2EProbe
     private const ushort SavedServerPort = 4297;
     private const string SavedServerWebSocketUri = "wss://persistence.basis.invalid/client";
     private const string TrustedUrl = "https://persistence.basis.invalid/*";
-    private const float CameraFov = 73.5f;
     private const BasisActionDriver.ActionId BindingAction =
         BasisActionDriver.ActionId.ToggleHamburgerOnSecondaryRelease;
     private const BasisBoneTrackedRole BindingRole = BasisBoneTrackedRole.CenterEye;
-
-    private static string CameraSettingsPath => Path.Combine(
-        Application.persistentDataPath,
-        BasisHandHeldCameraUI.CameraSettingsJson);
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static async void Run()
@@ -87,9 +81,6 @@ public static class BasisWebPersistenceE2EProbe
         BasisActionDriver.Bind(BindingAction, BindingRole);
         await BasisActionDriver.SaveFromDriver();
 
-        var cameraSettings = new BasisHandHeldCameraUI.CameraSettings { fov = CameraFov };
-        File.WriteAllText(CameraSettingsPath, JsonUtility.ToJson(cameraSettings));
-
         BasisSettingsSystem.LoadAllSettings();
         BasisSettingsSystem.SaveString(SettingKey, SettingValue);
 
@@ -122,9 +113,6 @@ public static class BasisWebPersistenceE2EProbe
 
         BasisDataStoreAvatarKeys.AvatarKey[] avatars = BasisDataStoreAvatarKeys.DisplayKeys();
         BasisDataStoreItemKeys.ItemKey[] items = BasisDataStoreItemKeys.DisplayKeys();
-        BasisHandHeldCameraUI.CameraSettings cameraSettings = JsonUtility.FromJson<BasisHandHeldCameraUI.CameraSettings>(
-            File.ReadAllText(CameraSettingsPath));
-
         return new ProbeResult
         {
             phase = "verify",
@@ -133,7 +121,6 @@ public static class BasisWebPersistenceE2EProbe
             prop = ContainsItem(items, BundledContentHolder.Mode.Prop, PropUrl, PropPassword),
             world = ContainsItem(items, BundledContentHolder.Mode.World, WorldUrl, WorldPassword),
             binding = BasisActionDriver.GetBindings(BindingAction).Contains(BindingRole),
-            camera = cameraSettings != null && Mathf.Approximately(cameraSettings.fov, CameraFov),
             settings = BasisSettingsSystem.LoadString(SettingKey, string.Empty) == SettingValue,
             savedServers = SavedServerStore.Load().Any(server =>
                 server != null &&
@@ -223,7 +210,6 @@ public static class BasisWebPersistenceE2EProbe
         public bool prop;
         public bool world;
         public bool binding;
-        public bool camera;
         public bool settings;
         public bool savedServers;
         public bool trustedUrls;

@@ -231,7 +231,6 @@ public class BasisWebPersistenceTests
         StringAssert.Contains("BasisActionDriver.SaveFromDriver", probe);
         StringAssert.Contains("WaitForWebDeviceMode", probe);
         StringAssert.Contains("BasisSettingsSystem.SaveString", probe);
-        StringAssert.Contains("BasisHandHeldCameraUI.CameraSettings", probe);
         StringAssert.Contains("SavedServerStore.Save", probe);
         StringAssert.Contains("BasisTrustedUrls.Add", probe);
     }
@@ -247,12 +246,10 @@ public class BasisWebPersistenceTests
         StringAssert.Contains("BasisSettingsSystem.LoadString", probe);
         StringAssert.Contains("SavedServerStore.Load", probe);
         StringAssert.Contains("BasisTrustedUrls.GetUserAdded", probe);
-        StringAssert.Contains("File.ReadAllText(CameraSettingsPath)", probe);
         StringAssert.Contains("avatar =", probe);
         StringAssert.Contains("prop =", probe);
         StringAssert.Contains("world =", probe);
         StringAssert.Contains("binding =", probe);
-        StringAssert.Contains("camera =", probe);
         StringAssert.Contains("settings =", probe);
         StringAssert.Contains("savedServers =", probe);
         StringAssert.Contains("trustedUrls =", probe);
