@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using UnityEditor;
 using UnityEditor.Animations;
 using UnityEngine;
@@ -14,9 +13,6 @@ public enum BasisBeeRuntimeCapabilityFormat
 public static class BasisBeeRuntimeCapabilityFixture
 {
     public const string MarkerPrefix = "BasisRuntimeCapability-";
-    private const int AudioFrequency = 8000;
-    private const int AudioDurationSeconds = 2;
-
     public static GameObject Attach(
         GameObject parent,
         string assetFolder,
@@ -51,11 +47,11 @@ public static class BasisBeeRuntimeCapabilityFixture
         animator.runtimeAnimatorController = CreateAnimatorController(assetFolder, formatName, localPosition.x);
 
         AudioSource audioSource = marker.AddComponent<AudioSource>();
-        audioSource.clip = CreateAudioClip(assetFolder, formatName);
         audioSource.loop = true;
         audioSource.playOnAwake = true;
         audioSource.spatialBlend = 0f;
         audioSource.volume = 0.05f;
+        marker.AddComponent<BasisWebRuntimePcmAudioSource>();
 
         return marker;
     }
@@ -115,47 +111,4 @@ public static class BasisBeeRuntimeCapabilityFixture
         return controller;
     }
 
-    private static AudioClip CreateAudioClip(string assetFolder, string formatName)
-    {
-        string audioPath = $"{assetFolder}/BasisRuntimeCapability-{formatName}-Audio.wav";
-        File.WriteAllBytes(audioPath, CreateWaveData());
-        AssetDatabase.ImportAsset(audioPath, ImportAssetOptions.ForceSynchronousImport);
-        AudioClip clip = AssetDatabase.LoadAssetAtPath<AudioClip>(audioPath);
-        if (clip == null)
-        {
-            throw new InvalidOperationException($"Failed to import BEE capability audio clip: {audioPath}");
-        }
-
-        return clip;
-    }
-
-    private static byte[] CreateWaveData()
-    {
-        const short channelCount = 1;
-        const short bitsPerSample = 16;
-        int sampleCount = AudioFrequency * AudioDurationSeconds;
-        int dataLength = sampleCount * bitsPerSample / 8;
-        using var stream = new MemoryStream(44 + dataLength);
-        using var writer = new BinaryWriter(stream);
-        writer.Write(new[] { 'R', 'I', 'F', 'F' });
-        writer.Write(36 + dataLength);
-        writer.Write(new[] { 'W', 'A', 'V', 'E' });
-        writer.Write(new[] { 'f', 'm', 't', ' ' });
-        writer.Write(16);
-        writer.Write((short)1);
-        writer.Write(channelCount);
-        writer.Write(AudioFrequency);
-        writer.Write(AudioFrequency * channelCount * bitsPerSample / 8);
-        writer.Write((short)(channelCount * bitsPerSample / 8));
-        writer.Write(bitsPerSample);
-        writer.Write(new[] { 'd', 'a', 't', 'a' });
-        writer.Write(dataLength);
-        for (int index = 0; index < sampleCount; index++)
-        {
-            double phase = 2d * Math.PI * 440d * index / AudioFrequency;
-            writer.Write((short)(Math.Sin(phase) * short.MaxValue * 0.2d));
-        }
-
-        return stream.ToArray();
-    }
 }

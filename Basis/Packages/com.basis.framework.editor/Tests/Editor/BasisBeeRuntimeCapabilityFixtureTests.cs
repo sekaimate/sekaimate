@@ -54,8 +54,10 @@ public class BasisBeeRuntimeCapabilityFixtureTests
 
         AudioSource audioSource = marker.GetComponent<AudioSource>();
         Assert.That(audioSource, Is.Not.Null);
+        Assert.That(marker.GetComponent<BasisWebRuntimePcmAudioSource>(), Is.Not.Null);
         Assert.That(audioSource.clip, Is.Not.Null);
         Assert.That(audioSource.clip.length, Is.GreaterThanOrEqualTo(1f));
+        Assert.That(audioSource.clip.hideFlags, Is.EqualTo(HideFlags.DontSave));
         Assert.That(audioSource.playOnAwake, Is.True);
         Assert.That(audioSource.loop, Is.True);
     }
