@@ -125,6 +125,9 @@ public class BasisWebMediaBackendTests
         StringAssert.Contains("#else\n        thread = new Thread", source);
         StringAssert.Contains("PlayerLoop.SetPlayerLoop", playerLoop);
         StringAssert.DoesNotContain("System.Threading", playerLoop);
+        StringAssert.Contains("System.Random webRandom", source);
+        StringAssert.Contains("new System.Random(NoiseSeed)", source);
+        StringAssert.DoesNotContain("new Random(NoiseSeed)", source);
     }
 
     [Test]
