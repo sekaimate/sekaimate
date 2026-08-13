@@ -17,8 +17,6 @@ namespace Basis.BasisUI
             public string address;
             public string port;
             public string password;
-            public string webSocketUri;
-            public string serverInfoUri;
         }
 
         [Serializable]
@@ -99,8 +97,6 @@ namespace Basis.BasisUI
             _editAddress.SetValue(input.address ?? string.Empty);
             _editPort.SetValue(input.port ?? string.Empty);
             _editPassword.SetPassword(input.password ?? string.Empty);
-            _editWebSocketUri.SetValue(input.webSocketUri ?? string.Empty);
-            _editServerInfoUri.SetValue(input.serverInfoUri ?? string.Empty);
         }
 
         internal void E2EClickSave() => _editSaveButton?.OnClick();

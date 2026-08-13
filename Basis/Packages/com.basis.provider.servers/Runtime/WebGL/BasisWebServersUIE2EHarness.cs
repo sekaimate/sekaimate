@@ -23,8 +23,6 @@ namespace Basis.BasisUI
             public string address;
             public string port;
             public string password;
-            public string webSocketUri;
-            public string serverInfoUri;
         }
 
         [DllImport("__Internal")]
@@ -85,8 +83,6 @@ namespace Basis.BasisUI
                         address = command.address,
                         port = command.port,
                         password = command.password,
-                        webSocketUri = command.webSocketUri,
-                        serverInfoUri = command.serverInfoUri,
                     });
                     break;
                 case "editor-save": provider.E2EClickSave(); break;

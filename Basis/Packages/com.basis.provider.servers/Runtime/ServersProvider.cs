@@ -66,8 +66,6 @@ namespace Basis.BasisUI
         private PanelElementDescriptor _emptyState;
         private PanelTextField _editAddress;
         private PanelTextField _editPort;
-        private PanelTextField _editWebSocketUri;
-        private PanelTextField _editServerInfoUri;
         private PanelPasswordField _editPassword;
         private PanelDropdown _editNetworkStack;
         private List<string> _stackIds;
@@ -446,14 +444,6 @@ namespace Basis.BasisUI
             _editPort = PanelTextField.CreateNewEntry(editorContent);
             _editPort.Descriptor.SetTitle(BasisLocalization.Get("menu.servers.port"));
 
-#if UNITY_WEBGL && !UNITY_EDITOR
-            _editWebSocketUri = PanelTextField.CreateNewEntry(editorContent);
-            _editWebSocketUri.Descriptor.SetTitle(BasisLocalization.Get("menu.servers.webSocketUri"));
-
-            _editServerInfoUri = PanelTextField.CreateNewEntry(editorContent);
-            _editServerInfoUri.Descriptor.SetTitle(BasisLocalization.Get("menu.servers.serverInfoUri"));
-#endif
-
             _editPassword = PanelPasswordField.CreateNewEntry(editorContent);
             _editPassword.Descriptor.SetTitle(BasisLocalization.Get("menu.servers.password"));
 
@@ -515,10 +505,6 @@ namespace Basis.BasisUI
             string portString = existing?.Target?.Get(ConnectionTarget.Keys.Port) ?? "4296";
             _editAddress.SetValueWithoutNotify(address);
             _editPort.SetValueWithoutNotify(portString);
-#if UNITY_WEBGL && !UNITY_EDITOR
-            _editWebSocketUri.SetValueWithoutNotify(existing?.WebSocketUri ?? string.Empty);
-            _editServerInfoUri.SetValueWithoutNotify(existing?.ServerInfoUri ?? string.Empty);
-#endif
             _editPassword.SetPassword(existing?.Password ?? "default_password");
             SetStackDropdownToId(existing?.Target?.StackId);
             if (_editShareButton != null)
@@ -630,18 +616,8 @@ namespace Basis.BasisUI
             }
 
 #if UNITY_WEBGL && !UNITY_EDITOR
-            string webSocketUri;
-            string serverInfoUri;
-            try
-            {
-                webSocketUri = SavedServerWebSocketUriValidator.Validate(_editWebSocketUri.Value, true);
-                serverInfoUri = SavedServerInfoUriValidator.Validate(_editServerInfoUri.Value, true);
-            }
-            catch (Exception exception) when (exception is InvalidOperationException || exception is FormatException)
-            {
-                BasisConnectionService.ReportConnectionError(exception.Message);
-                return;
-            }
+            string webSocketUri = BrowserServerEndpoints.WebSocketUri(address);
+            string serverInfoUri = BrowserServerEndpoints.ServerInfoUri(address);
 #endif
 
             List<SavedServerEntry> saved = SavedServerStore.Load();

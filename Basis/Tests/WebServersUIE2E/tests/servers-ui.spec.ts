@@ -91,8 +91,6 @@ test('Servers UI manages, probes, connects, and auto-connects to a real Basis Se
     address,
     port: '4296',
     password,
-    webSocketUri,
-    serverInfoUri,
   });
   await command(page, { type: 'editor-save' });
 
@@ -115,8 +113,6 @@ test('Servers UI manages, probes, connects, and auto-connects to a real Basis Se
     address,
     port: '4297',
     password,
-    webSocketUri,
-    serverInfoUri,
   });
   await command(page, { type: 'editor-save' });
   await expect.poll(async () => (await state(page)).entries.find(entry => entry.id === saved?.id)?.port)

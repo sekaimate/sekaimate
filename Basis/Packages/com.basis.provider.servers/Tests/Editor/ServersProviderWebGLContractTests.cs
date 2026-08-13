@@ -19,6 +19,17 @@ public sealed class ServersProviderWebGLContractTests
     }
 
     [Test]
+    public void WebGLServersPanelDerivesBrowserEndpointsFromTheAddress()
+    {
+        string source = File.ReadAllText(ProviderPath);
+
+        StringAssert.Contains("BrowserServerEndpoints.WebSocketUri(address)", source);
+        StringAssert.Contains("BrowserServerEndpoints.ServerInfoUri(address)", source);
+        StringAssert.DoesNotContain("PanelTextField _editWebSocketUri", source);
+        StringAssert.DoesNotContain("PanelTextField _editServerInfoUri", source);
+    }
+
+    [Test]
     public void DevelopmentHarnessOperatesTheProductionServersPanelControls()
     {
         string provider = File.ReadAllText(ProviderHarnessPath);
