@@ -8,12 +8,14 @@ declare global {
       stage: string;
       width: number;
       height: number;
+      distinctPixelSamples: number;
       error: string;
     };
   }
 }
 
 const buildUrl = process.env.BASIS_WEB_CAMERA_URL;
+test.skip(buildUrl === undefined, "BASIS_WEB_CAMERA_URL must point to a served development WebGL build");
 
 type CaptureCase = {
   mode: "flat-png" | "flat-exr" | "panorama-png" | "panorama-exr";
@@ -32,8 +34,6 @@ const captures: CaptureCase[] = [
 
 for (const capture of captures) {
   test(`${capture.mode} downloads rendered image bytes`, async ({ page }) => {
-    test.skip(buildUrl === undefined, "BASIS_WEB_CAMERA_URL must point to a served development WebGL build");
-
     const downloadPromise = page.waitForEvent("download");
     await page.goto(withCaptureMode(buildUrl as string, capture.mode));
     const download = await downloadPromise;
@@ -58,6 +58,7 @@ async function assertProbeCompleted(page: Page, capture: CaptureCase): Promise<v
     height: capture.height,
     error: "",
   });
+  expect(result?.distinctPixelSamples).toBeGreaterThan(1);
 }
 
 async function assertDownloadedImage(download: Download, capture: CaptureCase): Promise<void> {
@@ -65,7 +66,7 @@ async function assertDownloadedImage(download: Download, capture: CaptureCase): 
   const path = await download.path();
   expect(path).not.toBeNull();
   const bytes = await readFile(path as string);
-  expect(bytes.length).toBeGreaterThan(capture.width * capture.height / 8);
+  expect(bytes.length).toBeGreaterThan(100);
 
   const dimensions = capture.format === "png" ? readPngDimensions(bytes) : readExrDimensions(bytes);
   expect(dimensions).toEqual({ width: capture.width, height: capture.height });

@@ -257,7 +257,7 @@ public partial class BasisHandHeldCamera
 #endif
     }
 
-    private static byte[] TonemapEquirectToRgba32(byte[] linearFloatRgba, int width, int height, float exposure, float contrast, float saturation)
+    internal static byte[] TonemapEquirectToRgba32(byte[] linearFloatRgba, int width, int height, float exposure, float contrast, float saturation)
     {
         int pixelCount = width * height;
         byte[] output = new byte[pixelCount * 4];
