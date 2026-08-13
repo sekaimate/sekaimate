@@ -8,9 +8,9 @@ public class BasisWebMediaPipeBackendTests
     private const string BrowserPluginPath = "Packages/com.basis.mediapipe/Runtime/WebGL/BasisMediaPipeWeb.jslib";
     private const string BridgePath = "Packages/com.basis.mediapipe/Runtime/WebGL/BasisMediaPipeWebBackend.cs";
     private const string WorkerPath = "Packages/com.basis.mediapipe/Web~/BasisMediaPipeWorker.mjs";
-    private const string DevelopmentHarnessPath = "Packages/com.basis.mediapipe/Tests/Development/WebGL/index.html";
-    private const string DevelopmentHarnessScriptPath = "Packages/com.basis.mediapipe/Tests/Development/WebGL/mediapipe-e2e.mjs";
-    private const string PlaywrightSpecPath = "Packages/com.basis.mediapipe/Tests/Development/WebGL/mediapipe-worker.spec.mjs";
+    private const string DevelopmentHarnessPath = "Packages/com.basis.mediapipe/Tests~/Development/WebGL/index.html";
+    private const string DevelopmentHarnessScriptPath = "Packages/com.basis.mediapipe/Tests~/Development/WebGL/mediapipe-e2e.mjs";
+    private const string PlaywrightSpecPath = "Packages/com.basis.mediapipe/Tests~/Development/WebGL/mediapipe-worker.spec.mjs";
     private const string WebAssemblyDefinitionPath = "Packages/com.basis.mediapipe/Runtime/WebGL/BasisMediaPipe.WebGL.asmdef";
     private const string NativeAssemblyDefinitionPath = "Packages/com.basis.mediapipe/Runtime/Homuler/BasisMediaPipe.Homuler.asmdef";
 
