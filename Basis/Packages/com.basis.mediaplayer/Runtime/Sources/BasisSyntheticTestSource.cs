@@ -37,7 +37,7 @@ public sealed class BasisSyntheticTestSource : IBasisFrameSource
     private double nextFrameTime;
     private long webPresentationTimeUs;
     private int webFrameIndex;
-    private Random webRandom;
+    private System.Random webRandom;
 #else
     private Thread thread;
 #endif
@@ -80,7 +80,7 @@ public sealed class BasisSyntheticTestSource : IBasisFrameSource
 #if UNITY_WEBGL && !UNITY_EDITOR
         webPresentationTimeUs = 0;
         webFrameIndex = 0;
-        webRandom = new Random(NoiseSeed);
+        webRandom = new System.Random(NoiseSeed);
         nextFrameTime = Time.realtimeSinceStartupAsDouble;
         OnVideoSizeChanged?.Invoke(Width, Height);
         OnReady?.Invoke();
@@ -131,7 +131,7 @@ public sealed class BasisSyntheticTestSource : IBasisFrameSource
         {
             long pts = 0;
             int frameIndex = 0;
-            var rng = new Random(NoiseSeed);
+            var rng = new System.Random(NoiseSeed);
 
             OnVideoSizeChanged?.Invoke(Width, Height);
             OnReady?.Invoke();
@@ -163,7 +163,7 @@ public sealed class BasisSyntheticTestSource : IBasisFrameSource
     }
 #endif
 
-    private void EmitFrame(ref long presentationTimeUs, ref int frameIndex, Random random)
+    private void EmitFrame(ref long presentationTimeUs, ref int frameIndex, System.Random random)
     {
         byte[] buffer = new byte[Width * Height * 4];
         FillPattern(buffer, frameIndex, random);
@@ -196,7 +196,7 @@ public sealed class BasisSyntheticTestSource : IBasisFrameSource
         }
     }
 
-    private void FillPattern(byte[] buffer, int frameIndex, Random rng)
+    private void FillPattern(byte[] buffer, int frameIndex, System.Random rng)
     {
         switch (PatternMode)
         {
@@ -255,7 +255,7 @@ public sealed class BasisSyntheticTestSource : IBasisFrameSource
         }
     }
 
-    private static void FillNoise(byte[] buffer, Random rng)
+    private static void FillNoise(byte[] buffer, System.Random rng)
     {
         rng.NextBytes(buffer);
         for (int i = 3; i < buffer.Length; i += 4) buffer[i] = 0xFF;
