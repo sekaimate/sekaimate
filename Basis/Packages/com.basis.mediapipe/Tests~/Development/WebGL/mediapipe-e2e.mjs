@@ -136,12 +136,6 @@ async function inferFixture(name) {
   return decodeResult((await resultMessage).values, name);
 }
 
-function handSide(observation) {
-  if (observation.leftHandCount === 21) return "left";
-  if (observation.rightHandCount === 21) return "right";
-  return "none";
-}
-
 async function run() {
   state.running = true;
   state.error = null;
@@ -157,9 +151,9 @@ async function run() {
     state.ready = false;
     await initializeWorker({ mirror: true, swapHands: true });
     const swappedHand = await inferFixture("hand");
-    state.handSelectionChanged = handSide(originalHand) !== "none"
-      && handSide(swappedHand) !== "none"
-      && handSide(originalHand) !== handSide(swappedHand);
+    state.handSelectionChanged = originalHand.leftHandCount === swappedHand.rightHandCount
+      && originalHand.rightHandCount === swappedHand.leftHandCount
+      && originalHand.leftHandCount + originalHand.rightHandCount > 0;
     state.running = false;
     renderState();
     return structuredClone(state);
