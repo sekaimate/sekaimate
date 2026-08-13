@@ -79,6 +79,33 @@ namespace Basis.Scripts.Networking
             Report("chat-sent", message);
         }
 
+        public void SetMuted(string value)
+        {
+#if !BASIS_DISABLE_MICROPHONE
+            if (!bool.TryParse(value, out bool muted))
+            {
+                Report("mute-rejected", value);
+                return;
+            }
+            if (BasisLocalMicrophoneDriver.isPaused != muted)
+            {
+                BasisLocalMicrophoneDriver.ToggleIsPaused();
+            }
+            Report("mute-changed", muted.ToString());
+#endif
+        }
+
+        public void SetTalkMode(string value)
+        {
+            if (!Enum.TryParse(value, false, out BasisTalkMode talkMode))
+            {
+                Report("talk-mode-rejected", value);
+                return;
+            }
+            BasisTalkModeManager.SetMode(talkMode);
+            Report("talk-mode-changed", BasisTalkModeManager.CurrentMode.ToString());
+        }
+
         public void ShareContent(string json)
         {
             ContentShareInput input = JsonUtility.FromJson<ContentShareInput>(json);

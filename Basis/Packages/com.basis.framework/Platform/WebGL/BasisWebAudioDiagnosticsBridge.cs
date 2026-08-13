@@ -23,6 +23,21 @@ public static class BasisWebAudioDiagnosticsBridge
         BasisWebAudioDiagnosticsMarkOpusDecoded(sampleCount);
     }
 
+    public static void MarkMuted(bool muted)
+    {
+        BasisWebAudioDiagnosticsMarkMuted(muted ? 1 : 0);
+    }
+
+    public static void MarkTalkMode(byte talkMode)
+    {
+        BasisWebAudioDiagnosticsMarkTalkMode(talkMode);
+    }
+
+    public static void MarkVisemeProcessed(bool isLocal, float peak)
+    {
+        BasisWebAudioDiagnosticsMarkVisemeProcessed(isLocal ? 1 : 0, peak);
+    }
+
     [DllImport("__Internal")]
     private static extern void BasisWebAudioDiagnosticsMarkOpusEncoded(int encodedBytes);
 
@@ -34,5 +49,14 @@ public static class BasisWebAudioDiagnosticsBridge
 
     [DllImport("__Internal")]
     private static extern void BasisWebAudioDiagnosticsMarkOpusDecoded(int sampleCount);
+
+    [DllImport("__Internal")]
+    private static extern void BasisWebAudioDiagnosticsMarkMuted(int muted);
+
+    [DllImport("__Internal")]
+    private static extern void BasisWebAudioDiagnosticsMarkTalkMode(int talkMode);
+
+    [DllImport("__Internal")]
+    private static extern void BasisWebAudioDiagnosticsMarkVisemeProcessed(int isLocal, float peak);
 }
 #endif

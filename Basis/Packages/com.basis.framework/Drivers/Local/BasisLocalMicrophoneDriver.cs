@@ -190,6 +190,10 @@ public static class BasisLocalMicrophoneDriver
 
             OnPausedAction?.Invoke(isPaused);
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+            BasisWebAudioDiagnosticsBridge.MarkMuted(isPaused);
+#endif
+
 #if UNITY_IOS && !UNITY_EDITOR
             Basis.Scripts.Platform.BasisIOSAudioSession.ReapplySettings();
 #endif

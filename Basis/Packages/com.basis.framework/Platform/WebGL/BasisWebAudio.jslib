@@ -24,6 +24,14 @@ mergeInto(LibraryManager.library, {
         playbackSamplesPushed: 0,
         playbackNonSilentFramesPushed: 0,
         playbackPeak: 0,
+        muted: false,
+        muteChanges: 0,
+        talkMode: 0,
+        talkModeChanges: 0,
+        localVisemeFrames: 0,
+        localVisemePeak: 0,
+        remoteVisemeFrames: 0,
+        remoteVisemePeak: 0,
       };
     },
     ensureInstalled: function() {
@@ -108,6 +116,25 @@ mergeInto(LibraryManager.library, {
         if (peak > BasisWebAudioDiagnosticsState.values.playbackPeak) {
           BasisWebAudioDiagnosticsState.values.playbackPeak = peak;
         }
+      }
+    },
+    markMuted: function(muted) {
+      BasisWebAudioDiagnosticsState.ensureInstalled();
+      BasisWebAudioDiagnosticsState.values.muted = muted !== 0;
+      BasisWebAudioDiagnosticsState.values.muteChanges++;
+    },
+    markTalkMode: function(talkMode) {
+      BasisWebAudioDiagnosticsState.ensureInstalled();
+      BasisWebAudioDiagnosticsState.values.talkMode = talkMode;
+      BasisWebAudioDiagnosticsState.values.talkModeChanges++;
+    },
+    markVisemeProcessed: function(isLocal, peak) {
+      BasisWebAudioDiagnosticsState.ensureInstalled();
+      var frameKey = isLocal !== 0 ? 'localVisemeFrames' : 'remoteVisemeFrames';
+      var peakKey = isLocal !== 0 ? 'localVisemePeak' : 'remoteVisemePeak';
+      BasisWebAudioDiagnosticsState.values[frameKey]++;
+      if (peak > BasisWebAudioDiagnosticsState.values[peakKey]) {
+        BasisWebAudioDiagnosticsState.values[peakKey] = peak;
       }
     },
   },
@@ -420,5 +447,20 @@ mergeInto(LibraryManager.library, {
   BasisWebAudioDiagnosticsMarkOpusDecoded__deps: ['$BasisWebAudioDiagnosticsState'],
   BasisWebAudioDiagnosticsMarkOpusDecoded: function(sampleCount) {
     BasisWebAudioDiagnosticsState.markOpusDecoded(sampleCount);
+  },
+
+  BasisWebAudioDiagnosticsMarkMuted__deps: ['$BasisWebAudioDiagnosticsState'],
+  BasisWebAudioDiagnosticsMarkMuted: function(muted) {
+    BasisWebAudioDiagnosticsState.markMuted(muted);
+  },
+
+  BasisWebAudioDiagnosticsMarkTalkMode__deps: ['$BasisWebAudioDiagnosticsState'],
+  BasisWebAudioDiagnosticsMarkTalkMode: function(talkMode) {
+    BasisWebAudioDiagnosticsState.markTalkMode(talkMode);
+  },
+
+  BasisWebAudioDiagnosticsMarkVisemeProcessed__deps: ['$BasisWebAudioDiagnosticsState'],
+  BasisWebAudioDiagnosticsMarkVisemeProcessed: function(isLocal, peak) {
+    BasisWebAudioDiagnosticsState.markVisemeProcessed(isLocal, peak);
   },
 });

@@ -220,6 +220,9 @@ namespace Basis.Scripts.Networking
         private static void ApplyMode(BasisTalkMode mode)
         {
             CurrentMode = mode;
+#if UNITY_WEBGL && !UNITY_EDITOR
+            BasisWebAudioDiagnosticsBridge.MarkTalkMode((byte)mode);
+#endif
             BasisTransmissionResults.ForceVoiceRecipientResend = true;
             BroadcastLocalMode();
             OnLocalTalkModeChanged?.Invoke();
