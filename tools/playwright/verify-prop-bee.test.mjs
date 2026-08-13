@@ -33,8 +33,15 @@ class FakePage extends EventEmitter {
           this.pendingResponse?.(beeResponse);
           this.emitConsole("Item key added: prop");
         } else if (this.clickCount === 7) {
+          this.emitConsole("Attempting Asset Bundle Load...");
           this.emitConsole("Forcefully closing the main menu");
         } else if (this.clickCount === 8) {
+          this.emitConsole(`Library provider successfully created item ${beeUrl} with networking: Local`);
+        } else if (this.clickCount === 12) {
+          this.emitConsole("Process On Disc Meta Data Async");
+          this.emitConsole("Attempting Asset Bundle Load...");
+          this.emitConsole("Forcefully closing the main menu");
+        } else if (this.clickCount === 13) {
           this.emitConsole(`Library provider successfully created item ${beeUrl} with networking: Local`);
         }
       },
@@ -49,6 +56,10 @@ class FakePage extends EventEmitter {
 
   locator() {
     return { waitFor: async () => {} };
+  }
+
+  async reload() {
+    this.emitConsole("Loading Item keys from file at path: ItemKeyStore.json");
   }
 
   async screenshot() {}
@@ -77,9 +88,13 @@ test("adds and locally spawns a Prop BEE without browser errors", async () => {
     password: "password",
   });
 
-  assert.equal(page.clickCount, 8);
+  assert.equal(page.clickCount, 13);
   assert.deepEqual(result.consoleErrors, []);
   assert.equal(result.beeResponses.length, 1);
   assert.equal(result.beeResponses[0].status, 206);
-  assert.match(result.spawnLog, /successfully created item/);
+  assert.match(result.firstAssetBundleLoadLog, /Attempting Asset Bundle Load/);
+  assert.match(result.firstSpawnLog, /successfully created item/);
+  assert.match(result.cachedLoadLog, /Process On Disc Meta Data Async/);
+  assert.match(result.reloadedAssetBundleLoadLog, /Attempting Asset Bundle Load/);
+  assert.match(result.reloadedSpawnLog, /successfully created item/);
 });

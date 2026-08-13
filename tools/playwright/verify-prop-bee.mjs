@@ -1,10 +1,11 @@
 const DEFAULT_COORDINATES = Object.freeze({
   library: { x: 465, y: 540 },
+  propTab: { x: 395, y: 110 },
   addNew: { x: 857, y: 154 },
   urlField: { x: 640, y: 249 },
   passwordField: { x: 640, y: 336 },
   add: { x: 640, y: 388 },
-  itemCard: { x: 360, y: 230 },
+  itemCard: { x: 550, y: 230 },
   spawn: { x: 760, y: 461 },
   placement: { x: 480, y: 300 },
 });
@@ -21,10 +22,10 @@ async function replaceFocusedText(page, value) {
   await page.keyboard.insertText(value);
 }
 
-async function waitForLog(logs, pattern, page, timeoutMs) {
+async function waitForLog(logs, pattern, page, timeoutMs, startIndex = 0) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const match = logs.find((entry) => pattern.test(entry));
+    const match = logs.slice(startIndex).find((entry) => pattern.test(entry));
     if (match) {
       return match;
     }
@@ -69,7 +70,7 @@ export async function verifyPropBee(page, options) {
     }
   });
 
-  await page.setViewportSize({ width: 960, height: 600 });
+  await page.setViewportSize({ width: 1280, height: 720 });
   await page.goto(applicationUrl, { waitUntil: "domcontentloaded", timeout: startupTimeoutMs });
   await page.locator("canvas").waitFor({ state: "visible", timeout: startupTimeoutMs });
   await page.waitForTimeout(30000);
@@ -96,12 +97,13 @@ export async function verifyPropBee(page, options) {
   await page.waitForTimeout(1000);
   await clickCanvas(page, coordinates.spawn);
   await waitForLog(logs, /Forcefully closing the main menu/, page, operationTimeoutMs);
+  const firstAssetBundleLoadLog = await waitForLog(logs, /Attempting Asset Bundle Load/, page, operationTimeoutMs);
   await page.waitForTimeout(1000);
   await clickCanvas(page, coordinates.placement);
 
-  const spawnLog = await waitForLog(logs, /Library provider successfully created item .* with networking: Local/, page, operationTimeoutMs);
+  const firstSpawnLog = await waitForLog(logs, /Library provider successfully created item .* with networking: Local/, page, operationTimeoutMs);
 
-  if (!spawnLog.includes(beeUrl)) {
+  if (!firstSpawnLog.includes(beeUrl)) {
     throw new Error(`The successful spawn log did not reference ${beeUrl}.`);
   }
 
@@ -112,14 +114,51 @@ export async function verifyPropBee(page, options) {
     throw new Error(`Browser console errors:\n${consoleErrors.join("\n")}`);
   }
 
+  const reloadLogStart = logs.length;
+  await page.reload({ waitUntil: "domcontentloaded", timeout: startupTimeoutMs });
+  await page.locator("canvas").waitFor({ state: "visible", timeout: startupTimeoutMs });
+  await waitForLog(logs, /Loading Item keys from file/, page, startupTimeoutMs, reloadLogStart);
+  await page.waitForTimeout(30000);
+
+  await clickCanvas(page, coordinates.library);
+  await page.waitForTimeout(1000);
+  await clickCanvas(page, coordinates.propTab);
+  await page.waitForTimeout(2000);
+  await clickCanvas(page, coordinates.itemCard);
+  await page.waitForTimeout(1000);
+  await clickCanvas(page, coordinates.spawn);
+  const cachedLoadLog = await waitForLog(logs, /Process On Disc Meta Data Async/, page, operationTimeoutMs, reloadLogStart);
+  await waitForLog(logs, /Forcefully closing the main menu/, page, operationTimeoutMs, reloadLogStart);
+  const reloadedAssetBundleLoadLog = await waitForLog(logs, /Attempting Asset Bundle Load/, page, operationTimeoutMs, reloadLogStart);
+  await page.waitForTimeout(1000);
+  await clickCanvas(page, coordinates.placement);
+  const reloadedSpawnLog = await waitForLog(
+    logs,
+    /Library provider successfully created item .* with networking: Local/,
+    page,
+    operationTimeoutMs,
+    reloadLogStart,
+  );
+
+  if (!reloadedSpawnLog.includes(beeUrl)) {
+    throw new Error(`The successful spawn after reload did not reference ${beeUrl}.`);
+  }
+  if (consoleErrors.length !== 0) {
+    throw new Error(`Browser console errors after reload:\n${consoleErrors.join("\n")}`);
+  }
+
   if (screenshotPath) {
     await page.screenshot({ path: screenshotPath, fullPage: true });
   }
 
   return {
     beeResponses,
+    cachedLoadLog,
     consoleErrors,
-    spawnLog,
+    firstAssetBundleLoadLog,
+    firstSpawnLog,
+    reloadedAssetBundleLoadLog,
+    reloadedSpawnLog,
   };
 }
 
