@@ -56,7 +56,7 @@ public sealed class BasisWebBeeRuntimeCapabilityProbe : MonoBehaviour
             BasisWebBeeRuntimeCapabilityPublish(JsonUtility.ToJson(new CapabilitySnapshot
             {
                 format = format,
-                instanceId = gameObject.GetInstanceID(),
+                instanceId = EntityId.ToULong(gameObject.GetEntityId()),
                 rendererVisible = renderer.isVisible,
                 rendererCenterX = renderer.bounds.center.x,
                 animationNormalizedTime = state.normalizedTime,
@@ -95,7 +95,7 @@ public sealed class BasisWebBeeRuntimeCapabilityProbe : MonoBehaviour
     private sealed class CapabilitySnapshot
     {
         public string format;
-        public int instanceId;
+        public ulong instanceId;
         public bool rendererVisible;
         public float rendererCenterX;
         public float animationNormalizedTime;
