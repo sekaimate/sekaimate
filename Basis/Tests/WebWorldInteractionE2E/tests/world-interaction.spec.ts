@@ -43,6 +43,7 @@ test('world BEE exposes every required production interaction type', async ({ pa
   for (const typeName of requiredTypes) {
     await expect.poll(() => page.evaluate((name) => window.basisWorldInteractionE2E?.fixtureTypes.includes(name), typeName)).toBe(true);
   }
+  await expect.poll(() => page.evaluate(() => window.basisWorldInteractionE2E?.directTouchReady)).toBe(true);
 });
 
 test('desktop ray hover, grab, use, and drop mutate the production pickup', async ({ page }) => {

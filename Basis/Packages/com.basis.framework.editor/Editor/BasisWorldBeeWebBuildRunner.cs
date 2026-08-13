@@ -94,6 +94,7 @@ public static class BasisWorldBeeWebBuildRunner
                 throw new InvalidOperationException("Verification scene does not contain a BasisScene.");
             }
 
+            BasisWorldInteractionFixtureBuilder.Create(content);
             content.BasisBundleDescription.AssetBundleName = $"web-world-verification-{Guid.NewGuid():N}";
             if (content.MainCamera == null)
             {
@@ -106,6 +107,7 @@ public static class BasisWorldBeeWebBuildRunner
                 verificationRoot,
                 BasisBeeRuntimeCapabilityFormat.World,
                 content.transform.InverseTransformPoint(markerWorldPosition));
+            EditorSceneManager.SaveScene(scene);
 
             (bool success, string message) = await BasisBundleBuild.SceneBundleBuild(
                 null,

@@ -4,6 +4,7 @@ interface BasisWorldInteractionSnapshot {
   stage: string;
   error: string;
   worldLoaded: boolean;
+  directTouchReady: boolean;
   fixtureTypes: string[];
   activeTarget: string;
   hoverStarts: number;
