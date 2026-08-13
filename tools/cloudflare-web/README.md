@@ -5,7 +5,7 @@ Node.js 24とCloudflareへのログイン済みWranglerを使用し、既存のU
 ```sh
 cd tools/cloudflare-web
 pnpm install
-pnpm deploy -- \
+pnpm run publish -- \
   --domain example.com \
   --build-dir /absolute/path/to/web-build
 ```

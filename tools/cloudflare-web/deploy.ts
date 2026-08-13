@@ -37,7 +37,7 @@ function parseOptions(arguments_: string[]): Options {
     const name = arguments_[index];
     const value = arguments_[index + 1];
     if (!name?.startsWith('--') || value === undefined) {
-      throw new Error('Usage: pnpm deploy -- --domain <domain> --build-dir <directory> [--worker-name <name>] [--bucket-name <name>]');
+      throw new Error('Usage: pnpm run publish -- --domain <domain> --build-dir <directory> [--worker-name <name>] [--bucket-name <name>]');
     }
     values.set(name, value);
   }
