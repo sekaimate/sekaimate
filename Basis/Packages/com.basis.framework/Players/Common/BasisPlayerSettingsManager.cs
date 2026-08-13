@@ -52,7 +52,12 @@ public static class BasisPlayerSettingsManager
             // Read off the main thread; only the (trivial) JSON parse resumes on it. A missing file
             // returns defaults WITHOUT writing — the record is created only when a setting actually
             // changes (SetPlayerSettings), so joining never touches the disk for write.
+#if UNITY_WEBGL && !UNITY_EDITOR
+            string json = File.Exists(path) ? File.ReadAllText(path) : null;
+            await Task.Yield();
+#else
             string json = await Task.Run(() => File.Exists(path) ? File.ReadAllText(path) : null);
+#endif
 
             BasisPlayerSettingsData data = default;
             bool valid = false;
@@ -120,7 +125,12 @@ public static class BasisPlayerSettingsManager
         {
             cache[key] = settings;
             string json = JsonUtility.ToJson(settings, false);
+#if UNITY_WEBGL && !UNITY_EDITOR
+            File.WriteAllText(path, json);
+            await Task.Yield();
+#else
             await Task.Run(() => File.WriteAllText(path, json));
+#endif
         }
         finally
         {
