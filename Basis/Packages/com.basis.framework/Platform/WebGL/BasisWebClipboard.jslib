@@ -14,6 +14,9 @@ mergeInto(LibraryManager.library, {
       if (!navigator.clipboard) {
         return 'Clipboard API is unavailable in this browser.';
       }
+      if (typeof navigator.clipboard[operation + 'Text'] !== 'function') {
+        return 'Clipboard ' + operation + ' is unavailable in this browser.';
+      }
       if (navigator.userActivation && !navigator.userActivation.isActive) {
         return 'Clipboard ' + operation + ' requires an active user gesture.';
       }
