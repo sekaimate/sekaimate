@@ -3,8 +3,11 @@ using System.Linq;
 using System.Reflection;
 using Basis.Scripts.BasisSdk;
 using Basis.Scripts.BasisSdk.Interactions;
+using Basis.Scripts.UI;
+using Basis.Scripts.UI.UI_Panels;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.UI;
 
 public static class BasisWorldInteractionFixtureBuilder
 {
@@ -15,6 +18,7 @@ public static class BasisWorldInteractionFixtureBuilder
     public const string VehicleSeatName = "BasisWorldInteraction-VehicleSeat";
     public const string ImageName = "BasisWorldInteraction-Image";
     public const string PoolName = "BasisWorldInteraction-PoolCue";
+    public const string DirectTouchName = "BasisWorldInteraction-DirectTouch";
 
     private const string PoolCuePrefabPath = "Packages/com.basis.pooltable/Modules/BilliardsModule/Prefabs/Cue.prefab";
 
@@ -34,6 +38,7 @@ public static class BasisWorldInteractionFixtureBuilder
         CreateVehicle(root.transform);
         CreateImagePickup(root.transform);
         CreatePoolCue(root.transform);
+        CreateDirectTouch(root.transform);
 
         EditorUtility.SetDirty(root);
         return root;
@@ -161,6 +166,48 @@ public static class BasisWorldInteractionFixtureBuilder
             throw new InvalidOperationException($"Pool cue fixture does not contain {name}.");
         }
         return child.gameObject;
+    }
+
+    private static void CreateDirectTouch(Transform parent)
+    {
+        int uiLayer = LayerMask.NameToLayer("UI");
+        if (uiLayer < 0)
+        {
+            throw new InvalidOperationException("UI layer is required for DirectTouch.");
+        }
+
+        var canvasObject = new GameObject(DirectTouchName, typeof(RectTransform));
+        canvasObject.layer = uiLayer;
+        canvasObject.SetActive(false);
+
+        var canvasRect = (RectTransform)canvasObject.transform;
+        canvasRect.SetParent(parent, false);
+        canvasRect.localPosition = new Vector3(0f, 1.35f, 1.5f);
+        canvasRect.localRotation = Quaternion.Euler(0f, 180f, 0f);
+        canvasRect.localScale = Vector3.one * 0.001f;
+        canvasRect.sizeDelta = new Vector2(400f, 400f);
+
+        Canvas canvas = canvasObject.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.WorldSpace;
+        CanvasScaler scaler = canvasObject.AddComponent<CanvasScaler>();
+        BasisGraphicUIRayCaster rayCaster = canvasObject.AddComponent<BasisGraphicUIRayCaster>();
+        rayCaster.Canvas = canvas;
+        BasisUIComponent uiComponent = canvasObject.AddComponent<BasisUIComponent>();
+        uiComponent.Canvas = canvas;
+        uiComponent.CanvasScaler = scaler;
+        uiComponent.GraphicUIRayCaster = rayCaster;
+
+        var buttonObject = new GameObject("DirectTouchButton", typeof(RectTransform));
+        buttonObject.layer = uiLayer;
+        var buttonRect = (RectTransform)buttonObject.transform;
+        buttonRect.SetParent(canvasRect, false);
+        buttonRect.sizeDelta = new Vector2(300f, 300f);
+        Image image = buttonObject.AddComponent<Image>();
+        image.raycastTarget = true;
+        Button button = buttonObject.AddComponent<Button>();
+        button.targetGraphic = image;
+
+        canvasObject.SetActive(true);
     }
 
     private static Component AddRequiredComponent(GameObject target, string assemblyName, string typeName)
