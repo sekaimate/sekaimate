@@ -171,7 +171,11 @@ public sealed class WebSocketServerSession : IAsyncDisposable
             }
             if (_pendingSends.Count >= _pendingSendCapacity)
             {
-                throw new InvalidOperationException("The WebSocket pending send queue is full.");
+                if (!TryCoalesceSequencedFrame(channel, deliveryMethod, payload))
+                {
+                    throw new InvalidOperationException("The WebSocket pending send queue is full.");
+                }
+                return true;
             }
             _pendingSends.Enqueue(new QueuedFrame(channel, deliveryMethod, payload.ToArray()));
         }
@@ -181,6 +185,36 @@ public sealed class WebSocketServerSession : IAsyncDisposable
             _ = DrainPendingSendsSafelyAsync();
         }
         return true;
+    }
+
+    private bool TryCoalesceSequencedFrame(
+        byte channel,
+        DeliveryMethod deliveryMethod,
+        ReadOnlyMemory<byte> payload)
+    {
+        if (deliveryMethod is not DeliveryMethod.Sequenced and not DeliveryMethod.ReliableSequenced)
+        {
+            return false;
+        }
+
+        bool foundMatchingStream = false;
+        int pendingCount = _pendingSends.Count;
+        for (int i = 0; i < pendingCount; i++)
+        {
+            QueuedFrame pending = _pendingSends.Dequeue();
+            if (pending.Channel == channel && pending.DeliveryMethod == deliveryMethod)
+            {
+                foundMatchingStream = true;
+                continue;
+            }
+            _pendingSends.Enqueue(pending);
+        }
+
+        if (foundMatchingStream)
+        {
+            _pendingSends.Enqueue(new QueuedFrame(channel, deliveryMethod, payload.ToArray()));
+        }
+        return foundMatchingStream;
     }
 
     private async Task DrainPendingSendsSafelyAsync()

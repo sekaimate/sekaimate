@@ -31,7 +31,7 @@ interface BeeRequestEvidence {
   contentRange: string | undefined;
 }
 
-const FATAL_RUNTIME_ERROR = /Loading FSB failed|EncodingError|NullReferenceException|Object reference not set|is not approved and will be removed|avatar-load-failed|content-load-failed|An error occurred running the Unity content/i;
+const FATAL_RUNTIME_ERROR = /Loading FSB failed|EncodingError|NullReferenceException|Object reference not set|is not approved and will be removed|avatar-load-failed|content-load-failed|An error occurred running the Unity content|server has detected an issue with your client or connection|BasisEventDriver\.LateUpdate failed|Browser WebSocket is not open/i;
 
 function observeRuntimeErrors(page: Page, label: string): string[] {
   const errors: string[] = [];

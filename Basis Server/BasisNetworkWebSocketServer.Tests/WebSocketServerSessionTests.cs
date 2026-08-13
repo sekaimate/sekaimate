@@ -81,6 +81,30 @@ public sealed class WebSocketServerSessionTests
     }
 
     [Fact]
+    public async Task RunAsync_CoalescesSequencedDataWhenPendingQueueIsFull()
+    {
+        List<string> events = new();
+        FakeWebSocket socket = new(events,
+            Frame(WebSocketFrameKind.Hello, new byte[] { 10 }),
+            Frame(WebSocketFrameKind.Disconnect, Array.Empty<byte>()));
+        SequencedOverflowingHandler handler = new();
+        await using WebSocketServerSession session = new(
+            socket,
+            handler,
+            MaximumPayloadLength,
+            new IPEndPoint(IPAddress.Loopback, 12345),
+            PeerId,
+            pendingSendCapacity: 1);
+
+        await session.RunAsync(CancellationToken.None);
+
+        Assert.Equal(
+            new[] { WebSocketFrameKind.Accept, WebSocketFrameKind.Data },
+            socket.SentFrames.Select(frame => frame.Kind));
+        Assert.Equal(new byte[] { 2 }, socket.SentFrames[1].Payload);
+    }
+
+    [Fact]
     public async Task RunAsync_ReassemblesFragmentedBinaryMessages()
     {
         List<string> events = new();
@@ -241,6 +265,25 @@ public sealed class WebSocketServerSessionTests
         {
             session.QueueData(new byte[] { 1 }, 0, DeliveryMethod.ReliableOrdered);
             session.QueueData(new byte[] { 2 }, 0, DeliveryMethod.ReliableOrdered);
+            return ValueTask.FromResult(WebSocketConnectionDecision.Accept());
+        }
+
+        public ValueTask OnDataReceivedAsync(WebSocketServerSession session, byte channel, DeliveryMethod deliveryMethod, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
+            => ValueTask.CompletedTask;
+
+        public ValueTask OnDisconnectedAsync(WebSocketServerSession session, CancellationToken cancellationToken)
+            => ValueTask.CompletedTask;
+    }
+
+    private sealed class SequencedOverflowingHandler : IWebSocketServerConnectionHandler
+    {
+        public ValueTask<WebSocketConnectionDecision> OnConnectionRequestedAsync(
+            WebSocketServerSession session,
+            ReadOnlyMemory<byte> helloPayload,
+            CancellationToken cancellationToken)
+        {
+            session.QueueData(new byte[] { 1 }, 62, DeliveryMethod.Sequenced);
+            session.QueueData(new byte[] { 2 }, 62, DeliveryMethod.Sequenced);
             return ValueTask.FromResult(WebSocketConnectionDecision.Accept());
         }
 

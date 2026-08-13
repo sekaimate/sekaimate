@@ -9,7 +9,7 @@ internal static class BasisServerOscRelay
     {
         BasisServerMessageRegistry.RegisterServerPlugin(
             MessageName,
-            DeliveryMethod.ReliableSequenced,
+            DeliveryMethod.Sequenced,
             Relay);
     }
 
