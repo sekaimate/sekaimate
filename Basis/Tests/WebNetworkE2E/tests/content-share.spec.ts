@@ -22,6 +22,13 @@ interface ContentShareInput {
   positionZ: number;
 }
 
+interface BeeRequestEvidence {
+  url: string;
+  requestRange: string | undefined;
+  responseStatus: number;
+  contentRange: string | undefined;
+}
+
 function requiredEnvironment(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) {
@@ -86,6 +93,22 @@ function hasFrame(frames: ObservedFrame[], direction: ObservedFrame['direction']
   return frames.some(frame => frame.direction === direction && frame.kind === DATA && frame.channel === channel);
 }
 
+function observeBeeRequests(page: Page, beeUrls: string[]): BeeRequestEvidence[] {
+  const evidence: BeeRequestEvidence[] = [];
+  page.on('response', response => {
+    if (!beeUrls.includes(response.url())) {
+      return;
+    }
+    evidence.push({
+      url: response.url(),
+      requestRange: response.request().headers()['range'],
+      responseStatus: response.status(),
+      contentRange: response.headers()['content-range'],
+    });
+  });
+  return evidence;
+}
+
 test('Avatar, Prop, World, and Server shares synchronize through Basis Server', async ({ browser }) => {
   const buildUrl = requiredEnvironment('BASIS_WEB_BUILD_URL');
   const webSocketUri = requiredEnvironment('BASIS_WEBSOCKET_URI');
@@ -112,6 +135,8 @@ test('Avatar, Prop, World, and Server shares synchronize through Basis Server', 
   const receiverPage = await receiverContext.newPage();
   const senderFrames = observeFrames(senderPage, webSocketUri);
   const receiverFrames = observeFrames(receiverPage, webSocketUri);
+  const beeShares = shares.filter(share => share.contentType !== 'Server');
+  const receiverBeeRequests = observeBeeRequests(receiverPage, beeShares.map(share => share.contentUrl));
 
   await senderPage.goto(playerUrl(buildUrl, webSocketUri, `web-share-sender-${runId}`, password));
   await waitForEvent(senderPage, 'authenticated');
@@ -122,6 +147,17 @@ test('Avatar, Prop, World, and Server shares synchronize through Basis Server', 
     await senderPage.evaluate(input => window.basisNetworkE2EShareContent?.(input), share);
     await waitForEvent(senderPage, 'content-created', share.sphereId, share.contentType, share.contentUrl);
     await waitForEvent(receiverPage, 'content-created', share.sphereId, share.contentType, share.contentUrl);
+  }
+
+
+  for (const share of beeShares) {
+    await receiverPage.evaluate(sphereId => window.basisNetworkE2ELoadContent?.(sphereId), share.sphereId);
+    await waitForEvent(receiverPage, 'content-load-complete', share.sphereId, share.contentType, share.contentUrl);
+    await expect.poll(() => receiverBeeRequests.some(request =>
+      request.url === share.contentUrl
+      && (request.requestRange !== undefined
+        || request.responseStatus === 206
+        || request.contentRange !== undefined))).toBe(true);
   }
 
   await expect.poll(() => hasFrame(senderFrames, 'sent', CONTENT_SHARE_CHANNEL)).toBe(true);

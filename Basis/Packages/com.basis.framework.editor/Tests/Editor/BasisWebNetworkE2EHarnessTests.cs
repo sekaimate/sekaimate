@@ -42,6 +42,18 @@ public sealed class BasisWebNetworkE2EHarnessTests
     }
 
     [Test]
+    public void RuntimeHarnessLoadsReceivedBeeContentThroughProductionLoaders()
+    {
+        string source = File.ReadAllText("Packages/com.basis.framework/Networking/WebGL/BasisWebNetworkE2EHarness.cs");
+
+        StringAssert.Contains("BasisLoadHandler.LoadGameObjectBundle", source);
+        StringAssert.Contains("BasisSceneLoad.LoadSceneAssetBundle", source);
+        StringAssert.Contains("BasisContentShareManager.TryGetSphere", source);
+        StringAssert.Contains("content-load-complete", source);
+        StringAssert.Contains("content-load-failed", source);
+    }
+
+    [Test]
     public void RuntimeHarnessReportsObservableJsonWithoutOwningAWebSocket()
     {
         string source = File.ReadAllText("Packages/com.basis.framework/Networking/WebGL/BasisWebNetworkE2EHarness.cs");
@@ -54,6 +66,7 @@ public sealed class BasisWebNetworkE2EHarnessTests
         StringAssert.Contains("basisNetworkE2EReconnect", bridge);
         StringAssert.Contains("basisNetworkE2EShareContent", bridge);
         StringAssert.Contains("basisNetworkE2ERemoveContent", bridge);
+        StringAssert.Contains("basisNetworkE2ELoadContent", bridge);
         StringAssert.DoesNotContain("new WebSocket", bridge);
     }
 }

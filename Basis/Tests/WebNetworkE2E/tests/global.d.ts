@@ -27,4 +27,5 @@ interface Window {
   basisNetworkE2EReconnect?: () => void;
   basisNetworkE2EShareContent?: (input: BasisNetworkE2EContentShareInput) => void;
   basisNetworkE2ERemoveContent?: (sphereId: string) => void;
+  basisNetworkE2ELoadContent?: (sphereId: string) => void;
 }
