@@ -9,7 +9,6 @@ export default defineConfig({
   reporter: [['list']],
   use: {
     browserName: 'chromium',
-    channel: 'chrome',
     headless: true,
     trace: 'retain-on-failure',
   },
