@@ -4,6 +4,15 @@ using NUnit.Framework;
 
 public class BasisClipboardServiceTests
 {
+    [TestCase("https://example.test/player?basisClipboardE2E=1", true)]
+    [TestCase("https://example.test/player?basisClipboardE2E=0", false)]
+    [TestCase("https://example.test/player", false)]
+    [TestCase("not a URL", false)]
+    public void DevelopmentHarnessRequiresExplicitUrlOptIn(string absoluteUrl, bool expected)
+    {
+        Assert.That(BasisWebClipboardE2EConfiguration.IsEnabled(absoluteUrl), Is.EqualTo(expected));
+    }
+
     [Test]
     public async Task WriteTextAsyncDelegatesExactUnicodeText()
     {
