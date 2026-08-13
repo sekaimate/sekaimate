@@ -171,7 +171,7 @@ public sealed class WebSocketServerSession : IAsyncDisposable
             }
             if (_pendingSends.Count >= _pendingSendCapacity)
             {
-                if (!TryCoalesceSequencedFrame(channel, deliveryMethod, payload))
+                if (!TryCoalesceDroppableFrame(channel, deliveryMethod, payload))
                 {
                     throw new InvalidOperationException("The WebSocket pending send queue is full.");
                 }
@@ -187,12 +187,14 @@ public sealed class WebSocketServerSession : IAsyncDisposable
         return true;
     }
 
-    private bool TryCoalesceSequencedFrame(
+    private bool TryCoalesceDroppableFrame(
         byte channel,
         DeliveryMethod deliveryMethod,
         ReadOnlyMemory<byte> payload)
     {
-        if (deliveryMethod is not DeliveryMethod.Sequenced and not DeliveryMethod.ReliableSequenced)
+        if (deliveryMethod is not DeliveryMethod.Unreliable
+            and not DeliveryMethod.Sequenced
+            and not DeliveryMethod.ReliableSequenced)
         {
             return false;
         }

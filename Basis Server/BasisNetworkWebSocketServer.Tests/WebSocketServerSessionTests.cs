@@ -80,14 +80,16 @@ public sealed class WebSocketServerSessionTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => session.RunAsync(CancellationToken.None));
     }
 
-    [Fact]
-    public async Task RunAsync_CoalescesSequencedDataWhenPendingQueueIsFull()
+    [Theory]
+    [InlineData(DeliveryMethod.Sequenced)]
+    [InlineData(DeliveryMethod.Unreliable)]
+    public async Task RunAsync_CoalescesDroppableDataWhenPendingQueueIsFull(DeliveryMethod deliveryMethod)
     {
         List<string> events = new();
         FakeWebSocket socket = new(events,
             Frame(WebSocketFrameKind.Hello, new byte[] { 10 }),
             Frame(WebSocketFrameKind.Disconnect, Array.Empty<byte>()));
-        SequencedOverflowingHandler handler = new();
+        DroppableOverflowingHandler handler = new(deliveryMethod);
         await using WebSocketServerSession session = new(
             socket,
             handler,
@@ -275,15 +277,22 @@ public sealed class WebSocketServerSessionTests
             => ValueTask.CompletedTask;
     }
 
-    private sealed class SequencedOverflowingHandler : IWebSocketServerConnectionHandler
+    private sealed class DroppableOverflowingHandler : IWebSocketServerConnectionHandler
     {
+        private readonly DeliveryMethod _deliveryMethod;
+
+        public DroppableOverflowingHandler(DeliveryMethod deliveryMethod)
+        {
+            _deliveryMethod = deliveryMethod;
+        }
+
         public ValueTask<WebSocketConnectionDecision> OnConnectionRequestedAsync(
             WebSocketServerSession session,
             ReadOnlyMemory<byte> helloPayload,
             CancellationToken cancellationToken)
         {
-            session.QueueData(new byte[] { 1 }, 62, DeliveryMethod.Sequenced);
-            session.QueueData(new byte[] { 2 }, 62, DeliveryMethod.Sequenced);
+            session.QueueData(new byte[] { 1 }, 62, _deliveryMethod);
+            session.QueueData(new byte[] { 2 }, 62, _deliveryMethod);
             return ValueTask.FromResult(WebSocketConnectionDecision.Accept());
         }
 
