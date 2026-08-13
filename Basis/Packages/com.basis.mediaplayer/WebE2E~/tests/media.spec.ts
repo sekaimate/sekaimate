@@ -61,7 +61,7 @@ test("BasisMediaPlayer plays cross-origin video through WebGL texture and WebAud
   expect(mediaResponse.headers()["access-control-allow-origin"]).toBe(appOrigin);
   expect(mediaResponse.headers()["cross-origin-resource-policy"]).toBe("cross-origin");
 
-  await expect.poll(() => page.evaluate(() => window.__basisWebMediaE2E?.textureUploadCount ?? 0)).toBeGreaterThan(0);
+  await expect.poll(() => page.evaluate(() => window.__basisWebMediaE2E?.textureUploadCount ?? 0)).toBeGreaterThan(2);
   await expect.poll(() => page.evaluate(() => window.__basisWebMediaE2E?.audioContextState)).toBe("running");
   await expect.poll(() => page.evaluate(() => window.__basisWebMediaE2E?.pauseRequestCount ?? 0)).toBeGreaterThan(0);
   await expect.poll(() => page.evaluate(() => window.__basisWebMediaE2E?.seekRequestCount ?? 0)).toBeGreaterThan(0);
@@ -92,7 +92,7 @@ test("BasisMediaPlayer plays cross-origin video through WebGL texture and WebAud
   expect(diagnostics?.seekRequestCount).toBeGreaterThan(0);
   expect(diagnostics?.seekCompletedCount).toBeGreaterThan(0);
   expect(diagnostics?.lastSeekSeconds).toBeCloseTo(0.25, 2);
-  expect(diagnostics?.textureUploadCount).toBeGreaterThan(0);
+  expect(diagnostics?.textureUploadCount).toBeGreaterThan(2);
   expect(diagnostics?.currentTime).toBeGreaterThan(0);
   expect(consoleErrors).toEqual([]);
 });
