@@ -157,19 +157,18 @@ public sealed class WebSocketServerSession : IAsyncDisposable
         }
     }
 
-    public void QueueData(ReadOnlyMemory<byte> payload, byte channel, DeliveryMethod deliveryMethod)
+    public bool QueueData(ReadOnlyMemory<byte> payload, byte channel, DeliveryMethod deliveryMethod)
     {
         if (payload.Length > _maximumPayloadLength)
         {
             throw new ArgumentException("Payload exceeds the configured WebSocket maximum length.", nameof(payload));
         }
-        if (_protocol.State == WebSocketServerProtocolState.Closed)
-        {
-            throw new InvalidOperationException("Cannot send through a closed WebSocket session.");
-        }
-
         lock (_pendingSendLock)
         {
+            if (_protocol.State == WebSocketServerProtocolState.Closed)
+            {
+                return false;
+            }
             if (_pendingSends.Count >= _pendingSendCapacity)
             {
                 throw new InvalidOperationException("The WebSocket pending send queue is full.");
@@ -181,6 +180,7 @@ public sealed class WebSocketServerSession : IAsyncDisposable
         {
             _ = DrainPendingSendsSafelyAsync();
         }
+        return true;
     }
 
     private async Task DrainPendingSendsSafelyAsync()

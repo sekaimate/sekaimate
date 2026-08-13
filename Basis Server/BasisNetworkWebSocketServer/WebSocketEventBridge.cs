@@ -135,7 +135,7 @@ internal sealed class WebSocketServerPeer : NetPeer
 {
     private readonly WebSocketServerSession _session;
     private readonly int _maximumPayloadLength;
-    private bool _disconnected;
+    private int _disconnected;
     private int _disconnectRequested;
 
     public WebSocketServerPeer(WebSocketServerSession session, int maximumPayloadLength)
@@ -145,6 +145,7 @@ internal sealed class WebSocketServerPeer : NetPeer
     }
 
     public int Id => _session.PeerId;
+    public bool IsConnected => Volatile.Read(ref _disconnected) == 0;
     public IPAddress Address => _session.RemoteEndPoint.Address;
     public int RemoteId => 0;
     public int RoundTripTime => 0;
@@ -167,7 +168,7 @@ internal sealed class WebSocketServerPeer : NetPeer
     public void Send(byte[] data, byte channelNumber, DeliveryMethod deliveryMethod)
     {
         ArgumentNullException.ThrowIfNull(data);
-        if (_disconnected) throw new InvalidOperationException("Cannot send through a disconnected WebSocket peer.");
+        if (!IsConnected) return;
         _session.QueueData(data, channelNumber, deliveryMethod);
     }
 
@@ -195,9 +196,7 @@ internal sealed class WebSocketServerPeer : NetPeer
 
     internal bool MarkDisconnected()
     {
-        if (_disconnected) return false;
-        _disconnected = true;
-        return true;
+        return Interlocked.Exchange(ref _disconnected, 1) == 0;
     }
 
     private async Task DisconnectSafelyAsync(byte[] payload)

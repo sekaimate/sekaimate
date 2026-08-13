@@ -128,6 +128,8 @@ namespace Basis.Network.Core
 
         int NetPeer.Id => peer.Id;
 
+        bool NetPeer.IsConnected => peer.ConnectionState == LiteNetLib.ConnectionState.Connected;
+
         IPAddress NetPeer.Address => peer.Address;
 
         int NetPeer.RemoteId => peer.RemoteId;

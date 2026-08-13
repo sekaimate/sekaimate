@@ -115,6 +115,33 @@ public sealed class WebSocketEventBridgeTests
         Assert.Equal(new[] { "data:60001:5:Sequenced:11", "disconnect:60001:RemoteConnectionClose" }, events);
     }
 
+    [Fact]
+    public async Task DisconnectedPeer_ReportsDisconnectedAndIgnoresLateSend()
+    {
+        EventBasedNetListener listener = new();
+        WebSocketEventBridge bridge = new(listener, maximumPayloadLength: 1024);
+        NetPeer? acceptedPeer = null;
+        listener.ConnectionRequestEvent += request => acceptedPeer = request.Accept();
+
+        FakeWebSocket socket = new(
+            Frame(WebSocketFrameKind.Hello, Array.Empty<byte>()),
+            Frame(WebSocketFrameKind.Disconnect, Array.Empty<byte>()));
+        await using WebSocketServerSession session = new(
+            socket,
+            bridge,
+            1024,
+            new IPEndPoint(IPAddress.Loopback, 12345),
+            60003,
+            pendingSendCapacity: 4);
+
+        await session.RunAsync(CancellationToken.None);
+
+        Assert.NotNull(acceptedPeer);
+        Assert.False(acceptedPeer.IsConnected);
+        acceptedPeer.Send(new byte[] { 42 }, 6, DeliveryMethod.ReliableOrdered);
+        Assert.Equal(new[] { WebSocketFrameKind.Accept }, socket.SentFrames.Select(frame => frame.Kind));
+    }
+
     private static byte[] Frame(WebSocketFrameKind kind, byte[] payload)
         => WebSocketFrameCodec.Encode(kind, 0, DeliveryMethod.ReliableOrdered, payload, 1024);
 

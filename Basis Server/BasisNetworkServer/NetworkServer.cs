@@ -323,6 +323,10 @@ public static class NetworkServer
     // Interlocked into one RecordOutboundBatch call per (channel, broadcast).
     private static bool TrySendNoRecord(NetPeer client, NetDataWriter writer, byte channel, DeliveryMethod deliveryMethod, int maxMessages)
     {
+        if (!client.IsConnected)
+        {
+            return false;
+        }
         if (deliveryMethod == DeliveryMethod.Sequenced || deliveryMethod == DeliveryMethod.Unreliable)
         {
             int queuedMessages = client.GetPacketsCountInQueue(channel, deliveryMethod);
