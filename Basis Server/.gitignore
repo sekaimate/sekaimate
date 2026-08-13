@@ -54,3 +54,5 @@ Docker/*
 !Docker/Dockerfile
 !Docker/docker-compose.yml
 !Docker/docker-compose.web-e2e.yml
+!Docker/docker-compose.production.yml
+!Docker/deploy-production.sh

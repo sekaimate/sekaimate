@@ -163,6 +163,21 @@ docker compose -f docker-compose.yml -f docker-compose.web-e2e.yml up -d --build
 
 The browser endpoint is `wss://127.0.0.1:4297/basis` and its CORS-enabled server-info endpoint is `https://127.0.0.1:4297/server-info`. Set `BASIS_WEBSOCKET_ALLOWED_ORIGINS` when the WebGL build is served from an origin other than the two local port 4173 defaults.
 
+## Public browser server without a reverse proxy
+
+Open TCP ports 80 and 443 and UDP port 4296 on the VM. TCP port 80 is used only when Let's Encrypt issues or renews the certificate. Run:
+
+```bash
+./deploy-production.sh global.kanaru.me admin@example.com https://sekaimate.akaaku.net
+```
+
+The script obtains a public certificate, converts it to PKCS#12, and starts the Basis Server with these mappings:
+
+- `4296/udp` on the VM to `4296/udp` in the container
+- `443/tcp` on the VM to the TLS WebSocket listener on `4297/tcp` in the container
+
+Run the same command again to renew the certificate and recreate the server container. The browser endpoints are `wss://<hostname>/basis` and `https://<hostname>/server-info`.
+
 ## Customizing Configuration
 
 -   **Environment Variables (Recommended for Docker):**
