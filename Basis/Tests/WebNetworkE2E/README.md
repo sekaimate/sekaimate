@@ -9,6 +9,9 @@
 - 2プレイヤーのjoinとremote player生成
 - avatar stateの送受信
 - chatの送受信
+- Avatar、Prop、World、ServerのContentShare送受信
+- 遅延参加者への既存ContentShare再送
+- 明示削除と共有者切断時のContentShare清掃
 - 切断、新規WebSocket接続、再認証を伴うreconnect
 
 WebGL成果物はDevelopment Buildとしてビルドしてください。テスト開始前に成果物のHTTP配信とBasis Serverを別shellで起動し、Basis ServerでWebSocketを有効化します。

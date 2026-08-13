@@ -71,6 +71,56 @@ namespace Basis.Scripts.Networking
             Report("chat-sent", message);
         }
 
+        public void ShareContent(string json)
+        {
+            ContentShareInput input = JsonUtility.FromJson<ContentShareInput>(json);
+            if (input == null
+                || string.IsNullOrWhiteSpace(input.sphereId)
+                || string.IsNullOrWhiteSpace(input.contentUrl)
+                || !Enum.TryParse(input.contentType, false, out SerializableBasis.ContentShareType contentType))
+            {
+                Report("content-share-rejected");
+                return;
+            }
+
+            NetPeer peer = BasisNetworkConnection.LocalPlayerPeer;
+            if (peer == null)
+            {
+                Report("content-share-rejected", "not-connected");
+                return;
+            }
+
+            SerializableBasis.ContentShareMessage contentShare = new SerializableBasis.ContentShareMessage
+            {
+                SphereNetID = input.sphereId,
+                ContentURL = input.contentUrl,
+                UnlockPassword = input.unlockPassword ?? string.Empty,
+                ContentType = contentType,
+                PositionX = input.positionX,
+                PositionY = input.positionY,
+                PositionZ = input.positionZ,
+            };
+            NetDataWriter writer = new NetDataWriter();
+            contentShare.Serialize(writer);
+            peer.Send(
+                writer,
+                BasisNetworkCommons.ContentShareChannel,
+                DeliveryMethod.ReliableOrdered);
+            ReportContent("content-sent", contentShare);
+        }
+
+        public void RemoveContent(string sphereId)
+        {
+            if (string.IsNullOrWhiteSpace(sphereId))
+            {
+                Report("content-remove-rejected");
+                return;
+            }
+
+            BasisContentShareManager.RequestRemoveSphere(sphereId);
+            Report("content-remove-sent", sphereId, sphereId: sphereId);
+        }
+
         public async void Reconnect()
         {
             Report("reconnect-started");
@@ -96,16 +146,38 @@ namespace Basis.Scripts.Networking
         {
             BasisNetworkHandleChat.OnChatMessageReceived -= OnChatMessageReceived;
             BasisNetworkHandleChat.OnChatMessageReceived += OnChatMessageReceived;
+            BasisContentShareManager.OnSphereCreated -= OnContentSphereCreated;
+            BasisContentShareManager.OnSphereCreated += OnContentSphereCreated;
+            BasisContentShareManager.OnSphereRemoved -= OnContentSphereRemoved;
+            BasisContentShareManager.OnSphereRemoved += OnContentSphereRemoved;
         }
 
         private void OnDestroy()
         {
             BasisNetworkHandleChat.OnChatMessageReceived -= OnChatMessageReceived;
+            BasisContentShareManager.OnSphereCreated -= OnContentSphereCreated;
+            BasisContentShareManager.OnSphereRemoved -= OnContentSphereRemoved;
         }
 
         private void OnChatMessageReceived(ushort senderPlayerId, string message)
         {
             Report("chat-received", message, senderPlayerId);
+        }
+
+        private void OnContentSphereCreated(BasisContentSphere sphere)
+        {
+            Report(
+                "content-created",
+                sphere.ContentURL,
+                sphere.CreatorPlayerID,
+                sphere.SphereNetID,
+                sphere.ContentType.ToString(),
+                sphere.ContentURL);
+        }
+
+        private void OnContentSphereRemoved(string sphereId)
+        {
+            Report("content-removed", sphereId, sphereId: sphereId);
         }
 
         private void ResetObservedConnectionState()
@@ -115,7 +187,23 @@ namespace Basis.Scripts.Networking
             _remotePlayerCount = -1;
         }
 
-        private void Report(string type, string message = "", ushort senderPlayerId = 0)
+        private void ReportContent(string type, SerializableBasis.ContentShareMessage contentShare)
+        {
+            Report(
+                type,
+                contentShare.ContentURL,
+                sphereId: contentShare.SphereNetID,
+                contentType: contentShare.ContentType.ToString(),
+                contentUrl: contentShare.ContentURL);
+        }
+
+        private void Report(
+            string type,
+            string message = "",
+            ushort senderPlayerId = 0,
+            string sphereId = "",
+            string contentType = "",
+            string contentUrl = "")
         {
             int localPlayerId = BasisNetworkConnection.LocalPlayerPeer?.RemoteId ?? -1;
             bool avatarStateReady = BasisNetworkManagement.Transmitter != null;
@@ -128,6 +216,9 @@ namespace Basis.Scripts.Networking
                 connected = BasisNetworkConnection.LocalPlayerIsConnected,
                 remotePlayerCount = BasisNetworkPlayers.RemotePlayers.Count,
                 avatarStateReady = avatarStateReady,
+                sphereId = sphereId ?? string.Empty,
+                contentType = contentType ?? string.Empty,
+                contentUrl = contentUrl ?? string.Empty,
             };
             string json = JsonUtility.ToJson(payload);
             Debug.Log("[BasisWebNetworkE2E] " + json);
@@ -202,6 +293,21 @@ namespace Basis.Scripts.Networking
             public bool connected;
             public int remotePlayerCount;
             public bool avatarStateReady;
+            public string sphereId;
+            public string contentType;
+            public string contentUrl;
+        }
+
+        [Serializable]
+        private sealed class ContentShareInput
+        {
+            public string sphereId;
+            public string contentUrl;
+            public string unlockPassword;
+            public string contentType;
+            public float positionX;
+            public float positionY;
+            public float positionZ;
         }
     }
 }
