@@ -1,3 +1,4 @@
+#if !UNITY_WEBGL || UNITY_EDITOR
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -553,3 +554,4 @@ public sealed class BasisNativeVideoSource : IBasisPcmSource, IDisposable
         }
     }
 }
+#endif

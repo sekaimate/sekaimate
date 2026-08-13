@@ -475,17 +475,12 @@ public sealed class BasisMediaPlayer : MonoBehaviour
 
     // Active OS-codec backend, or null when on the CPU IBasisFrameSource path.
     // Exposed for diagnostics/tooling.
+#if !UNITY_WEBGL || UNITY_EDITOR
     public BasisNativeVideoSource NativeEngine
     {
-        get
-        {
-#if UNITY_WEBGL && !UNITY_EDITOR
-            return null;
-#else
-            return nativeEngine;
-#endif
-        }
+        get => nativeEngine;
     }
+#endif
 
     // Human-readable transport of the current native load ("RTSP over UDP",
     // "RTSP over TCP (UDP unavailable)", or the URL scheme for protocols that

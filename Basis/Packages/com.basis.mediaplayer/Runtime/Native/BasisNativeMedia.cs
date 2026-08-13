@@ -1,3 +1,4 @@
+#if !UNITY_WEBGL || UNITY_EDITOR
 using System;
 using System.Runtime.InteropServices;
 
@@ -467,3 +468,4 @@ internal static class BasisNativeMedia
         return n == 0 ? null : System.Text.Encoding.UTF8.GetString(buf, 0, n);
     }
 }
+#endif
