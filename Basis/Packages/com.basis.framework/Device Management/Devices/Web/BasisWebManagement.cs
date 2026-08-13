@@ -28,6 +28,7 @@ namespace Basis.Scripts.Device_Management.Devices.Web
 #if UNITY_WEBGL && !UNITY_EDITOR
             if (webXRBackend != null)
             {
+                webXRBackend.Shutdown(false);
                 UnityEngine.Object.Destroy(webXRBackend.gameObject);
                 webXRBackend = null;
             }

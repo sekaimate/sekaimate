@@ -1017,7 +1017,12 @@ namespace Basis.Scripts.Device_Management
         /// <summary>
         /// Returns <c>true</c> when the current static mode indicates a VR/XR loader.
         /// </summary>
-        public static bool IsCurrentModeVR() => IsVRMode(StaticCurrentMode);
+        public static bool IsCurrentModeVR() =>
+            IsVRMode(StaticCurrentMode)
+#if UNITY_WEBGL && !UNITY_EDITOR
+            || Basis.Scripts.Device_Management.Devices.Web.BasisWebXRBackend.IsImmersiveSessionActive
+#endif
+            ;
 
         /// <summary>
         /// Returns <c>true</c> when <paramref name="mode"/> names a VR/XR loader.
