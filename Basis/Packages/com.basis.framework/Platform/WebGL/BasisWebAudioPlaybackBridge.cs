@@ -10,7 +10,7 @@ public static class BasisWebAudioPlaybackBridge
         return BasisWebAudioPlaybackCreateSink();
     }
 
-    public static unsafe void Push(int sinkId, float[] samples, int sampleCount)
+    public static unsafe void Push(int sinkId, float[] samples, int sampleCount, float peak)
     {
         if (samples == null)
         {
@@ -23,7 +23,7 @@ public static class BasisWebAudioPlaybackBridge
 
         fixed (float* samplePointer = samples)
         {
-            BasisWebAudioPlaybackPush(sinkId, (IntPtr)samplePointer, sampleCount);
+            BasisWebAudioPlaybackPush(sinkId, (IntPtr)samplePointer, sampleCount, peak);
         }
     }
 
@@ -36,7 +36,7 @@ public static class BasisWebAudioPlaybackBridge
     private static extern int BasisWebAudioPlaybackCreateSink();
 
     [DllImport("__Internal")]
-    private static extern void BasisWebAudioPlaybackPush(int sinkId, IntPtr samples, int sampleCount);
+    private static extern void BasisWebAudioPlaybackPush(int sinkId, IntPtr samples, int sampleCount, float peak);
 
     [DllImport("__Internal")]
     private static extern void BasisWebAudioPlaybackRemoveSink(int sinkId);

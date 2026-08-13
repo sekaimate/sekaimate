@@ -118,7 +118,11 @@ namespace Basis.Scripts.Drivers
                 BasisAudioReceiver.OnAudioFilterRead(webPlaybackFrame, 1, webPlaybackFrame.Length);
                 BasisAudioAndVisemeDriver.ProcessAudioSamples(webPlaybackFrame, 1, webPlaybackFrame.Length);
                 AudioData?.Invoke(webPlaybackFrame, 1);
-                BasisWebAudioPlaybackBridge.Push(webPlaybackSinkId, webPlaybackFrame, webPlaybackFrame.Length);
+                BasisWebAudioPlaybackBridge.Push(
+                    webPlaybackSinkId,
+                    webPlaybackFrame,
+                    webPlaybackFrame.Length,
+                    BasisAudioReceiver.SourcePeak);
                 webPlaybackElapsed -= WebPlaybackFrameSeconds;
             }
         }

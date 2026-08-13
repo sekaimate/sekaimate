@@ -22,6 +22,8 @@ mergeInto(LibraryManager.library, {
         opusDecodedSamples: 0,
         playbackFramesPushed: 0,
         playbackSamplesPushed: 0,
+        playbackNonSilentFramesPushed: 0,
+        playbackPeak: 0,
       };
     },
     ensureInstalled: function() {
@@ -78,11 +80,17 @@ mergeInto(LibraryManager.library, {
       BasisWebAudioDiagnosticsState.values.opusDecodedFrames++;
       BasisWebAudioDiagnosticsState.values.opusDecodedSamples += sampleCount;
     },
-    markPlaybackPushed: function(sampleCount) {
+    markPlaybackPushed: function(sampleCount, peak) {
       if (sampleCount <= 0) return;
       BasisWebAudioDiagnosticsState.ensureInstalled();
       BasisWebAudioDiagnosticsState.values.playbackFramesPushed++;
       BasisWebAudioDiagnosticsState.values.playbackSamplesPushed += sampleCount;
+      if (peak > 0) {
+        BasisWebAudioDiagnosticsState.values.playbackNonSilentFramesPushed++;
+        if (peak > BasisWebAudioDiagnosticsState.values.playbackPeak) {
+          BasisWebAudioDiagnosticsState.values.playbackPeak = peak;
+        }
+      }
     },
   },
 
@@ -363,11 +371,11 @@ mergeInto(LibraryManager.library, {
   },
 
   BasisWebAudioPlaybackPush__deps: ['$BasisWebAudio'],
-  BasisWebAudioPlaybackPush: function(sinkId, samples, sampleCount) {
+  BasisWebAudioPlaybackPush: function(sinkId, samples, sampleCount, peak) {
     if (!BasisWebAudio.playbackNode || sampleCount <= 0) return;
     var copy = HEAPF32.slice(samples >> 2, (samples >> 2) + sampleCount);
     BasisWebAudio.playbackNode.port.postMessage({ type: 'samples', sinkId: sinkId, samples: copy }, [copy.buffer]);
-    BasisWebAudioDiagnosticsState.markPlaybackPushed(sampleCount);
+    BasisWebAudioDiagnosticsState.markPlaybackPushed(sampleCount, peak);
   },
 
   BasisWebAudioPlaybackRemoveSink__deps: ['$BasisWebAudio'],
