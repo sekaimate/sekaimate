@@ -53,6 +53,7 @@ namespace Basis.Scripts.Device_Management.Devices.Web
         public readonly float trigger;
         public readonly float grip;
         public readonly Vector2 primaryAxis;
+        public readonly Vector2 secondaryAxis;
         public readonly bool axisClick;
         public readonly bool primaryButton;
         public readonly bool secondaryButton;
@@ -61,6 +62,7 @@ namespace Basis.Scripts.Device_Management.Devices.Web
             float trigger,
             float grip,
             Vector2 primaryAxis,
+            Vector2 secondaryAxis,
             bool axisClick,
             bool primaryButton,
             bool secondaryButton)
@@ -68,6 +70,7 @@ namespace Basis.Scripts.Device_Management.Devices.Web
             this.trigger = trigger;
             this.grip = grip;
             this.primaryAxis = primaryAxis;
+            this.secondaryAxis = secondaryAxis;
             this.axisClick = axisClick;
             this.primaryButton = primaryButton;
             this.secondaryButton = secondaryButton;
@@ -144,11 +147,15 @@ namespace Basis.Scripts.Device_Management.Devices.Web
                 : axes.Length >= 2
                     ? new Vector2(axes[0], axes[1])
                     : Vector2.zero;
+            Vector2 secondaryAxis = axes.Length >= 4
+                ? new Vector2(axes[0], axes[1])
+                : Vector2.zero;
 
             return new BasisWebXRControllerState(
                 Read(buttons, 0),
                 Read(buttons, 1),
                 primaryAxis,
+                secondaryAxis,
                 Read(buttons, 3) >= 0.5f,
                 Read(buttons, 4) >= 0.5f,
                 Read(buttons, 5) >= 0.5f);

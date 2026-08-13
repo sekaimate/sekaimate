@@ -98,6 +98,7 @@ namespace Basis.Scripts.Device_Management.Devices.Web
             CurrentInputState.SecondaryTrigger = grip;
             CurrentInputState.GripButton = grip >= ButtonDownThreshold;
             CurrentInputState.Primary2DAxisRaw = controller.primaryAxis;
+            CurrentInputState.Secondary2DAxisRaw = controller.secondaryAxis;
             CurrentInputState.Primary2DAxisClick = controller.axisClick;
             CurrentInputState.PrimaryButtonGetState = controller.primaryButton;
             CurrentInputState.SecondaryButtonGetState = controller.secondaryButton;
