@@ -3,6 +3,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
+using Basis.Scripts.Networking;
+using Basis.Scripts.UI.UI_Panels;
 using UnityEngine;
 
 namespace Basis.BasisUI
