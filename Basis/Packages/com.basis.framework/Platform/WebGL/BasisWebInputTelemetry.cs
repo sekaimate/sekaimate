@@ -104,7 +104,8 @@ internal sealed class BasisWebInputTelemetry : MonoBehaviour
         Camera camera = canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay
             ? canvas.worldCamera
             : null;
-        return RectTransformUtility.WorldToScreenPoint(camera, rectTransform.TransformPoint(rectTransform.rect.center));
+        Vector2 unityPoint = RectTransformUtility.WorldToScreenPoint(camera, rectTransform.TransformPoint(rectTransform.rect.center));
+        return new Vector2(unityPoint.x, Screen.height - unityPoint.y);
     }
 
     [DllImport("__Internal")]
