@@ -34,6 +34,7 @@ public class BasisWebMediaPipeBackendTests
         Assert.That(webSettings.includePlatforms, Is.EqualTo(new[] { "WebGL" }));
         Assert.That(nativeSettings.excludePlatforms, Does.Contain("WebGL"));
         StringAssert.Contains("BasisMediaPipeBackendRegistry.Register", File.ReadAllText(BridgePath));
+        StringAssert.Contains("public string TimingBreakdown()", File.ReadAllText(BridgePath));
         StringAssert.Contains("HomulerMediaPipeBackend", File.ReadAllText(
             "Packages/com.basis.mediapipe/Runtime/Homuler/HomulerMediaPipeBackend.cs"));
     }

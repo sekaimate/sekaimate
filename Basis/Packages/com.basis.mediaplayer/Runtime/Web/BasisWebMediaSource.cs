@@ -22,6 +22,8 @@ public sealed class BasisWebMediaSource : IBasisPcmSource, IDisposable
     public bool IsRunning => handle >= 0 && started && !disposed;
     public BasisMediaEngineState State => handle < 0 ? BasisMediaEngineState.Idle : (BasisMediaEngineState)BasisWebMediaGetState(handle);
     public long PositionUs => handle < 0 ? 0 : (long)(BasisWebMediaGetPosition(handle) * 1_000_000d);
+    public long DurationUs => handle < 0 ? 0 : (long)(BasisWebMediaGetDuration(handle) * 1_000_000d);
+    public string Transport => Uri.TryCreate(Url, UriKind.Absolute, out Uri uri) ? uri.Scheme : null;
     public string DebugInfo => null;
     public ulong DecodedFrameCount => decodedFrameCount;
     public IReadOnlyList<BasisBitrateTrack> BitrateTracks => Array.Empty<BasisBitrateTrack>();
@@ -113,6 +115,14 @@ public sealed class BasisWebMediaSource : IBasisPcmSource, IDisposable
         if (handle < 0 || backUs <= 0) return false;
         return BasisWebMediaSeek(handle, Math.Max(0, BasisWebMediaGetPosition(handle) - backUs / 1_000_000d)) != 0;
     }
+
+    public bool SeekUs(long positionUs)
+    {
+        if (handle < 0 || positionUs < 0) return false;
+        return BasisWebMediaSeek(handle, positionUs / 1_000_000d) != 0;
+    }
+
+    public void SetAudioLatencyUs(long latencyUs) { }
 
     public void SetPlaybackSettings(float volume, bool mute, float playbackRate, bool loop)
     {

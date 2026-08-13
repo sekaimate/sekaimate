@@ -153,7 +153,7 @@ public partial class BasisHandHeldCamera
         byte[] raw = readbackTexture.GetRawTextureData<byte>().ToArray();
         Destroy(readbackTexture);
         ReleaseRT(readbackRT);
-        BasisLocalAvatarDriver.ScaleheadToZero();
+        BasisLocalAvatarDriver.ScaleHeadToZero();
         LogPanoramaCapture(raw, width, height, stereo);
         Process360AndSave(raw, width, height, exr, photoMetadata, perEyeWidth, fullHeight, stereo, headingDegrees, bakeExposure, bakeContrast, bakeSaturation);
 #else

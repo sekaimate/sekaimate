@@ -70,6 +70,8 @@ namespace Basis.MediaPipe.WebGL
             return false;
         }
 
+        public string TimingBreakdown() => string.Empty;
+
         public void Shutdown()
         {
             BasisMediaPipeWebShutdown();

@@ -6,10 +6,12 @@ public class BasisWebMediaBackendTests
     private const string PluginPath = "Packages/com.basis.mediaplayer/Runtime/Web/BasisWebMedia.jslib";
     private const string E2EFixturePath = "Packages/com.basis.mediaplayer/Runtime/Web/BasisWebMediaE2EFixture.cs";
     private const string SecurityPath = "Packages/com.basis.mediaplayer/Runtime/Core/BasisMediaPlayerSecurity.cs";
+    private const string UrlSecurityPath = "Packages/com.basis.common/BasisUrlSecurity.cs";
     private const string WebSecurityPath = "Packages/com.basis.mediaplayer/Runtime/Web/BasisWebMediaSecurityPolicy.cs";
     private const string PlayerPath = "Packages/com.basis.mediaplayer/Runtime/BasisMediaPlayer.cs";
     private const string SyntheticSourcePath = "Packages/com.basis.mediaplayer/Runtime/Sources/BasisSyntheticTestSource.cs";
     private const string PlayerLoopPath = "Packages/com.basis.mediaplayer/Runtime/Web/BasisWebMediaPlayerLoop.cs";
+    private const string WebSourcePath = "Packages/com.basis.mediaplayer/Runtime/Web/BasisWebMediaSource.cs";
     private const string NativeMediaPath = "Packages/com.basis.mediaplayer/Runtime/Native/BasisNativeMedia.cs";
     private const string NativeSourcePath = "Packages/com.basis.mediaplayer/Runtime/Native/BasisNativeVideoSource.cs";
     private const string MediaStatePath = "Packages/com.basis.mediaplayer/Runtime/Core/BasisMediaEngineState.cs";
@@ -85,10 +87,11 @@ public class BasisWebMediaBackendTests
     public void BrowserMediaSecurityDoesNotCompileDnsResolution()
     {
         string security = File.ReadAllText(SecurityPath);
+        string urlSecurity = File.ReadAllText(UrlSecurityPath);
         string webSecurity = File.ReadAllText(WebSecurityPath);
 
         StringAssert.Contains("#if !UNITY_WEBGL || UNITY_EDITOR", security);
-        StringAssert.Contains("Dns.GetHostAddressesAsync", security);
+        StringAssert.Contains("Dns.GetHostAddressesAsync", urlSecurity);
         StringAssert.DoesNotContain("System.Net.Dns", webSecurity);
         StringAssert.Contains("BasisMediaPlayerSecurity.IsUrlAllowed", webSecurity);
         StringAssert.Contains("BasisWebMediaPolicy.TryValidate", webSecurity);
@@ -97,10 +100,10 @@ public class BasisWebMediaBackendTests
     [Test]
     public void NativeDnsResolutionFailureIsRejected()
     {
-        string security = File.ReadAllText(SecurityPath);
+        string urlSecurity = File.ReadAllText(UrlSecurityPath);
 
-        StringAssert.Contains("DNS resolution failed", security);
-        StringAssert.DoesNotContain("catch { return null; }", security);
+        StringAssert.Contains("DNS lookup failed", urlSecurity);
+        StringAssert.DoesNotContain("catch { return null; }", urlSecurity);
     }
 
     [Test]
@@ -155,5 +158,17 @@ public class BasisWebMediaBackendTests
         StringAssert.DoesNotContain("UNITY_WEBGL", contracts);
         StringAssert.DoesNotContain("public enum BasisMediaEngineState", nativeSource);
         StringAssert.DoesNotContain("public enum BasisVideoBufferMode", nativeSource);
+    }
+
+    [Test]
+    public void BrowserSourceImplementsSharedTimelineContract()
+    {
+        string source = File.ReadAllText(WebSourcePath);
+
+        StringAssert.Contains("public long DurationUs", source);
+        StringAssert.Contains("public bool SeekUs(long positionUs)", source);
+        StringAssert.Contains("BasisWebMediaSeek(handle", source);
+        StringAssert.Contains("public string Transport", source);
+        StringAssert.Contains("public void SetAudioLatencyUs(long latencyUs)", source);
     }
 }
