@@ -5,6 +5,8 @@ public class BasisWebMediaBackendTests
 {
     private const string PluginPath = "Packages/com.basis.mediaplayer/Runtime/Web/BasisWebMedia.jslib";
     private const string E2EFixturePath = "Packages/com.basis.mediaplayer/Runtime/Web/BasisWebMediaE2EFixture.cs";
+    private const string SecurityPath = "Packages/com.basis.mediaplayer/Runtime/Core/BasisMediaPlayerSecurity.cs";
+    private const string WebSecurityPath = "Packages/com.basis.mediaplayer/Runtime/Web/BasisWebMediaSecurityPolicy.cs";
 
     [Test]
     public void UploadsOnlyNewBrowserVideoFrames()
@@ -71,5 +73,27 @@ public class BasisWebMediaBackendTests
         StringAssert.Contains("player.Seek(TimeSpan.FromSeconds(0.25))", source);
         StringAssert.Contains("player.Play()", source);
         StringAssert.DoesNotContain("BasisWebMediaCreate", source);
+    }
+
+    [Test]
+    public void BrowserMediaSecurityDoesNotCompileDnsResolution()
+    {
+        string security = File.ReadAllText(SecurityPath);
+        string webSecurity = File.ReadAllText(WebSecurityPath);
+
+        StringAssert.Contains("#if !UNITY_WEBGL || UNITY_EDITOR", security);
+        StringAssert.Contains("Dns.GetHostAddressesAsync", security);
+        StringAssert.DoesNotContain("System.Net.Dns", webSecurity);
+        StringAssert.Contains("BasisMediaPlayerSecurity.IsUrlAllowed", webSecurity);
+        StringAssert.Contains("BasisWebMediaPolicy.TryValidate", webSecurity);
+    }
+
+    [Test]
+    public void NativeDnsResolutionFailureIsRejected()
+    {
+        string security = File.ReadAllText(SecurityPath);
+
+        StringAssert.Contains("DNS resolution failed", security);
+        StringAssert.DoesNotContain("catch { return null; }", security);
     }
 }
