@@ -61,4 +61,16 @@ public class BasisBeeRuntimeCapabilityFixtureTests
         Assert.That(audioSource.playOnAwake, Is.True);
         Assert.That(audioSource.loop, Is.True);
     }
+
+    [TestCase("AvatarContentPoliceSelector")]
+    [TestCase("PropContentPoliceSelector")]
+    [TestCase("SceneContentPoliceSelector")]
+    public void RuntimePcmSourceIsApprovedForBeeContent(string selectorName)
+    {
+        ContentPoliceSelector selector = AssetDatabase.LoadAssetAtPath<ContentPoliceSelector>(
+            $"Packages/com.basis.sdk/Settings/{selectorName}.asset");
+
+        Assert.That(selector, Is.Not.Null);
+        Assert.That(selector.ApprovedTypeNames, Contains.Item(typeof(BasisWebRuntimePcmAudioSource).FullName));
+    }
 }
