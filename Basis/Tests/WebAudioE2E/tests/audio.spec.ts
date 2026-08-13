@@ -1,5 +1,14 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 
+const DATA = 2;
+const VOICE_CHANNEL = 3;
+
+interface ObservedFrame {
+  direction: 'sent' | 'received';
+  kind: number;
+  channel: number;
+}
+
 interface VoiceSnapshot {
   captureState: number;
   permissionGranted: boolean;
@@ -104,6 +113,32 @@ async function grantMicrophone(context: BrowserContext, buildUrl: string): Promi
   await context.grantPermissions(['microphone'], { origin: new URL(buildUrl).origin });
 }
 
+function observeFrames(page: Page, expectedWebSocketUri: string): ObservedFrame[] {
+  const frames: ObservedFrame[] = [];
+  page.on('websocket', socket => {
+    if (socket.url() !== expectedWebSocketUri) return;
+    socket.on('framesent', event => recordFrame(frames, 'sent', event.payload));
+    socket.on('framereceived', event => recordFrame(frames, 'received', event.payload));
+  });
+  return frames;
+}
+
+function recordFrame(
+  frames: ObservedFrame[],
+  direction: ObservedFrame['direction'],
+  payload: string | Buffer,
+): void {
+  const bytes = typeof payload === 'string' ? Buffer.from(payload) : payload;
+  if (bytes.length < 3) return;
+  frames.push({ direction, kind: bytes[0], channel: bytes[1] });
+}
+
+function hasVoiceFrame(frames: ObservedFrame[], direction: ObservedFrame['direction']): boolean {
+  return frames.some(frame => frame.direction === direction
+    && frame.kind === DATA
+    && frame.channel === VOICE_CHANNEL);
+}
+
 test('denied getUserMedia permission reports the production capture failure', async ({ browser }) => {
   const buildUrl = requiredEnvironment('BASIS_WEB_BUILD_URL');
   const webSocketUri = requiredEnvironment('BASIS_WEBSOCKET_URI');
@@ -140,6 +175,8 @@ test('two WebGL clients run capture, Opus, network, playback, talk modes, mute, 
   await grantMicrophone(receiverContext, buildUrl);
   const sender = await senderContext.newPage();
   const receiver = await receiverContext.newPage();
+  const senderFrames = observeFrames(sender, webSocketUri);
+  const receiverFrames = observeFrames(receiver, webSocketUri);
 
   await sender.goto(playerUrl(buildUrl, webSocketUri, `web-audio-sender-${runId}`, password));
   await receiver.goto(playerUrl(buildUrl, webSocketUri, `web-audio-receiver-${runId}`, password));
@@ -164,6 +201,8 @@ test('two WebGL clients run capture, Opus, network, playback, talk modes, mute, 
     passed: true,
     failures: [],
   });
+  await expect.poll(() => hasVoiceFrame(senderFrames, 'sent')).toBe(true);
+  await expect.poll(() => hasVoiceFrame(receiverFrames, 'received')).toBe(true);
   await expect.poll(() => snapshot(sender).then(value => value.localVisemeFrames)).toBeGreaterThan(0);
   await expect.poll(() => snapshot(sender).then(value => value.localVisemePeak)).toBeGreaterThan(0);
   await expect.poll(() => snapshot(receiver).then(value => value.remoteVisemeFrames)).toBeGreaterThan(0);
@@ -182,11 +221,12 @@ test('two WebGL clients run capture, Opus, network, playback, talk modes, mute, 
   await expect.poll(() => snapshot(receiver).then(value => value.remoteMuted)).toBe(true);
   await pageStablePacketCount(sender);
 
+  const packetsBeforeUnmute = (await snapshot(sender)).networkPacketsSent;
   await sender.evaluate(() => window.basisNetworkE2ESetMuted?.(false));
   await sender.locator('#unity-canvas').click({ position: { x: 480, y: 300 } });
   await expect.poll(() => snapshot(sender).then(value => value.muted)).toBe(false);
   await expect.poll(() => snapshot(receiver).then(value => value.remoteMuted)).toBe(false);
-  await expect.poll(() => snapshot(sender).then(value => value.opusEncodedPackets)).toBeGreaterThan(0);
+  await expect.poll(() => snapshot(sender).then(value => value.networkPacketsSent)).toBeGreaterThan(packetsBeforeUnmute);
 
   expect(senderAuth.localPlayerId).not.toBe(receiverAuth.localPlayerId);
   await senderContext.close();
