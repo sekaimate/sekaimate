@@ -300,6 +300,9 @@ namespace Basis.Scripts.Networking.Transmitters
                     if (encoder == null) return;
                     Segment.LengthUsed = encoder.Encode(pcm, sampleCount, Segment.buffer, Segment.TotalLength);
                 }
+#if UNITY_WEBGL && !UNITY_EDITOR
+                BasisWebAudioDiagnosticsBridge.MarkOpusEncoded(Segment.LengthUsed);
+#endif
                 byte sequence = _sequenceNumber++;
 
                 // Saturate rather than wrap: a resume after a long mute must still read as
@@ -319,6 +322,9 @@ namespace Basis.Scripts.Networking.Transmitters
                 byte channel = IsInShoutMode ? BasisNetworkCommons.ShoutVoiceChannel : BasisNetworkCommons.VoiceChannel;
                 BasisNetworkProfiler.AddToCounter(BasisNetworkProfilerCounter.AudioSegmentData, Segment.LengthUsed);
                 peer.Send(writer, channel, DeliveryMethod.Unreliable);
+#if UNITY_WEBGL && !UNITY_EDITOR
+                BasisWebAudioDiagnosticsBridge.MarkNetworkSent(Segment.LengthUsed);
+#endif
                 if (!IsInShoutMode)
                 {
                     NetDataWriter directWriter = writer;

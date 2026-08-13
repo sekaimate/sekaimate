@@ -1,4 +1,92 @@
 mergeInto(LibraryManager.library, {
+  $BasisWebAudioDiagnosticsState: {
+    schemaVersion: 1,
+    values: null,
+    reset: function() {
+      var captureState = BasisWebAudioDiagnosticsState.values
+        ? BasisWebAudioDiagnosticsState.values.captureState
+        : 0;
+      BasisWebAudioDiagnosticsState.values = {
+        schemaVersion: BasisWebAudioDiagnosticsState.schemaVersion,
+        captureState: captureState,
+        permissionGranted: captureState === 3,
+        capturePcmFrames: 0,
+        capturePcmSamples: 0,
+        opusEncodedPackets: 0,
+        opusEncodedBytes: 0,
+        networkPacketsSent: 0,
+        networkBytesSent: 0,
+        networkPacketsReceived: 0,
+        networkBytesReceived: 0,
+        opusDecodedFrames: 0,
+        opusDecodedSamples: 0,
+        playbackFramesPushed: 0,
+        playbackSamplesPushed: 0,
+      };
+    },
+    ensureInstalled: function() {
+      if (!BasisWebAudioDiagnosticsState.values) {
+        BasisWebAudioDiagnosticsState.reset();
+      }
+      if (globalThis.BasisWebAudioDiagnostics) {
+        return;
+      }
+      globalThis.BasisWebAudioDiagnostics = {
+        schemaVersion: BasisWebAudioDiagnosticsState.schemaVersion,
+        reset: function() {
+          BasisWebAudioDiagnosticsState.reset();
+        },
+        snapshot: function() {
+          return Object.assign({}, BasisWebAudioDiagnosticsState.values);
+        },
+      };
+    },
+    markCaptureState: function(state) {
+      BasisWebAudioDiagnosticsState.ensureInstalled();
+      BasisWebAudioDiagnosticsState.values.captureState = state;
+      if (state === 3) {
+        BasisWebAudioDiagnosticsState.values.permissionGranted = true;
+      }
+    },
+    markCapturePcm: function(sampleCount) {
+      if (sampleCount <= 0) return;
+      BasisWebAudioDiagnosticsState.ensureInstalled();
+      BasisWebAudioDiagnosticsState.values.capturePcmFrames++;
+      BasisWebAudioDiagnosticsState.values.capturePcmSamples += sampleCount;
+    },
+    markOpusEncoded: function(encodedBytes) {
+      if (encodedBytes <= 0) return;
+      BasisWebAudioDiagnosticsState.ensureInstalled();
+      BasisWebAudioDiagnosticsState.values.opusEncodedPackets++;
+      BasisWebAudioDiagnosticsState.values.opusEncodedBytes += encodedBytes;
+    },
+    markNetworkSent: function(encodedBytes) {
+      if (encodedBytes <= 0) return;
+      BasisWebAudioDiagnosticsState.ensureInstalled();
+      BasisWebAudioDiagnosticsState.values.networkPacketsSent++;
+      BasisWebAudioDiagnosticsState.values.networkBytesSent += encodedBytes;
+    },
+    markNetworkReceived: function(encodedBytes) {
+      if (encodedBytes <= 0) return;
+      BasisWebAudioDiagnosticsState.ensureInstalled();
+      BasisWebAudioDiagnosticsState.values.networkPacketsReceived++;
+      BasisWebAudioDiagnosticsState.values.networkBytesReceived += encodedBytes;
+    },
+    markOpusDecoded: function(sampleCount) {
+      if (sampleCount <= 0) return;
+      BasisWebAudioDiagnosticsState.ensureInstalled();
+      BasisWebAudioDiagnosticsState.values.opusDecodedFrames++;
+      BasisWebAudioDiagnosticsState.values.opusDecodedSamples += sampleCount;
+    },
+    markPlaybackPushed: function(sampleCount) {
+      if (sampleCount <= 0) return;
+      BasisWebAudioDiagnosticsState.ensureInstalled();
+      BasisWebAudioDiagnosticsState.values.playbackFramesPushed++;
+      BasisWebAudioDiagnosticsState.values.playbackSamplesPushed += sampleCount;
+    },
+  },
+
+  $BasisWebAudio__deps: ['$BasisWebAudioDiagnosticsState'],
   $BasisWebAudio: {
     sampleRate: 48000,
     frameSize: 960,
@@ -25,6 +113,7 @@ mergeInto(LibraryManager.library, {
       Suspended: 6,
     },
     notifyState: function(state) {
+      BasisWebAudioDiagnosticsState.markCaptureState(state);
       if (BasisWebAudio.onStateChanged) {
         BasisWebAudio.onStateChanged(state);
       }
@@ -118,6 +207,7 @@ mergeInto(LibraryManager.library, {
         BasisWebAudio.captureNode.port.onmessage = function(event) {
           if (!BasisWebAudio.onPcm) return;
           var samples = event.data;
+          BasisWebAudioDiagnosticsState.markCapturePcm(samples.length);
           var pointer = _malloc(samples.length * 4);
           HEAPF32.set(samples, pointer >> 2);
           BasisWebAudio.onPcm(pointer, samples.length);
@@ -234,8 +324,9 @@ mergeInto(LibraryManager.library, {
     },
   },
 
-  BasisWebAudioInitialize__deps: ['$BasisWebAudio'],
+  BasisWebAudioInitialize__deps: ['$BasisWebAudio', '$BasisWebAudioDiagnosticsState'],
   BasisWebAudioInitialize: function(onStateChanged, onPcm) {
+    BasisWebAudioDiagnosticsState.ensureInstalled();
     BasisWebAudio.onStateChanged = function(state) {
       {{{ makeDynCall('vi', 'onStateChanged') }}}(state);
     };
@@ -276,11 +367,32 @@ mergeInto(LibraryManager.library, {
     if (!BasisWebAudio.playbackNode || sampleCount <= 0) return;
     var copy = HEAPF32.slice(samples >> 2, (samples >> 2) + sampleCount);
     BasisWebAudio.playbackNode.port.postMessage({ type: 'samples', sinkId: sinkId, samples: copy }, [copy.buffer]);
+    BasisWebAudioDiagnosticsState.markPlaybackPushed(sampleCount);
   },
 
   BasisWebAudioPlaybackRemoveSink__deps: ['$BasisWebAudio'],
   BasisWebAudioPlaybackRemoveSink: function(sinkId) {
     if (!BasisWebAudio.playbackNode) return;
     BasisWebAudio.playbackNode.port.postMessage({ type: 'remove', sinkId: sinkId });
+  },
+
+  BasisWebAudioDiagnosticsMarkOpusEncoded__deps: ['$BasisWebAudioDiagnosticsState'],
+  BasisWebAudioDiagnosticsMarkOpusEncoded: function(encodedBytes) {
+    BasisWebAudioDiagnosticsState.markOpusEncoded(encodedBytes);
+  },
+
+  BasisWebAudioDiagnosticsMarkNetworkSent__deps: ['$BasisWebAudioDiagnosticsState'],
+  BasisWebAudioDiagnosticsMarkNetworkSent: function(encodedBytes) {
+    BasisWebAudioDiagnosticsState.markNetworkSent(encodedBytes);
+  },
+
+  BasisWebAudioDiagnosticsMarkNetworkReceived__deps: ['$BasisWebAudioDiagnosticsState'],
+  BasisWebAudioDiagnosticsMarkNetworkReceived: function(encodedBytes) {
+    BasisWebAudioDiagnosticsState.markNetworkReceived(encodedBytes);
+  },
+
+  BasisWebAudioDiagnosticsMarkOpusDecoded__deps: ['$BasisWebAudioDiagnosticsState'],
+  BasisWebAudioDiagnosticsMarkOpusDecoded: function(sampleCount) {
+    BasisWebAudioDiagnosticsState.markOpusDecoded(sampleCount);
   },
 });

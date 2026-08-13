@@ -250,6 +250,9 @@ namespace Basis.Scripts.Networking.Receivers
 
         public void Insert(AudioSegmentDataMessage msg)
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            BasisWebAudioDiagnosticsBridge.MarkNetworkReceived(msg.LengthUsed);
+#endif
             VoiceBuffer.InsertEncoded(msg.SequenceNumber, msg.buffer, msg.LengthUsed, msg.TotalPlayedInSilence);
             OnEncodedFrame?.Invoke(msg);
         }
@@ -272,6 +275,9 @@ namespace Basis.Scripts.Networking.Receivers
                     pcmLength = decoder.Decode(data, length, pcmBuffer, RemoteOpusSettings.MaxFrameSize, false);
                     PushCurrentFrame(true);
                     OnDecodedFrame?.Invoke(pcmBuffer, pcmLength);
+#if UNITY_WEBGL && !UNITY_EDITOR
+                    BasisWebAudioDiagnosticsBridge.MarkOpusDecoded(pcmLength);
+#endif
                 }
                 catch
                 {
@@ -399,6 +405,9 @@ namespace Basis.Scripts.Networking.Receivers
                 pcmLength = decoder.Decode(data, length, pcmBuffer, RemoteOpusSettings.FrameSize, true);
                 PushCurrentFrame(true);
                 OnDecodedFrame?.Invoke(pcmBuffer, pcmLength);
+#if UNITY_WEBGL && !UNITY_EDITOR
+                BasisWebAudioDiagnosticsBridge.MarkOpusDecoded(pcmLength);
+#endif
             }
             catch
             {
