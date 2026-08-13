@@ -7,6 +7,7 @@ namespace Basis.MediaPipe
     {
         bool IsAvailable { get; }
         string BackendName { get; }
+        bool UsesUnityCamera { get; }
 
         void Initialize(BasisMediaPipeConfig config);
         void SubmitFrame(WebCamTexture frame, double timestampMs);

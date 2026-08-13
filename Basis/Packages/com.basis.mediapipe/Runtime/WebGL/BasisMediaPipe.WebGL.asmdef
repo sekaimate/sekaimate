@@ -1,0 +1,19 @@
+{
+    "name": "BasisMediaPipe.WebGL",
+    "rootNamespace": "Basis.MediaPipe.WebGL",
+    "references": [
+        "BasisMediaPipe",
+        "BasisDebug"
+    ],
+    "includePlatforms": [
+        "WebGL"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

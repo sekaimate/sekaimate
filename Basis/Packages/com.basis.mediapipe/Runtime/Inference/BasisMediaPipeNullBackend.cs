@@ -7,6 +7,7 @@ namespace Basis.MediaPipe
     {
         public bool IsAvailable => false;
         public string BackendName => "None (MediaPipe plugin not installed)";
+        public bool UsesUnityCamera => true;
         public void Initialize(BasisMediaPipeConfig config) { }
         public void SubmitFrame(WebCamTexture frame, double timestampMs) { }
         public bool TryGetLatestResult(out BasisMediaPipeResult result) { result = default; return false; }

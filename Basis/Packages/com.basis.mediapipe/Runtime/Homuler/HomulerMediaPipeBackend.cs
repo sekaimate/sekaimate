@@ -28,6 +28,7 @@ namespace Basis.MediaPipe.Homuler
 
         public bool IsAvailable { get; private set; }
         public string BackendName => "homuler MediaPipe Unity Plugin";
+        public bool UsesUnityCamera => true;
         private bool _swapHands;
         private bool _poseSidesSwapped;
 
