@@ -758,11 +758,9 @@ public sealed class BasisMediaPlayer : MonoBehaviour
         {
             if (string.IsNullOrEmpty(media.Uri))
                 throw new ArgumentException("BasisMediaSource.Uri is required.", nameof(media));
-            if (!BasisMediaPlayerSecurity.IsUrlAllowed(media.Uri, out string blockReason))
-                throw new UnauthorizedAccessException($"BasisMediaPlayer refused to load '{media.Uri}': {blockReason}");
             bool pageUsesHttps = Application.absoluteURL.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
             bool hasCustomHeaders = media.Headers != null && media.Headers.Count > 0;
-            if (!BasisWebMediaPolicy.TryValidate(media.Uri, media.AudioUri, pageUsesHttps, hasCustomHeaders, out string webReason))
+            if (!BasisWebMediaSecurityPolicy.TryValidate(media.Uri, media.AudioUri, pageUsesHttps, hasCustomHeaders, out string webReason))
                 throw new NotSupportedException(webReason);
             AudioSource webAudioSource = GetWebAudioSource();
             bool usesAudioMixer = webAudioSource != null && webAudioSource.outputAudioMixerGroup != null;
