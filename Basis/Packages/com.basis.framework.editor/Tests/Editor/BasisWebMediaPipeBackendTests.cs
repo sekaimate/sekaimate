@@ -43,6 +43,8 @@ public class BasisWebMediaPipeBackendTests
 
         StringAssert.Contains("new Worker", plugin);
         StringAssert.Contains("createImageBitmap", plugin);
+        StringAssert.Contains("navigator.mediaDevices.enumerateDevices", plugin);
+        StringAssert.Contains("deviceId: { exact:", plugin);
         StringAssert.Contains("BasisMediaPipeWorker.mjs", plugin);
         StringAssert.Contains("FaceLandmarker.createFromOptions", worker);
         StringAssert.Contains("HandLandmarker.createFromOptions", worker);
