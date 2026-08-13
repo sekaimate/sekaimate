@@ -7,7 +7,9 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using Basis.BasisUI;
 using Basis.Network.Core;
+using Basis.Scripts.Settings;
 using Basis.Scripts.Networking;
+using BasisPermissions;
 using UnityEngine;
 
 internal sealed class BasisWebSettingsE2EHarness : MonoBehaviour
@@ -116,6 +118,10 @@ internal sealed class BasisWebSettingsE2EHarness : MonoBehaviour
             yield break;
         }
 
+        bool mutate;
+        Dictionary<string, string> originals;
+        Dictionary<string, string> desiredValues;
+        List<(string key, int index)> tabs;
         try
         {
             if (request.operation == "restore")
@@ -123,17 +129,36 @@ internal sealed class BasisWebSettingsE2EHarness : MonoBehaviour
                 RestoreValues(request.restoreValues ?? Array.Empty<RestoreValue>());
             }
 
-            bool mutate = request.operation == "exerciseAll";
-            Dictionary<string, string> originals = new Dictionary<string, string>();
-            Dictionary<string, string> desiredValues = new Dictionary<string, string>();
-            List<(string key, int index)> tabs = ResolveTabs();
+            mutate = request.operation == "exerciseAll";
+            originals = new Dictionary<string, string>();
+            desiredValues = new Dictionary<string, string>();
+            tabs = ResolveTabs();
+        }
+        catch (Exception exception)
+        {
+            result.error = exception.ToString();
+            Publish(result);
+            yield break;
+        }
 
-            for (int tabIndex = 0; tabIndex < tabs.Count; tabIndex++)
+        for (int tabIndex = 0; tabIndex < tabs.Count; tabIndex++)
+        {
+            (string key, int index) tab = tabs[tabIndex];
+            try
             {
-                (string key, int index) tab = tabs[tabIndex];
                 settingsTabs.SelectionButtons[tab.index].OnClicked?.Invoke();
-                yield return null;
+            }
+            catch (Exception exception)
+            {
+                result.error = exception.ToString();
+                Publish(result);
+                yield break;
+            }
 
+            yield return null;
+
+            try
+            {
                 PanelTabPage page = settingsTabs.Pages[tab.index];
                 TabResult tabResult = new TabResult
                 {
@@ -144,7 +169,16 @@ internal sealed class BasisWebSettingsE2EHarness : MonoBehaviour
                 CaptureControls(page, mutate, originals, desiredValues, tabResult.controls);
                 result.tabs.Add(tabResult);
             }
+            catch (Exception exception)
+            {
+                result.error = exception.ToString();
+                Publish(result);
+                yield break;
+            }
+        }
 
+        try
+        {
             BasisSettingsSystem.SaveAllSettings();
             result.succeeded = true;
         }
