@@ -71,6 +71,7 @@ public class BasisWebXRInputTests
         StringAssert.Contains("inputSource.gamepad", source);
         StringAssert.Contains("window.basisWebXR", source);
         StringAssert.Contains("basis-webxr-enter", source);
+        StringAssert.Contains("BasisWebXRPublishBasisState", source);
     }
 
     [Test]
@@ -83,5 +84,7 @@ public class BasisWebXRInputTests
         StringAssert.Contains("BasisWebXRHeadInput", source);
         StringAssert.Contains("BasisWebXRHandInput", source);
         StringAssert.Contains("EndImmersiveSession", source);
+        StringAssert.Contains("basisWebXRE2E=1", source);
+        StringAssert.Contains("BasisWebXRPublishBasisState", source);
     }
 }
