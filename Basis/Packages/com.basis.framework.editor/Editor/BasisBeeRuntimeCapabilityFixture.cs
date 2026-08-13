@@ -50,7 +50,7 @@ public static class BasisBeeRuntimeCapabilityFixture
         audioSource.loop = true;
         audioSource.playOnAwake = true;
         audioSource.spatialBlend = 0f;
-        audioSource.volume = 0.05f;
+        audioSource.volume = 0f;
         marker.AddComponent<BasisWebRuntimePcmAudioSource>();
 
         return marker;

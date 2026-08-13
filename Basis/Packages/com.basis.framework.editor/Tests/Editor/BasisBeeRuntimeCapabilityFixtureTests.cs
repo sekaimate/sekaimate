@@ -60,6 +60,7 @@ public class BasisBeeRuntimeCapabilityFixtureTests
         Assert.That(audioSource.clip.hideFlags, Is.EqualTo(HideFlags.DontSave));
         Assert.That(audioSource.playOnAwake, Is.True);
         Assert.That(audioSource.loop, Is.True);
+        Assert.That(audioSource.volume, Is.Zero);
     }
 
     [TestCase("AvatarContentPoliceSelector")]
