@@ -42,20 +42,7 @@ namespace Basis.Scripts.Device_Management.Devices.Desktop
         /// </summary>
         public override void StartSDK()
         {
-            if (BasisAvatarEyeInput == null)
-            {
-                BasisLocalCameraDriver.AllowXRRenderering(false);
-
-                GameObject gameObject = new GameObject(DesktopEye);
-                if (BasisLocalPlayer.Instance != null)
-                {
-                    gameObject.transform.parent = BasisLocalPlayer.Instance.transform;
-                }
-
-                BasisAvatarEyeInput = gameObject.AddComponent<BasisDesktopEye>();
-                BasisAvatarEyeInput.Initialize(DesktopEye, nameof(BasisDesktopManagement));
-                BasisDeviceManagement.Instance.TryAdd(BasisAvatarEyeInput);
-            }
+            EnsureDesktopEye();
             if (BasisDeviceManagement.IsMobileHardware() || AlwaysSpawnHeadsUpControls)
             {
 #if UNITY_WEBGL && !UNITY_EDITOR
@@ -147,15 +134,7 @@ namespace Basis.Scripts.Device_Management.Devices.Desktop
         /// </summary>
         public override void StopSDK()
         {
-            BasisDeviceManagement.Instance.RemoveDevicesFrom(nameof(BasisDesktopManagement), DesktopEye);
-
-            if (BasisAvatarEyeInput != null)
-            {
-                GameObject.Destroy(BasisAvatarEyeInput.gameObject);
-            }
-
-            BasisDesktopEye.Instance = null;
-            BasisAvatarEyeInput = null;
+            ReleaseDesktopEye();
             ReleaseControls();
             foreach (BasisTouchInputDevice Device in Inputs)
             {
@@ -165,6 +144,32 @@ namespace Basis.Scripts.Device_Management.Devices.Desktop
             UnityEngine.InputSystem.EnhancedTouch.Touch.onFingerDown -= OnFingerDown;
             UnityEngine.InputSystem.EnhancedTouch.Touch.onFingerUp -= onFingerUp;
             EnhancedTouchSupport.Disable();
+        }
+
+        protected void EnsureDesktopEye()
+        {
+            if (BasisAvatarEyeInput != null)
+            {
+                return;
+            }
+
+            BasisLocalCameraDriver.AllowXRRenderering(false);
+            GameObject gameObject = new GameObject(DesktopEye);
+            if (BasisLocalPlayer.Instance != null)
+            {
+                gameObject.transform.parent = BasisLocalPlayer.Instance.transform;
+            }
+
+            BasisAvatarEyeInput = gameObject.AddComponent<BasisDesktopEye>();
+            BasisAvatarEyeInput.Initialize(DesktopEye, nameof(BasisDesktopManagement));
+            BasisDeviceManagement.Instance.TryAdd(BasisAvatarEyeInput);
+        }
+
+        protected void ReleaseDesktopEye()
+        {
+            BasisDeviceManagement.Instance.RemoveDevicesFrom(nameof(BasisDesktopManagement), DesktopEye);
+            BasisDesktopEye.Instance = null;
+            BasisAvatarEyeInput = null;
         }
 
         private void ReleaseControls()
