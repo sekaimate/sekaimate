@@ -6,9 +6,13 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using Basis.BasisUI;
 using Basis.Scripts.BasisSdk.Interactions;
+using Basis.Scripts.Device_Management.Devices;
 using Basis.Scripts.Device_Management.Devices.Desktop;
+using Basis.Scripts.TransformBinders.BoneControl;
 using Basis.Scripts.UI.UI_Panels;
 using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
 
 internal sealed class BasisWebWorldInteractionE2E : MonoBehaviour
 {
@@ -21,11 +25,17 @@ internal sealed class BasisWebWorldInteractionE2E : MonoBehaviour
     private const string VehicleSeatName = "BasisWorldInteraction-VehicleSeat";
     private const string ImageName = "BasisWorldInteraction-Image";
     private const string PoolName = "BasisWorldInteraction-PoolCue";
+    private const string DirectTouchName = "BasisWorldInteraction-DirectTouch";
 
     private readonly InteractionSnapshot snapshot = new InteractionSnapshot();
     private Transform activeTransform;
     private BasisPickupInteractable activePickup;
     private BasisSeat activeSeat;
+    private Button activeButton;
+    private BasisInput leftInput;
+    private BasisInput rightInput;
+    private bool wasLeftTouching;
+    private bool wasRightTouching;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void Initialize()
@@ -120,6 +130,7 @@ internal sealed class BasisWebWorldInteractionE2E : MonoBehaviour
         activeTransform = targetObject.transform;
         activePickup = targetObject.GetComponentInChildren<BasisPickupInteractable>(true);
         activeSeat = targetObject.GetComponentInChildren<BasisSeat>(true);
+        activeButton = targetObject.GetComponentInChildren<Button>(true);
         RegisterEvents(target);
         snapshot.stage = "ready";
         snapshot.ready = true;
@@ -135,6 +146,7 @@ internal sealed class BasisWebWorldInteractionE2E : MonoBehaviour
             "vehicle" => VehicleSeatName,
             "image" => ImageName,
             "pool" => PoolName,
+            "direct-touch" => DirectTouchName,
             _ => string.Empty
         };
         return string.IsNullOrEmpty(objectName) ? null : GameObject.Find(objectName);
@@ -185,12 +197,46 @@ internal sealed class BasisWebWorldInteractionE2E : MonoBehaviour
                 Publish();
             };
         }
+
+        if (activeButton != null)
+        {
+            AddEventCounter(activeButton.gameObject, EventTriggerType.PointerEnter, () => snapshot.directTouchPointerEnters++);
+            AddEventCounter(activeButton.gameObject, EventTriggerType.PointerDown, () => snapshot.directTouchPointerDowns++);
+            AddEventCounter(activeButton.gameObject, EventTriggerType.PointerUp, () => snapshot.directTouchPointerUps++);
+            activeButton.onClick.AddListener(() =>
+            {
+                snapshot.directTouchClicks++;
+                Publish();
+            });
+            snapshot.directTouchCenter = activeButton.transform.position;
+            snapshot.directTouchNormal = activeButton.transform.forward;
+        }
+    }
+
+    private void AddEventCounter(GameObject target, EventTriggerType eventType, Action increment)
+    {
+        EventTrigger trigger = target.GetComponent<EventTrigger>() ?? target.AddComponent<EventTrigger>();
+        trigger.triggers ??= new List<EventTrigger.Entry>();
+        var entry = new EventTrigger.Entry { eventID = eventType };
+        entry.callback.AddListener(_ =>
+        {
+            increment();
+            Publish();
+        });
+        trigger.triggers.Add(entry);
     }
 
     private void LateUpdate()
     {
         if (!snapshot.ready || activeTransform == null)
         {
+            return;
+        }
+
+        if (activeButton != null)
+        {
+            UpdateDirectTouchState();
+            Publish();
             return;
         }
 
@@ -208,6 +254,37 @@ internal sealed class BasisWebWorldInteractionE2E : MonoBehaviour
                 Quaternion.LookRotation(-camera.transform.forward, camera.transform.up));
         }
         Publish();
+    }
+
+    private void UpdateDirectTouchState()
+    {
+        ResolveHandInputs();
+        snapshot.leftHandInputReady = leftInput != null;
+        snapshot.rightHandInputReady = rightInput != null;
+        snapshot.leftDirectTouching = leftInput != null && BasisDirectTouch.Instance?.IsDeviceTouching(leftInput) == true;
+        snapshot.rightDirectTouching = rightInput != null && BasisDirectTouch.Instance?.IsDeviceTouching(rightInput) == true;
+        if (snapshot.leftDirectTouching && !wasLeftTouching) snapshot.directTouchStarts++;
+        if (!snapshot.leftDirectTouching && wasLeftTouching) snapshot.directTouchEnds++;
+        if (snapshot.rightDirectTouching && !wasRightTouching) snapshot.directTouchStarts++;
+        if (!snapshot.rightDirectTouching && wasRightTouching) snapshot.directTouchEnds++;
+        wasLeftTouching = snapshot.leftDirectTouching;
+        wasRightTouching = snapshot.rightDirectTouching;
+    }
+
+    private void ResolveHandInputs()
+    {
+        leftInput = null;
+        rightInput = null;
+        BasisInteractInput[] inputs = BasisPlayerInteract.Instance?.InteractInputs;
+        if (inputs == null) return;
+
+        foreach (BasisInteractInput interactInput in inputs)
+        {
+            BasisInput input = interactInput.input;
+            if (input == null || !input.HasControl || !input.TryGetRole(out BasisBoneTrackedRole role)) continue;
+            if (role == BasisBoneTrackedRole.LeftHand) leftInput = input;
+            if (role == BasisBoneTrackedRole.RightHand) rightInput = input;
+        }
     }
 
     private void Publish()
@@ -256,6 +333,18 @@ internal sealed class BasisWebWorldInteractionE2E : MonoBehaviour
         public int vehicleSeatEntries;
         public int imageGrabStarts;
         public int poolCueGrabStarts;
+        public bool leftHandInputReady;
+        public bool rightHandInputReady;
+        public bool leftDirectTouching;
+        public bool rightDirectTouching;
+        public int directTouchStarts;
+        public int directTouchEnds;
+        public int directTouchPointerEnters;
+        public int directTouchPointerDowns;
+        public int directTouchPointerUps;
+        public int directTouchClicks;
+        public Vector3 directTouchCenter;
+        public Vector3 directTouchNormal;
     }
 }
 #endif

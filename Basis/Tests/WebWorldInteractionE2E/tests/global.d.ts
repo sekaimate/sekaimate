@@ -16,6 +16,18 @@ interface BasisWorldInteractionSnapshot {
   vehicleSeatEntries: number;
   imageGrabStarts: number;
   poolCueGrabStarts: number;
+  leftHandInputReady: boolean;
+  rightHandInputReady: boolean;
+  leftDirectTouching: boolean;
+  rightDirectTouching: boolean;
+  directTouchStarts: number;
+  directTouchEnds: number;
+  directTouchPointerEnters: number;
+  directTouchPointerDowns: number;
+  directTouchPointerUps: number;
+  directTouchClicks: number;
+  directTouchCenter: { x: number; y: number; z: number };
+  directTouchNormal: { x: number; y: number; z: number };
 }
 
 interface Window {
