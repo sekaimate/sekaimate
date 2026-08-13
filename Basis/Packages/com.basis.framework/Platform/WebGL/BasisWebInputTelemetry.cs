@@ -9,7 +9,7 @@ using UnityEngine.InputSystem;
 
 internal sealed class BasisWebInputTelemetry : MonoBehaviour
 {
-    private const string EnableQuery = "basisInputTelemetry=1";
+    private const string EnableQuery = "basisInputE2E=1";
     private const float PublishIntervalSeconds = 0.05f;
 
     private float nextPublishTime;
@@ -47,6 +47,7 @@ internal sealed class BasisWebInputTelemetry : MonoBehaviour
 
         return new BasisWebInputSnapshot
         {
+            schemaVersion = 1,
             frame = Time.frameCount,
             ready = character != null && eye != null && BasisLocalInputActions.MoveAction?.enabled == true,
             pointerLocked = BasisCursorManagement.ActiveLockState() == CursorLockMode.Locked,
@@ -113,6 +114,7 @@ internal sealed class BasisWebInputTelemetry : MonoBehaviour
 [Serializable]
 internal sealed class BasisWebInputSnapshot
 {
+    public int schemaVersion;
     public int frame;
     public bool ready;
     public bool pointerLocked;
