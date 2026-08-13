@@ -11,6 +11,7 @@ let mirror = false;
 let swapHands = false;
 let canvas = null;
 let context = null;
+let wasmLoaderInstance = 0;
 
 self.onmessage = async (event) => {
   try {
@@ -33,16 +34,12 @@ self.onmessage = async (event) => {
 async function initialize(assetRoot, config) {
   mirror = config.mirror;
   swapHands = config.swapHands;
-  const wasmFileset = {
-    wasmLoaderPath: assetRoot + "vision_wasm_module_internal.js",
-    wasmBinaryPath: assetRoot + "vision_wasm_module_internal.wasm",
-  };
   const taskOptions = {
     runningMode: "VIDEO",
     minTrackingConfidence: 0.5,
   };
   if (config.enableFace) {
-    faceLandmarker = await FaceLandmarker.createFromOptions(wasmFileset, {
+    faceLandmarker = await FaceLandmarker.createFromOptions(await createVisionFileset(assetRoot), {
       ...taskOptions,
       baseOptions: { modelAssetPath: assetRoot + "face_landmarker.task.bytes" },
       numFaces: 1,
@@ -53,7 +50,7 @@ async function initialize(assetRoot, config) {
     });
   }
   if (config.enableHands) {
-    handLandmarker = await HandLandmarker.createFromOptions(wasmFileset, {
+    handLandmarker = await HandLandmarker.createFromOptions(await createVisionFileset(assetRoot), {
       ...taskOptions,
       baseOptions: { modelAssetPath: assetRoot + "hand_landmarker.task.bytes" },
       numHands: 2,
@@ -62,7 +59,7 @@ async function initialize(assetRoot, config) {
     });
   }
   if (config.enablePose) {
-    poseLandmarker = await PoseLandmarker.createFromOptions(wasmFileset, {
+    poseLandmarker = await PoseLandmarker.createFromOptions(await createVisionFileset(assetRoot), {
       ...taskOptions,
       baseOptions: { modelAssetPath: assetRoot + "pose_landmarker_lite.task.bytes" },
       numPoses: 1,
@@ -71,6 +68,15 @@ async function initialize(assetRoot, config) {
       outputSegmentationMasks: false,
     });
   }
+}
+
+async function createVisionFileset(assetRoot) {
+  const wasmLoaderPath = assetRoot + "vision_wasm_module_internal.js?instance=" + wasmLoaderInstance++;
+  await import(wasmLoaderPath);
+  return {
+    wasmLoaderPath,
+    wasmBinaryPath: assetRoot + "vision_wasm_module_internal.wasm",
+  };
 }
 
 function processFrame(bitmap, timestampMs) {
