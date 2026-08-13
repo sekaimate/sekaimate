@@ -7,7 +7,10 @@ public class BasisWebAudioBridgeTests
     private const string BrowserPluginPath = "Packages/com.basis.framework/Platform/WebGL/BasisWebAudio.jslib";
     private const string CaptureBridgePath = "Packages/com.basis.framework/Platform/WebGL/BasisWebAudioCaptureBridge.cs";
     private const string PlaybackBridgePath = "Packages/com.basis.framework/Platform/WebGL/BasisWebAudioPlaybackBridge.cs";
+    private const string DiagnosticsBridgePath = "Packages/com.basis.framework/Platform/WebGL/BasisWebAudioDiagnosticsBridge.cs";
     private const string MicrophoneDriverPath = "Packages/com.basis.framework/Drivers/Local/BasisLocalMicrophoneDriver.cs";
+    private const string AudioTransmissionPath = "Packages/com.basis.framework/Networking/Transmitters/BasisAudioTransmission.cs";
+    private const string AudioReceiverPath = "Packages/com.basis.framework/Networking/Recievers/BasisAudioReceiver.cs";
     private const string RemoteAudioDriverPath = "Packages/com.basis.framework/Drivers/Remote/BasisRemoteAudioDriver.cs";
 
     [Test]
@@ -71,5 +74,27 @@ public class BasisWebAudioBridgeTests
         StringAssert.Contains("OnAudioFilterRead", remoteSource);
         StringAssert.Contains("BasisWebAudioCaptureBridge", microphoneSource);
         StringAssert.Contains("BasisWebAudioPlaybackBridge", remoteSource);
+    }
+
+    [Test]
+    public void BrowserDiagnosticsMeasureTheCanonicalVoicePipeline()
+    {
+        string pluginSource = File.ReadAllText(BrowserPluginPath);
+        string bridgeSource = File.ReadAllText(DiagnosticsBridgePath);
+        string transmissionSource = File.ReadAllText(AudioTransmissionPath);
+        string receiverSource = File.ReadAllText(AudioReceiverPath);
+
+        StringAssert.Contains("globalThis.BasisWebAudioDiagnostics", pluginSource);
+        StringAssert.Contains("capturePcmFrames", pluginSource);
+        StringAssert.Contains("opusEncodedPackets", pluginSource);
+        StringAssert.Contains("networkPacketsSent", pluginSource);
+        StringAssert.Contains("networkPacketsReceived", pluginSource);
+        StringAssert.Contains("opusDecodedFrames", pluginSource);
+        StringAssert.Contains("playbackFramesPushed", pluginSource);
+        StringAssert.Contains("#if UNITY_WEBGL && !UNITY_EDITOR", bridgeSource);
+        StringAssert.Contains("BasisWebAudioDiagnosticsBridge.MarkOpusEncoded", transmissionSource);
+        StringAssert.Contains("BasisWebAudioDiagnosticsBridge.MarkNetworkSent", transmissionSource);
+        StringAssert.Contains("BasisWebAudioDiagnosticsBridge.MarkNetworkReceived", receiverSource);
+        StringAssert.Contains("BasisWebAudioDiagnosticsBridge.MarkOpusDecoded", receiverSource);
     }
 }
