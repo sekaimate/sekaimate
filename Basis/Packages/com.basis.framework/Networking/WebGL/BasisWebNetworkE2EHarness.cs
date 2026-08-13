@@ -73,9 +73,6 @@ namespace Basis.Scripts.Networking
         public async void Reconnect()
         {
             Report("reconnect-started");
-            await BasisNetworkLifeCycle.Destroy();
-            await BasisNetworkLifeCycle.Initialize();
-            Subscribe();
             ResetObservedConnectionState();
             await BasisConnectionService.ConnectAsync(_entry, _userName);
             Report("reconnect-requested");
