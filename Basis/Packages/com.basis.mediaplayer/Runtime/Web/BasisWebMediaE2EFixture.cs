@@ -1,5 +1,6 @@
 #if UNITY_WEBGL && !UNITY_EDITOR && DEVELOPMENT_BUILD
 using System;
+using System.Collections;
 using UnityEngine;
 
 public sealed class BasisWebMediaE2EFixture : MonoBehaviour
@@ -15,12 +16,13 @@ public sealed class BasisWebMediaE2EFixture : MonoBehaviour
 
         GameObject fixture = new GameObject("BasisWebMediaE2E");
         DontDestroyOnLoad(fixture);
-        fixture.AddComponent<BasisWebMediaE2EFixture>();
+        BasisWebMediaE2EFixture controller = fixture.AddComponent<BasisWebMediaE2EFixture>();
         BasisMediaPlayer player = fixture.AddComponent<BasisMediaPlayer>();
         player.AutoPlayOnSourceAssigned = true;
         player.Volume = 0.25f;
         player.Mute = false;
         player.LoadUrl(mediaUrl);
+        controller.StartCoroutine(controller.VerifyPlaybackControls(player));
     }
 
     private static bool TryGetQueryValue(string absoluteUrl, string name, out string value)
@@ -37,6 +39,15 @@ public sealed class BasisWebMediaE2EFixture : MonoBehaviour
             return true;
         }
         return false;
+    }
+
+    private IEnumerator VerifyPlaybackControls(BasisMediaPlayer player)
+    {
+        yield return new WaitUntil(() => player.OutputTexture != null && player.Position > TimeSpan.FromSeconds(0.5));
+        player.Pause();
+        yield return new WaitForSecondsRealtime(0.25f);
+        player.Seek(TimeSpan.FromSeconds(0.25));
+        player.Play();
     }
 }
 #endif

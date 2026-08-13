@@ -26,6 +26,9 @@ mergeInto(LibraryManager.library, {
         paused: true,
         playbackStarted: false,
         playRequestCount: 0,
+        pauseRequestCount: 0,
+        seekRequestCount: 0,
+        lastSeekSeconds: -1,
         textureUploadCount: 0,
         audioContextCreated: false,
         mediaElementSourceCreated: false,
@@ -50,7 +53,7 @@ mergeInto(LibraryManager.library, {
       } catch (error) {
         diagnostics.crossOriginRequest = false;
       }
-      diagnostics.codecSupport = player.video.canPlayType('video/mp4; codecs="avc1.42E01E, mp4a.40.2"');
+      diagnostics.codecSupport = player.video.canPlayType('video/webm; codecs="vp8,opus"');
       diagnostics.videoWidth = player.video.videoWidth;
       diagnostics.videoHeight = player.video.videoHeight;
       diagnostics.currentTime = player.video.currentTime;
@@ -176,7 +179,11 @@ mergeInto(LibraryManager.library, {
   BasisWebMediaPause__deps: ['$BasisWebMedia'],
   BasisWebMediaPause: function(mediaId) {
     var player = BasisWebMedia.players[mediaId];
-    if (player) player.video.pause();
+    if (!player) return;
+    player.video.pause();
+    var diagnostics = BasisWebMedia.ensureDiagnostics();
+    if (diagnostics) diagnostics.pauseRequestCount++;
+    BasisWebMedia.updateDiagnostics(player, 'paused');
   },
 
   BasisWebMediaSeek__deps: ['$BasisWebMedia'],
@@ -185,6 +192,12 @@ mergeInto(LibraryManager.library, {
     if (!player || !isFinite(seconds)) return 0;
     try {
       player.video.currentTime = Math.max(0, seconds);
+      var diagnostics = BasisWebMedia.ensureDiagnostics();
+      if (diagnostics) {
+        diagnostics.seekRequestCount++;
+        diagnostics.lastSeekSeconds = Math.max(0, seconds);
+      }
+      BasisWebMedia.updateDiagnostics(player, 'seeked');
       return 1;
     } catch (error) {
       player.error = 5;

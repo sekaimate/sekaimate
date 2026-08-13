@@ -67,6 +67,9 @@ public class BasisWebMediaBackendTests
         StringAssert.Contains("basisMediaE2EUrl", source);
         StringAssert.Contains("AddComponent<BasisMediaPlayer>()", source);
         StringAssert.Contains("player.LoadUrl(mediaUrl)", source);
+        StringAssert.Contains("player.Pause()", source);
+        StringAssert.Contains("player.Seek(TimeSpan.FromSeconds(0.25))", source);
+        StringAssert.Contains("player.Play()", source);
         StringAssert.DoesNotContain("BasisWebMediaCreate", source);
     }
 }
