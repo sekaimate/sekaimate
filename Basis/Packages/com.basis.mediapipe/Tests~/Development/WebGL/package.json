@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "prepare": "node prepare-e2e.mjs",
+    "prepare:e2e": "node prepare-e2e.mjs",
     "test": "playwright test"
   },
   "devDependencies": {
