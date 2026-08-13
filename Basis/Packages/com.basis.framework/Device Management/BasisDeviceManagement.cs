@@ -240,12 +240,14 @@ namespace Basis.Scripts.Device_Management
             // defeat the HasSaveData("language") check.
             try
             {
+#if UNITY_WEBGL && !UNITY_EDITOR
                 await Basis.BasisUI.BasisLocalization.InitializeAsync();
                 await Basis.BasisUI.BasisTMPFontFallbacks.InitializeAsync();
-                Basis.BasisUI.BasisTMPFontFallbacks.RefreshJapanesePriority();
                 await Basis.BasisUI.AddressableAssets.InitializeAsync();
-#if UNITY_WEBGL && !UNITY_EDITOR
                 await Basis.BasisUI.BasisTrustedUrls.InitializeAsync();
+#else
+                await Basis.BasisUI.BasisLocalization.InitializeAsync();
+                Basis.BasisUI.BasisTMPFontFallbacks.RefreshJapanesePriority();
 #endif
                 BasisSettingsDefaults.LoadAll();
                 Basis.BasisUI.SettingsProvider.ApplyJiggleStartupSettings();
