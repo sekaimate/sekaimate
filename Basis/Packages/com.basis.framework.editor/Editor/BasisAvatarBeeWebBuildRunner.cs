@@ -102,7 +102,7 @@ public static class BasisAvatarBeeWebBuildRunner
                 buildRoot,
                 verificationRoot,
                 BasisBeeRuntimeCapabilityFormat.Avatar,
-                new Vector3(0f, 1.5f, 0f));
+                new Vector3(0f, 1.5f, 2f));
 
             (bool success, string message) = await BasisBundleBuild.GameObjectBundleBuild(
                 null,

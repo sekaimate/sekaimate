@@ -159,14 +159,14 @@ test('Avatar, Prop, World, and Server shares synchronize through Basis Server', 
     ['Prop', requiredEnvironment('BASIS_PROP_BEE_URL'), requiredEnvironment('BASIS_PROP_BEE_PASSWORD')],
     ['World', requiredEnvironment('BASIS_WORLD_BEE_URL'), requiredEnvironment('BASIS_WORLD_BEE_PASSWORD')],
     ['Server', requiredEnvironment('BASIS_SHARED_SERVER_CONNECTION'), ''],
-  ].map(([contentType, contentUrl, unlockPassword], index) => ({
+  ].map(([contentType, contentUrl, unlockPassword]) => ({
     sphereId: `web-content-${runId}-${contentType.toLowerCase()}`,
     contentUrl,
     unlockPassword,
     contentType: contentType as ContentShareType,
-    positionX: index * 1.5,
-    positionY: 1,
-    positionZ: 2,
+    positionX: 0,
+    positionY: 0,
+    positionZ: 3,
   }));
 
   const senderContext = await browser.newContext();
