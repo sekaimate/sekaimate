@@ -1,6 +1,7 @@
 import { readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, extname, join, relative, resolve, sep } from 'node:path';
 import { spawn } from 'node:child_process';
+import { createWorkerConfig } from './src/config.ts';
 
 interface Options {
   domain: string;
@@ -137,14 +138,13 @@ async function main(): Promise<void> {
 
   const scriptDirectory = import.meta.dirname;
   const configPath = join(scriptDirectory, '.wrangler.generated.json');
-  const config = {
-    name: options.workerName,
-    main: join(scriptDirectory, 'src/worker.ts'),
-    compatibility_date: new Date().toISOString().slice(0, 10),
-    workers_dev: false,
-    routes: [{ pattern: options.domain, custom_domain: true }],
-    r2_buckets: [{ binding: 'WEB_BUILD', bucket_name: options.bucketName }],
-  };
+  const config = createWorkerConfig({
+    workerName: options.workerName,
+    workerScript: join(scriptDirectory, 'src/worker.ts'),
+    compatibilityDate: new Date().toISOString().slice(0, 10),
+    domain: options.domain,
+    bucketName: options.bucketName,
+  });
 
   try {
     await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
