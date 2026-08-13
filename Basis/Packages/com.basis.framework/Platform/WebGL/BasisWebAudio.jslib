@@ -51,6 +51,9 @@ mergeInto(LibraryManager.library, {
         permissionGranted: captureState === 3,
         capturePcmFrames: 0,
         capturePcmSamples: 0,
+        capturePeak: 0,
+        activeDeviceName: '',
+        captureSampleRate: 0,
         opusEncodedPackets: 0,
         opusEncodedBytes: 0,
         networkPacketsSent: 0,
@@ -92,6 +95,15 @@ mergeInto(LibraryManager.library, {
         snapshot: function() {
           return Object.assign({}, BasisWebAudioDiagnosticsState.values);
         },
+        selectInputDevice: function(namePart) {
+          var normalizedName = String(namePart || '').toLocaleLowerCase();
+          var device = BasisWebAudio.deviceEntries.find(function(entry) {
+            return entry.name.toLocaleLowerCase().includes(normalizedName);
+          });
+          if (!device) return false;
+          BasisWebAudio.selectDevice(device.name);
+          return true;
+        },
         verifySender: function() {
           var values = BasisWebAudioDiagnosticsState.values;
           var failures = [];
@@ -111,6 +123,33 @@ mergeInto(LibraryManager.library, {
           return { passed: failures.length === 0, failures: failures, snapshot: Object.assign({}, values) };
         },
       };
+      BasisWebAudioDiagnosticsState.installOverlay();
+    },
+    installOverlay: function() {
+      if (new URLSearchParams(window.location.search).get('basisVoiceDiagnostics') !== '1') return;
+      var install = function() {
+        if (document.getElementById('basis-voice-diagnostics')) return;
+        var overlay = document.createElement('div');
+        overlay.id = 'basis-voice-diagnostics';
+        overlay.style.cssText = 'position:fixed;top:12px;right:12px;z-index:2147483647;pointer-events:none;padding:10px 12px;border-radius:8px;background:rgba(10,14,24,.92);color:#fff;font:12px/1.45 monospace;white-space:pre;box-shadow:0 2px 10px rgba(0,0,0,.4)';
+        document.body.appendChild(overlay);
+        var render = function() {
+          var values = BasisWebAudioDiagnosticsState.values;
+          var senderOk = globalThis.BasisWebAudioDiagnostics.verifySender().passed && values.capturePeak > 0;
+          var receiverOk = globalThis.BasisWebAudioDiagnostics.verifyReceiver().passed;
+          overlay.style.border = '2px solid ' + (senderOk && receiverOk ? '#35d07f' : '#e0a72e');
+          overlay.textContent = (senderOk && receiverOk ? 'VOICE OK' : 'VOICE CHECKING')
+            + '\nMic: ' + (values.activeDeviceName || 'permission required')
+            + '\nInput: ' + values.capturePeak.toFixed(4) + ' @ ' + values.captureSampleRate + ' Hz'
+            + '\nSent: ' + values.networkPacketsSent
+            + '\nReceived: ' + values.networkPacketsReceived
+            + '\nPlayback: ' + values.playbackPeak.toFixed(4);
+        };
+        render();
+        window.setInterval(render, 250);
+      };
+      if (document.body) install();
+      else window.addEventListener('DOMContentLoaded', install, { once: true });
     },
     markCaptureState: function(state) {
       BasisWebAudioDiagnosticsState.ensureInstalled();
@@ -127,11 +166,16 @@ mergeInto(LibraryManager.library, {
       BasisWebAudioDiagnosticsState.ensureInstalled();
       BasisWebAudioDiagnosticsState.values.captureError = error && error.message ? error.message : String(error || '');
     },
-    markCapturePcm: function(sampleCount) {
-      if (sampleCount <= 0) return;
+    markCapturePcm: function(samples) {
+      if (!samples || samples.length <= 0) return;
       BasisWebAudioDiagnosticsState.ensureInstalled();
       BasisWebAudioDiagnosticsState.values.capturePcmFrames++;
-      BasisWebAudioDiagnosticsState.values.capturePcmSamples += sampleCount;
+      BasisWebAudioDiagnosticsState.values.capturePcmSamples += samples.length;
+      var peak = 0;
+      for (var index = 0; index < samples.length; index++) {
+        peak = Math.max(peak, Math.abs(samples[index]));
+      }
+      BasisWebAudioDiagnosticsState.values.capturePeak = peak;
     },
     markOpusEncoded: function(encodedBytes) {
       if (encodedBytes <= 0) return;
@@ -250,7 +294,7 @@ mergeInto(LibraryManager.library, {
       }
       return BasisWebAudio.context;
     },
-    refreshDevices: async function() {
+    refreshDevices: async function(activeTrack) {
       var devices = await navigator.mediaDevices.enumerateDevices();
       var inputs = devices.filter(function(device) { return device.kind === 'audioinput'; });
       var names = {};
@@ -263,6 +307,11 @@ mergeInto(LibraryManager.library, {
           deviceId: device.deviceId,
         };
       });
+      var activeDeviceId = activeTrack && activeTrack.getSettings ? activeTrack.getSettings().deviceId : '';
+      var activeDevice = BasisWebAudio.deviceEntries.find(function(device) { return device.deviceId === activeDeviceId; });
+      if (activeDevice) {
+        BasisWebAudio.selectedDeviceName = activeDevice.name;
+      }
       if (!BasisWebAudio.deviceEntries.some(function(device) { return device.name === BasisWebAudio.selectedDeviceName; })) {
         BasisWebAudio.selectedDeviceName = BasisWebAudio.deviceEntries.length > 0 ? BasisWebAudio.deviceEntries[0].name : '';
       }
@@ -272,6 +321,10 @@ mergeInto(LibraryManager.library, {
         BasisWebAudio.onDevicesChanged(pointer);
         _free(pointer);
       }
+      BasisWebAudioDiagnosticsState.ensureInstalled();
+      BasisWebAudioDiagnosticsState.values.activeDeviceName = activeTrack && activeTrack.label
+        ? activeTrack.label
+        : BasisWebAudio.selectedDeviceName;
     },
     captureConstraints: function() {
       var selected = BasisWebAudio.deviceEntries.find(function(device) {
@@ -336,7 +389,7 @@ mergeInto(LibraryManager.library, {
 
           if (!BasisWebAudio.source || !BasisWebAudio.onPcm || event.inputBuffer.numberOfChannels === 0) return;
           var samples = event.inputBuffer.getChannelData(0);
-          BasisWebAudioDiagnosticsState.markCapturePcm(samples.length);
+          BasisWebAudioDiagnosticsState.markCapturePcm(samples);
           var pointer = _malloc(samples.length * 4);
           HEAPF32.set(samples, pointer >> 2);
           BasisWebAudio.onPcm(pointer, samples.length);
@@ -377,11 +430,9 @@ mergeInto(LibraryManager.library, {
       BasisWebAudio.notifyState(BasisWebAudio.State.RequestingPermission);
       try {
         BasisWebAudioDiagnosticsState.markCaptureStage('permission-requested');
-        var streamPromise = BasisWebAudio.stream ? null : navigator.mediaDevices.getUserMedia(BasisWebAudio.captureConstraints()).then(function(stream) {
+        var streamPromise = BasisWebAudio.stream ? null : navigator.mediaDevices.getUserMedia(BasisWebAudio.captureConstraints()).then(async function(stream) {
           BasisWebAudioDiagnosticsState.markCaptureStage('stream-ready');
-          BasisWebAudio.refreshDevices().catch(function(error) {
-            BasisWebAudioDiagnosticsState.markCaptureError(error);
-          });
+          await BasisWebAudio.refreshDevices(stream.getAudioTracks()[0]);
           return stream;
         });
         await BasisWebAudio.ensureInitialized();
@@ -399,6 +450,7 @@ mergeInto(LibraryManager.library, {
         BasisWebAudioDiagnosticsState.markCaptureStage('stream-acquired');
         BasisWebAudio.stream = stream;
         BasisWebAudio.source = BasisWebAudio.context.createMediaStreamSource(stream);
+        BasisWebAudioDiagnosticsState.values.captureSampleRate = BasisWebAudio.context.sampleRate;
         BasisWebAudioDiagnosticsState.markCaptureStage('source-created');
         BasisWebAudio.source.connect(BasisWebAudio.captureNode);
         BasisWebAudioDiagnosticsState.markCaptureStage('capture-running');

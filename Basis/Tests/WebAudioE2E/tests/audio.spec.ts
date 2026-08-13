@@ -16,6 +16,9 @@ interface VoiceSnapshot {
   captureError: string;
   permissionGranted: boolean;
   capturePcmFrames: number;
+  capturePeak: number;
+  activeDeviceName: string;
+  captureSampleRate: number;
   opusEncodedPackets: number;
   networkPacketsSent: number;
   networkPacketsReceived: number;
@@ -85,6 +88,7 @@ declare global {
       schemaVersion: number;
       reset(): void;
       snapshot(): VoiceSnapshot;
+      selectInputDevice(namePart: string): boolean;
       verifySender(): VoiceVerdict;
       verifyReceiver(): VoiceVerdict;
     };
@@ -108,6 +112,7 @@ function playerUrl(buildUrl: string, webSocketUri: string, userName: string, pas
   url.searchParams.set('websocketUri', webSocketUri);
   url.searchParams.set('userName', userName);
   url.searchParams.set('password', password);
+  url.searchParams.set('basisVoiceDiagnostics', '1');
   return url.toString();
 }
 
@@ -129,6 +134,14 @@ async function activateAudio(page: Page): Promise<void> {
   await page.bringToFront();
   await page.locator('#unity-canvas').click({ position: { x: 480, y: 300 } });
   await page.evaluate(() => window.basisNetworkE2ESetMuted?.(false));
+}
+
+async function selectRealMicrophone(page: Page): Promise<void> {
+  const microphoneName = process.env.BASIS_REAL_MICROPHONE_NAME?.trim();
+  if (!microphoneName) return;
+  await expect.poll(() => page.evaluate(name =>
+    window.BasisWebAudioDiagnostics?.selectInputDevice(name) ?? false, microphoneName)).toBe(true);
+  await expect.poll(() => snapshot(page).then(value => value.activeDeviceName)).toContain(microphoneName);
 }
 
 async function snapshot(page: Page): Promise<VoiceSnapshot> {
@@ -214,8 +227,8 @@ test('two WebGL clients run capture, Opus, network, playback, talk modes, and mu
   const receiverFrames = observeFrames(receiver, webSocketUri);
 
   await Promise.all([
-    sender.goto(playerUrl(buildUrl, webSocketUri, `web-audio-sender-${runId}`, password)),
-    receiver.goto(playerUrl(buildUrl, webSocketUri, `web-audio-receiver-${runId}`, password)),
+    sender.goto(playerUrl(buildUrl, webSocketUri, `voice-sender-${runId}`, password)),
+    receiver.goto(playerUrl(buildUrl, webSocketUri, `voice-receiver-${runId}`, password)),
   ]);
   const senderAuth = await waitForEvent(sender, 'authenticated');
   const receiverAuth = await waitForEvent(receiver, 'authenticated');
@@ -253,8 +266,10 @@ test('two WebGL clients run capture, Opus, network, playback, talk modes, and mu
         .map(device => ({ deviceId: device.deviceId, label: device.label }))));
     throw error;
   }
+  await selectRealMicrophone(sender);
   await activateAudio(receiver);
   await expect.poll(() => snapshot(receiver)).toMatchObject({ captureState: 3, captureStage: 'capture-running' });
+  await selectRealMicrophone(receiver);
   assertNoRuntimeErrors(senderRuntimeErrors, receiverRuntimeErrors);
 
   await expect.poll(() => sender.evaluate(() => window.BasisWebAudioDiagnostics?.verifySender())).toMatchObject({
@@ -273,6 +288,14 @@ test('two WebGL clients run capture, Opus, network, playback, talk modes, and mu
     passed: true,
     failures: [],
   });
+  await expect.poll(() => snapshot(sender).then(value => value.capturePeak)).toBeGreaterThan(0);
+  await expect.poll(() => snapshot(receiver).then(value => value.capturePeak)).toBeGreaterThan(0);
+  if (process.env.BASIS_REAL_MICROPHONE === '1') {
+    expect((await snapshot(sender)).activeDeviceName).not.toMatch(/fake/i);
+    expect((await snapshot(receiver)).activeDeviceName).not.toMatch(/fake/i);
+  }
+  await expect.poll(() => sender.locator('#basis-voice-diagnostics').textContent()).toContain('VOICE OK');
+  await expect.poll(() => receiver.locator('#basis-voice-diagnostics').textContent()).toContain('VOICE OK');
   await expect.poll(() => hasVoiceFrame(senderFrames, 'sent')).toBe(true);
   await expect.poll(() => hasVoiceFrame(receiverFrames, 'sent')).toBe(true);
 

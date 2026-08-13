@@ -186,6 +186,10 @@ public class BasisWebAudioBridgeTests
 
         StringAssert.Contains("globalThis.BasisWebAudioDiagnostics", pluginSource);
         StringAssert.Contains("capturePcmFrames", pluginSource);
+        StringAssert.Contains("capturePeak", pluginSource);
+        StringAssert.Contains("activeDeviceName", pluginSource);
+        StringAssert.Contains("basis-voice-diagnostics", pluginSource);
+        StringAssert.Contains("selectInputDevice", pluginSource);
         StringAssert.Contains("opusEncodedPackets", pluginSource);
         StringAssert.Contains("networkPacketsSent", pluginSource);
         StringAssert.Contains("networkPacketsReceived", pluginSource);
