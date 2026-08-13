@@ -11,11 +11,6 @@ namespace HVR.Basis.Comms
 
         internal static byte[] Encode(SimpleOSC.OSCMessage message)
         {
-            if (message == null)
-            {
-                throw new ArgumentNullException(nameof(message));
-            }
-
             byte[] packet = new byte[MaximumPacketLength];
             int packetLength = 0;
             SimpleOSC.EncodeOSCInto(packet, ref packetLength, message);
