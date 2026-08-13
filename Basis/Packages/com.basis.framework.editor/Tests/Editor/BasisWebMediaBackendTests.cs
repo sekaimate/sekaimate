@@ -136,5 +136,6 @@ public class BasisWebMediaBackendTests
         StringAssert.StartsWith("#if !UNITY_WEBGL || UNITY_EDITOR", interop);
         StringAssert.StartsWith("#if !UNITY_WEBGL || UNITY_EDITOR", source);
         StringAssert.Contains("#if !UNITY_WEBGL || UNITY_EDITOR\n    public BasisNativeVideoSource NativeEngine", player);
+        StringAssert.Contains("public BasisPlatformMediaSource PlatformEngine => nativeEngine;", player);
     }
 }

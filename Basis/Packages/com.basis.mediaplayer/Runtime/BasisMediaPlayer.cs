@@ -473,6 +473,8 @@ public sealed class BasisMediaPlayer : MonoBehaviour
         return Mathf.Max(BufferMilliseconds, dvrMs);
     }
 
+    public BasisPlatformMediaSource PlatformEngine => nativeEngine;
+
     // Active OS-codec backend, or null when on the CPU IBasisFrameSource path.
     // Exposed for diagnostics/tooling.
 #if !UNITY_WEBGL || UNITY_EDITOR
