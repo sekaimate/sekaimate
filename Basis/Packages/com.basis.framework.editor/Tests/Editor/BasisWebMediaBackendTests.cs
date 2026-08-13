@@ -10,6 +10,8 @@ public class BasisWebMediaBackendTests
     private const string PlayerPath = "Packages/com.basis.mediaplayer/Runtime/BasisMediaPlayer.cs";
     private const string SyntheticSourcePath = "Packages/com.basis.mediaplayer/Runtime/Sources/BasisSyntheticTestSource.cs";
     private const string PlayerLoopPath = "Packages/com.basis.mediaplayer/Runtime/Web/BasisWebMediaPlayerLoop.cs";
+    private const string NativeMediaPath = "Packages/com.basis.mediaplayer/Runtime/Native/BasisNativeMedia.cs";
+    private const string NativeSourcePath = "Packages/com.basis.mediaplayer/Runtime/Native/BasisNativeVideoSource.cs";
 
     [Test]
     public void UploadsOnlyNewBrowserVideoFrames()
@@ -122,5 +124,17 @@ public class BasisWebMediaBackendTests
         StringAssert.Contains("#else\n        thread = new Thread", source);
         StringAssert.Contains("PlayerLoop.SetPlayerLoop", playerLoop);
         StringAssert.DoesNotContain("System.Threading", playerLoop);
+    }
+
+    [Test]
+    public void NativeMediaInteropIsExcludedFromWebPlayers()
+    {
+        string interop = File.ReadAllText(NativeMediaPath);
+        string source = File.ReadAllText(NativeSourcePath);
+        string player = File.ReadAllText(PlayerPath);
+
+        StringAssert.StartsWith("#if !UNITY_WEBGL || UNITY_EDITOR", interop);
+        StringAssert.StartsWith("#if !UNITY_WEBGL || UNITY_EDITOR", source);
+        StringAssert.Contains("#if !UNITY_WEBGL || UNITY_EDITOR\n    public BasisNativeVideoSource NativeEngine", player);
     }
 }
