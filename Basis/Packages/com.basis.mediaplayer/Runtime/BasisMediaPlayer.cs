@@ -970,6 +970,9 @@ public sealed class BasisMediaPlayer : MonoBehaviour
         {
             relativePath = $"Screenshots/basis_video_{DateTime.UtcNow:yyyyMMdd_HHmmss_fff}.png";
         }
+#if UNITY_WEBGL && !UNITY_EDITOR
+        CaptureWebScreenshot(tex, relativePath, onComplete);
+#else
         if (!BasisMediaPlayerSecurity.TrySandboxLogPath(relativePath, out string fullPath, out string reason))
         {
             onComplete?.Invoke(null, new UnauthorizedAccessException(reason));
@@ -1007,7 +1010,49 @@ public sealed class BasisMediaPlayer : MonoBehaviour
             }
             catch (Exception ex) { onComplete?.Invoke(null, ex); }
         });
+#endif
     }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+    private void CaptureWebScreenshot(Texture source, string requestedPath, Action<string, Exception> onComplete)
+    {
+        string filename = Path.GetFileName(requestedPath);
+        if (string.IsNullOrWhiteSpace(filename))
+        {
+            onComplete?.Invoke(null, new ArgumentException("A screenshot filename is required.", nameof(requestedPath)));
+            return;
+        }
+
+        RenderTexture renderTexture = null;
+        Texture2D readableTexture = null;
+        try
+        {
+            renderTexture = RenderTexture.GetTemporary(source.width, source.height, 0, RenderTextureFormat.ARGB32);
+            Graphics.Blit(source, renderTexture);
+            readableTexture = new Texture2D(source.width, source.height, TextureFormat.RGBA32, false, false);
+            BasisWebCameraGpuReadback.ReadInto(renderTexture, readableTexture);
+            if (FlipVerticallyForScreenshot)
+            {
+                byte[] pixels = readableTexture.GetRawTextureData<byte>().ToArray();
+                FlipRowsRgba32(pixels, source.width, source.height);
+                readableTexture.LoadRawTextureData(pixels);
+                readableTexture.Apply(false, false);
+            }
+            byte[] png = readableTexture.EncodeToPNG();
+            BasisWebFileDownload.Save(filename, png, "image/png");
+            onComplete?.Invoke(filename, null);
+        }
+        catch (Exception ex)
+        {
+            onComplete?.Invoke(null, ex);
+        }
+        finally
+        {
+            if (readableTexture != null) UnityEngine.Object.Destroy(readableTexture);
+            if (renderTexture != null) RenderTexture.ReleaseTemporary(renderTexture);
+        }
+    }
+#endif
 
     private static void SwizzleBgraToRgba(byte[] rgba)
     {
