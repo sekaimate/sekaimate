@@ -13,6 +13,7 @@ public class BasisWebLipSyncTests
         float level = BasisWebVolumeVisemeDriver.MeasureNormalizedLevel(new float[960], 960);
 
         Assert.That(level, Is.Zero);
+        Assert.That(BasisWebVolumeVisemeDriver.MeasureNormalizedLevel(new float[0], 1), Is.Zero);
     }
 
     [Test]

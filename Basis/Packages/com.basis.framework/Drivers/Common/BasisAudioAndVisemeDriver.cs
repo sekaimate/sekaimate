@@ -39,6 +39,10 @@ namespace Basis.Scripts.Drivers
         /// </summary>
         public BasisOpenLipSyncContext openLipSyncContext;
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+        private BasisWebVolumeVisemeDriver webVolumeVisemeDriver;
+#endif
+
         /// <summary>
         /// True when this driver currently holds an OpenLipSync inference context.
         /// </summary>
@@ -148,7 +152,16 @@ namespace Basis.Scripts.Drivers
             // Context will be created when the player enters viseme range.
             UseOpenLipSync = false;
             EligibleForOpenLipSync = false;
+#if UNITY_WEBGL && !UNITY_EDITOR
+            webVolumeVisemeDriver?.Dispose();
+            webVolumeVisemeDriver = new BasisWebVolumeVisemeDriver();
+            if (!webVolumeVisemeDriver.Initialize(Avatar))
+            {
+                webVolumeVisemeDriver = null;
+            }
+#else
             EligibleForOpenLipSync = BasisOpenLipSyncDriver.IsInitialized;
+#endif
 
             BlendShapeCount = Avatar.FaceVisemeMovement.Length;
             HasViseme = new bool[BlendShapeCount];
@@ -224,11 +237,18 @@ namespace Basis.Scripts.Drivers
         {
             BasisOpenLipSyncDriver.UnregisterSlotRevokedCallback(_cachedEntityId);
             ReleaseOpenLipSyncContext();
+#if UNITY_WEBGL && !UNITY_EDITOR
+            webVolumeVisemeDriver?.Dispose();
+            webVolumeVisemeDriver = null;
+#endif
         }
         public void Simulate(float DeltaTime)
         {
             if (FaceVisible == false || !InVisemeRange)
             {
+#if UNITY_WEBGL && !UNITY_EDITOR
+                webVolumeVisemeDriver?.ZeroViseme();
+#endif
                 // Player left viseme range — release the OpenLipSync context
                 // so the slot can be used by a closer player.
                 if (!InVisemeRange && openLipSyncContext != null)
@@ -257,6 +277,9 @@ namespace Basis.Scripts.Drivers
             {
                 openLipSyncContext.Simulate(DeltaTime);
             }
+#if UNITY_WEBGL && !UNITY_EDITOR
+            webVolumeVisemeDriver?.Simulate(DeltaTime);
+#endif
         }
         /// <summary>
         /// Whether the player has gone quiet long enough to hand their OpenLipSync slot to
@@ -284,6 +307,9 @@ namespace Basis.Scripts.Drivers
                 if (!_overrideZeroed)
                 {
                     openLipSyncContext?.ZeroVisemes();
+#if UNITY_WEBGL && !UNITY_EDITOR
+                    webVolumeVisemeDriver?.ZeroViseme();
+#endif
                     _overrideZeroed = true;
                 }
                 return;
@@ -294,6 +320,9 @@ namespace Basis.Scripts.Drivers
             {
                 openLipSyncContext.Apply(DeltaTime);
             }
+#if UNITY_WEBGL && !UNITY_EDITOR
+            webVolumeVisemeDriver?.Apply();
+#endif
         }
         /// <summary>
         /// Drops the mouth back to rest without releasing the OpenLipSync slot. Only the viseme
@@ -341,6 +370,9 @@ namespace Basis.Scripts.Drivers
         {
             FaceVisible = State;
             openLipSyncContext?.SetFaceVisible(State);
+#if UNITY_WEBGL && !UNITY_EDITOR
+            webVolumeVisemeDriver?.SetFaceVisible(State);
+#endif
         }
 
         /// <summary>
@@ -348,6 +380,10 @@ namespace Basis.Scripts.Drivers
         /// </summary>
         public void OnDeInitialize()
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            webVolumeVisemeDriver?.Dispose();
+            webVolumeVisemeDriver = null;
+#endif
             UnsubscribeFaceRenderer();
         }
 
@@ -389,6 +425,9 @@ namespace Basis.Scripts.Drivers
             {
                 openLipSyncContext.ProcessAudioSamples(data, channels, Length);
             }
+#if UNITY_WEBGL && !UNITY_EDITOR
+            webVolumeVisemeDriver?.ProcessAudioSamples(data, Length);
+#endif
         }
 
         /// <summary>
@@ -400,6 +439,12 @@ namespace Basis.Scripts.Drivers
             {
                 openLipSyncContext.ZeroVisemes();
             }
+#if UNITY_WEBGL && !UNITY_EDITOR
+            if (IsPaused)
+            {
+                webVolumeVisemeDriver?.ZeroViseme();
+            }
+#endif
         }
     }
 }
