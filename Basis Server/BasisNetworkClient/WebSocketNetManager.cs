@@ -11,6 +11,7 @@ namespace Basis.Network.WebSocketClient
         private readonly IWebSocketBrowserBridge _bridge;
         private readonly int _maximumPayloadLength;
         private readonly int _pendingSendCapacity;
+        private readonly int _maximumBufferedAmount;
         private readonly NetStatistics _statistics = new NetStatistics();
         private WebSocketNetPeer _peer;
         private bool _started;
@@ -20,15 +21,18 @@ namespace Basis.Network.WebSocketClient
             Configuration configuration,
             IWebSocketBrowserBridge bridge,
             int maximumPayloadLength,
-            int pendingSendCapacity)
+            int pendingSendCapacity,
+            int maximumBufferedAmount)
         {
             _listener = listener ?? throw new ArgumentNullException(nameof(listener));
             _ = configuration ?? throw new ArgumentNullException(nameof(configuration));
             _bridge = bridge ?? throw new ArgumentNullException(nameof(bridge));
             if (maximumPayloadLength <= 0) throw new ArgumentOutOfRangeException(nameof(maximumPayloadLength));
             if (pendingSendCapacity <= 0) throw new ArgumentOutOfRangeException(nameof(pendingSendCapacity));
+            if (maximumBufferedAmount < maximumPayloadLength) throw new ArgumentOutOfRangeException(nameof(maximumBufferedAmount));
             _maximumPayloadLength = maximumPayloadLength;
             _pendingSendCapacity = pendingSendCapacity;
+            _maximumBufferedAmount = maximumBufferedAmount;
         }
 
         public int ConnectedPeersCount => _peer != null && _peer.IsConnected ? 1 : 0;
@@ -59,7 +63,10 @@ namespace Basis.Network.WebSocketClient
             if (_peer != null) throw new InvalidOperationException("The WebSocket network manager supports one server peer.");
             if (writer == null) throw new ArgumentNullException(nameof(writer));
 
-            WebSocketClientTransport transport = new WebSocketClientTransport(_bridge, _maximumPayloadLength);
+            WebSocketClientTransport transport = new WebSocketClientTransport(
+                _bridge,
+                _maximumPayloadLength,
+                _maximumBufferedAmount);
             WebSocketNetPeer peer = new WebSocketNetPeer(
                 transport,
                 absoluteUri,

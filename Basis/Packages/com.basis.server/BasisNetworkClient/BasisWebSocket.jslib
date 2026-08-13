@@ -2,12 +2,15 @@ mergeInto(LibraryManager.library, {
   $BasisWebSockets: {},
 
   BasisWebSocketOpen__deps: ['$BasisWebSockets'],
-  BasisWebSocketOpen: function(connectionId, uriPointer, onOpen, onMessage, onError, onClose) {
+  BasisWebSocketOpen: function(connectionId, uriPointer, maximumBufferedAmount, onOpen, onMessage, onError, onClose) {
     var uri = UTF8ToString(uriPointer);
     try {
       var socket = new WebSocket(uri);
       socket.binaryType = 'arraybuffer';
-      BasisWebSockets[connectionId] = socket;
+      BasisWebSockets[connectionId] = {
+        socket: socket,
+        maximumBufferedAmount: maximumBufferedAmount
+      };
       socket.onopen = function() {
         {{{ makeDynCall('vi', 'onOpen') }}}(connectionId);
       };
@@ -41,20 +44,38 @@ mergeInto(LibraryManager.library, {
 
   BasisWebSocketSend__deps: ['$BasisWebSockets'],
   BasisWebSocketSend: function(connectionId, payloadPointer, payloadLength) {
-    var socket = BasisWebSockets[connectionId];
-    if (!socket || socket.readyState !== WebSocket.OPEN) {
+    var connection = BasisWebSockets[connectionId];
+    if (!connection || connection.socket.readyState !== WebSocket.OPEN) {
       return 0;
     }
-    socket.send(HEAPU8.slice(payloadPointer, payloadPointer + payloadLength));
-    return 1;
+    if (connection.socket.bufferedAmount + payloadLength > connection.maximumBufferedAmount) {
+      return 2;
+    }
+    try {
+      connection.socket.send(HEAPU8.slice(payloadPointer, payloadPointer + payloadLength));
+      return 1;
+    } catch (error) {
+      return 0;
+    }
   },
 
   BasisWebSocketClose__deps: ['$BasisWebSockets'],
   BasisWebSocketClose: function(connectionId, code, reasonPointer) {
-    var socket = BasisWebSockets[connectionId];
-    if (!socket) {
+    var connection = BasisWebSockets[connectionId];
+    if (!connection) {
       return;
     }
-    socket.close(code, UTF8ToString(reasonPointer));
+    var browserCode = code === 1000 || code >= 3000 && code <= 4999
+      ? code
+      : 4000 + Math.max(0, Math.min(999, code - 1000));
+    var reason = UTF8ToString(reasonPointer);
+    while (lengthBytesUTF8(reason) > 123) {
+      reason = reason.slice(0, -1);
+    }
+    try {
+      connection.socket.close(browserCode, reason);
+    } catch (error) {
+      connection.socket.close();
+    }
   },
 });

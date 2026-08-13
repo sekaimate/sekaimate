@@ -9,9 +9,12 @@ namespace Basis.Network.WebSocketClient
 {
     public sealed class WebSocketBrowserBridge : IWebSocketBrowserBridge
     {
-        public IWebSocketBrowserConnection Open(string absoluteUri, IWebSocketBrowserEventSink sink)
+        public IWebSocketBrowserConnection Open(
+            string absoluteUri,
+            int maximumBufferedAmount,
+            IWebSocketBrowserEventSink sink)
         {
-            return BrowserConnection.Open(absoluteUri, sink);
+            return BrowserConnection.Open(absoluteUri, maximumBufferedAmount, sink);
         }
 
         private sealed class BrowserConnection : IWebSocketBrowserConnection
@@ -29,7 +32,10 @@ namespace Basis.Network.WebSocketClient
                 _sink = sink;
             }
 
-            public static BrowserConnection Open(string absoluteUri, IWebSocketBrowserEventSink sink)
+            public static BrowserConnection Open(
+                string absoluteUri,
+                int maximumBufferedAmount,
+                IWebSocketBrowserEventSink sink)
             {
                 if (string.IsNullOrEmpty(absoluteUri)) throw new ArgumentException("A WebSocket URI is required.", nameof(absoluteUri));
                 if (sink == null) throw new ArgumentNullException(nameof(sink));
@@ -40,6 +46,7 @@ namespace Basis.Network.WebSocketClient
                 BasisWebSocketOpen(
                     connectionId,
                     absoluteUri,
+                    maximumBufferedAmount,
                     HandleOpen,
                     HandleMessage,
                     HandleError,
@@ -47,13 +54,18 @@ namespace Basis.Network.WebSocketClient
                 return connection;
             }
 
-            public bool Send(byte[] payload)
+            public WebSocketBrowserSendResult Send(byte[] payload)
             {
                 if (_closeRequested || payload == null)
                 {
-                    return false;
+                    return WebSocketBrowserSendResult.NotOpen;
                 }
-                return BasisWebSocketSend(_connectionId, payload, payload.Length) == 1;
+                int result = BasisWebSocketSend(_connectionId, payload, payload.Length);
+                return result == (int)WebSocketBrowserSendResult.Queued
+                    ? WebSocketBrowserSendResult.Queued
+                    : result == (int)WebSocketBrowserSendResult.Backpressure
+                        ? WebSocketBrowserSendResult.Backpressure
+                        : WebSocketBrowserSendResult.NotOpen;
             }
 
             public void Close(ushort code, string reason)
@@ -131,6 +143,7 @@ namespace Basis.Network.WebSocketClient
             private static extern void BasisWebSocketOpen(
                 int connectionId,
                 string absoluteUri,
+                int maximumBufferedAmount,
                 OpenCallback onOpen,
                 MessageCallback onMessage,
                 ErrorCallback onError,

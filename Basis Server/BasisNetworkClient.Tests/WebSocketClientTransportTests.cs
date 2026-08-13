@@ -13,7 +13,7 @@ public sealed class WebSocketClientTransportTests
     public void Connect_RejectsEndpointThatIsNotAnAbsoluteWebSocketUri(string endpoint)
     {
         FakeBrowserBridge bridge = new();
-        WebSocketClientTransport transport = new(bridge, 1024);
+        WebSocketClientTransport transport = new(bridge, 1024, 4096);
 
         Assert.Throws<FormatException>(() => transport.Connect(endpoint, Array.Empty<byte>()));
         Assert.Null(bridge.Endpoint);
@@ -23,7 +23,7 @@ public sealed class WebSocketClientTransportTests
     public void Connect_PreservesExplicitSchemeHostPortPathAndQuery()
     {
         FakeBrowserBridge bridge = new();
-        WebSocketClientTransport transport = new(bridge, 1024);
+        WebSocketClientTransport transport = new(bridge, 1024, 4096);
 
         transport.Connect("wss://example.com:8443/network/basis?token=abc", Array.Empty<byte>());
 
@@ -35,7 +35,7 @@ public sealed class WebSocketClientTransportTests
     public void BrowserOpen_SendsHelloAndWaitsForAccept()
     {
         FakeBrowserBridge bridge = new();
-        WebSocketClientTransport transport = new(bridge, 1024);
+        WebSocketClientTransport transport = new(bridge, 1024, 4096);
         List<string> sequence = new();
         bridge.BeforeSend = () => sequence.Add("hello");
         transport.Connected += _ => sequence.Add("connected");
@@ -99,7 +99,7 @@ public sealed class WebSocketClientTransportTests
     public void Send_RequiresConnectedStateAndEncodesDataFrame()
     {
         FakeBrowserBridge bridge = new();
-        WebSocketClientTransport transport = new(bridge, 1024);
+        WebSocketClientTransport transport = new(bridge, 1024, 4096);
         transport.Connect("ws://127.0.0.1:4297/basis", Array.Empty<byte>());
 
         Assert.Throws<InvalidOperationException>(() => transport.Send(
@@ -118,6 +118,22 @@ public sealed class WebSocketClientTransportTests
         Assert.Equal((byte)7, frame.Channel);
         Assert.Equal(DeliveryMethod.Sequenced, frame.DeliveryMethod);
         Assert.Equal(new byte[] { 1, 3, 5 }, frame.Payload);
+    }
+
+    [Fact]
+    public void Send_WhenBrowserQueueIsFull_ClosesConnectionAndReportsBackpressure()
+    {
+        FakeBrowserBridge bridge = new() { SendResult = WebSocketBrowserSendResult.Backpressure };
+        WebSocketClientTransport transport = new(bridge, 1024, 4096);
+        string? error = null;
+        transport.Error += message => error = message;
+        transport.Connect("ws://127.0.0.1:4297/basis", Array.Empty<byte>());
+
+        bridge.Open();
+
+        Assert.Equal(WebSocketClientState.Closed, transport.State);
+        Assert.Equal((ushort)1011, bridge.CloseCode);
+        Assert.Contains("backpressure", error, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -275,7 +291,7 @@ public sealed class WebSocketClientTransportTests
 
     private static WebSocketClientTransport ConnectingTransport(FakeBrowserBridge bridge)
     {
-        WebSocketClientTransport transport = new(bridge, 1024);
+        WebSocketClientTransport transport = new(bridge, 1024, 4096);
         transport.Connect("ws://127.0.0.1:4297/basis", Array.Empty<byte>());
         bridge.Open();
         return transport;
@@ -305,19 +321,26 @@ public sealed class WebSocketClientTransportTests
         public ushort? CloseCode { get; private set; }
         public string? CloseReason { get; private set; }
         public Action? BeforeSend { get; set; }
+        public WebSocketBrowserSendResult SendResult { get; set; } = WebSocketBrowserSendResult.Queued;
 
-        public IWebSocketBrowserConnection Open(string absoluteUri, IWebSocketBrowserEventSink sink)
+        public IWebSocketBrowserConnection Open(
+            string absoluteUri,
+            int maximumBufferedAmount,
+            IWebSocketBrowserEventSink sink)
         {
             Endpoint = absoluteUri;
             _sink = sink;
             return this;
         }
 
-        public bool Send(byte[] payload)
+        public WebSocketBrowserSendResult Send(byte[] payload)
         {
             BeforeSend?.Invoke();
-            SentFrames.Add(payload);
-            return true;
+            if (SendResult == WebSocketBrowserSendResult.Queued)
+            {
+                SentFrames.Add(payload);
+            }
+            return SendResult;
         }
 
         public void Close(ushort code, string reason)

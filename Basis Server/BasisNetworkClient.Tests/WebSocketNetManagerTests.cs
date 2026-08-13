@@ -83,7 +83,7 @@ public sealed class WebSocketNetManagerTests
         FakeBrowserBridge bridge,
         int pendingSendCapacity)
     {
-        WebSocketNetManager manager = new(listener, new Configuration(), bridge, 1024, pendingSendCapacity);
+        WebSocketNetManager manager = new(listener, new Configuration(), bridge, 1024, pendingSendCapacity, 4096);
         manager.Start();
         return manager;
     }
@@ -110,16 +110,19 @@ public sealed class WebSocketNetManagerTests
 
         public List<byte[]> SentFrames { get; } = new();
 
-        public IWebSocketBrowserConnection Open(string absoluteUri, IWebSocketBrowserEventSink sink)
+        public IWebSocketBrowserConnection Open(
+            string absoluteUri,
+            int maximumBufferedAmount,
+            IWebSocketBrowserEventSink sink)
         {
             _sink = sink;
             return this;
         }
 
-        public bool Send(byte[] payload)
+        public WebSocketBrowserSendResult Send(byte[] payload)
         {
             SentFrames.Add(payload);
-            return true;
+            return WebSocketBrowserSendResult.Queued;
         }
 
         public void Close(ushort code, string reason) { }

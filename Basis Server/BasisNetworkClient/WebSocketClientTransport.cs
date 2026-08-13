@@ -47,13 +47,23 @@ namespace Basis.Network.WebSocketClient
 
     public interface IWebSocketBrowserConnection
     {
-        bool Send(byte[] payload);
+        WebSocketBrowserSendResult Send(byte[] payload);
         void Close(ushort code, string reason);
+    }
+
+    public enum WebSocketBrowserSendResult
+    {
+        Queued = 1,
+        NotOpen = 0,
+        Backpressure = 2,
     }
 
     public interface IWebSocketBrowserBridge
     {
-        IWebSocketBrowserConnection Open(string absoluteUri, IWebSocketBrowserEventSink sink);
+        IWebSocketBrowserConnection Open(
+            string absoluteUri,
+            int maximumBufferedAmount,
+            IWebSocketBrowserEventSink sink);
     }
 
     public sealed class WebSocketClientTransport : IWebSocketBrowserEventSink
@@ -65,18 +75,27 @@ namespace Basis.Network.WebSocketClient
 
         private readonly IWebSocketBrowserBridge _bridge;
         private readonly int _maximumPayloadLength;
+        private readonly int _maximumBufferedAmount;
         private IWebSocketBrowserConnection _connection;
         private byte[] _helloPayload;
         private bool _disconnectReported;
 
-        public WebSocketClientTransport(IWebSocketBrowserBridge bridge, int maximumPayloadLength)
+        public WebSocketClientTransport(
+            IWebSocketBrowserBridge bridge,
+            int maximumPayloadLength,
+            int maximumBufferedAmount)
         {
             _bridge = bridge ?? throw new ArgumentNullException(nameof(bridge));
             if (maximumPayloadLength <= 0)
             {
                 throw new ArgumentOutOfRangeException(nameof(maximumPayloadLength));
             }
+            if (maximumBufferedAmount < maximumPayloadLength)
+            {
+                throw new ArgumentOutOfRangeException(nameof(maximumBufferedAmount));
+            }
             _maximumPayloadLength = maximumPayloadLength;
+            _maximumBufferedAmount = maximumBufferedAmount;
         }
 
         public WebSocketClientState State { get; private set; }
@@ -109,7 +128,7 @@ namespace Basis.Network.WebSocketClient
             State = WebSocketClientState.Connecting;
             try
             {
-                _connection = _bridge.Open(absoluteUri, this)
+                _connection = _bridge.Open(absoluteUri, _maximumBufferedAmount, this)
                     ?? throw new InvalidOperationException("The browser bridge did not create a connection.");
             }
             catch
@@ -174,9 +193,10 @@ namespace Basis.Network.WebSocketClient
                 DeliveryMethod.ReliableOrdered,
                 _helloPayload,
                 _maximumPayloadLength);
-            if (!TrySendEncoded(hello))
+            WebSocketBrowserSendResult result = TrySendEncoded(hello);
+            if (result != WebSocketBrowserSendResult.Queued)
             {
-                Fail("Browser WebSocket could not send the hello frame.", InternalError);
+                Fail(SendFailureMessage(result, "hello frame"), InternalError);
                 return;
             }
         }
@@ -263,16 +283,25 @@ namespace Basis.Network.WebSocketClient
 
         private void SendEncoded(byte[] encoded)
         {
-            if (!TrySendEncoded(encoded))
+            WebSocketBrowserSendResult result = TrySendEncoded(encoded);
+            if (result != WebSocketBrowserSendResult.Queued)
             {
-                Fail("Browser WebSocket could not queue the frame.", InternalError);
-                throw new InvalidOperationException("Browser WebSocket could not queue the frame.");
+                string message = SendFailureMessage(result, "frame");
+                Fail(message, InternalError);
+                throw new InvalidOperationException(message);
             }
         }
 
-        private bool TrySendEncoded(byte[] encoded)
+        private WebSocketBrowserSendResult TrySendEncoded(byte[] encoded)
         {
-            return _connection != null && _connection.Send(encoded);
+            return _connection?.Send(encoded) ?? WebSocketBrowserSendResult.NotOpen;
+        }
+
+        private static string SendFailureMessage(WebSocketBrowserSendResult result, string frameDescription)
+        {
+            return result == WebSocketBrowserSendResult.Backpressure
+                ? $"Browser WebSocket backpressure limit rejected the {frameDescription}."
+                : $"Browser WebSocket is not open for the {frameDescription}.";
         }
 
         private void Fail(string message, ushort closeCode)

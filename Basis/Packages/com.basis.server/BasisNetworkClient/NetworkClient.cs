@@ -70,7 +70,8 @@ public class NetworkClient
                 configuration,
                 new WebSocketBrowserBridge(),
                 1024 * 1024,
-                256));
+                256,
+                4 * 1024 * 1024));
         BasisNetworkStackRegistry.RegisterParser(
             BasisNetworkStackRegistry.WebSocketId,
             new WebSocketConnectionTargetParser());
