@@ -13,9 +13,13 @@ test('uses fixed names for Unity build artifacts', () => {
 test('rewrites Unity entry point references to fixed artifact names', () => {
   const html = `
     <script src="Build/release.loader.js"></script>
-    <script>const codeUrl = "Build/release.wasm.gz";</script>
+    <script>
+      const buildUrl = "Build";
+      const codeUrl = buildUrl + "/release.wasm.gz";
+    </script>
   `;
 
-  assert.match(rewriteBuildArtifactReferences(html), /Build\/basis\.loader\.js/u);
-  assert.match(rewriteBuildArtifactReferences(html), /Build\/basis\.wasm\.gz/u);
+  const rewritten = rewriteBuildArtifactReferences(html);
+  assert.match(rewritten, /Build\/basis\.loader\.js/u);
+  assert.match(rewritten, /buildUrl \+ "\/basis\.wasm\.gz"/u);
 });

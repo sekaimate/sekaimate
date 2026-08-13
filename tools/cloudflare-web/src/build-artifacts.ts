@@ -6,5 +6,8 @@ export function fixedBuildArtifactKey(key: string): string {
 }
 
 export function rewriteBuildArtifactReferences(html: string): string {
-  return html.replace(/Build\/[^/"']+\.(?:loader\.js|data(?:\.gz|\.br)?|framework\.js(?:\.gz|\.br)?|wasm(?:\.gz|\.br)?|symbols\.json(?:\.gz|\.br)?)/gu, fixedBuildArtifactKey);
+  return html.replace(
+    /[^/"']+(\.loader\.js|\.data(?:\.gz|\.br)?|\.framework\.js(?:\.gz|\.br)?|\.wasm(?:\.gz|\.br)?|\.symbols\.json(?:\.gz|\.br)?)/gu,
+    (_artifact, suffix: string) => `basis${suffix}`,
+  );
 }
