@@ -21,6 +21,15 @@ public static class BasisWebBeeArtifactValidator
         return TryValidate(connector, connectorLength, fileLength, "GameObject", "BasisAvatar", out error);
     }
 
+    public static bool TryValidateProp(
+        BasisBundleConnector connector,
+        long connectorLength,
+        long fileLength,
+        out string error)
+    {
+        return TryValidate(connector, connectorLength, fileLength, "GameObject", "BasisProp", out error);
+    }
+
     private static bool TryValidate(
         BasisBundleConnector connector,
         long connectorLength,
