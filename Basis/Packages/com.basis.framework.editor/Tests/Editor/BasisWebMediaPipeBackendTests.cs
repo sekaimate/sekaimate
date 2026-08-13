@@ -74,6 +74,8 @@ public class BasisWebMediaPipeBackendTests
 
         Assert.That(File.Exists("Packages/com.basis.mediapipe/Web~/vision_bundle.mjs"), Is.True);
         StringAssert.Contains("vision_wasm_module_internal.js", worker);
+        StringAssert.Contains("await import(wasmLoaderPath)", worker);
+        StringAssert.Contains("wasmLoaderInstance++", worker);
         Assert.That(File.Exists("Packages/com.basis.mediapipe/Web~/vision_wasm_module_internal.js"), Is.True);
         Assert.That(File.Exists("Packages/com.basis.mediapipe/Web~/vision_wasm_module_internal.wasm"), Is.True);
     }
