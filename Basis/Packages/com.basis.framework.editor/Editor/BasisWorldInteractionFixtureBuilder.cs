@@ -192,6 +192,7 @@ public static class BasisWorldInteractionFixtureBuilder
         CanvasScaler scaler = canvasObject.AddComponent<CanvasScaler>();
         BasisGraphicUIRayCaster rayCaster = canvasObject.AddComponent<BasisGraphicUIRayCaster>();
         rayCaster.Canvas = canvas;
+        rayCaster.AddCanvasCollider();
         BasisUIComponent uiComponent = canvasObject.AddComponent<BasisUIComponent>();
         uiComponent.Canvas = canvas;
         uiComponent.CanvasScaler = scaler;
