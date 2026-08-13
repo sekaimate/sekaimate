@@ -43,7 +43,7 @@ function keyFromRequest(request: Request): string | null {
 }
 
 export function cacheControlFor(key: string): string {
-  if (key === 'index.html') return 'no-cache';
+  if (key === 'index.html') return 'no-store';
   if (key.startsWith('Build/')) {
     return 'public, max-age=0, s-maxage=31536000, must-revalidate, no-transform';
   }
@@ -68,7 +68,7 @@ export function responseInitFor(key: string, headers: Headers): CloudflareRespon
 function responseHeaders(object: R2ObjectMetadata, key: string): Headers {
   const headers = new Headers();
   object.writeHttpMetadata(headers);
-  headers.set('etag', object.httpEtag);
+  if (key !== 'index.html') headers.set('etag', object.httpEtag);
   headers.set('accept-ranges', 'bytes');
   headers.set('cache-control', cacheControlFor(key));
   headers.set('x-content-type-options', 'nosniff');

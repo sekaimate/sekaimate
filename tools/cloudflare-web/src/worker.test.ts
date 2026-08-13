@@ -27,7 +27,7 @@ test('precompressed build artifacts bypass automatic response encoding', () => {
 });
 
 test('entry point and addressable catalogs can be updated safely', () => {
-  assert.equal(cacheControlFor('index.html'), 'no-cache');
+  assert.equal(cacheControlFor('index.html'), 'no-store');
   assert.equal(
     cacheControlFor('StreamingAssets/aa/catalog.bin'),
     'public, max-age=300, s-maxage=300, must-revalidate',
