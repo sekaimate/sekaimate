@@ -72,6 +72,8 @@ Commonly used environment variables:
 | `EnableStatistics`   | `true`                          | Enables the statistics module.                    |
 | `EnableConsole`      | `false`                         | Enables the interactive server console (CLI).     |
 | `DisallowHeadless`   | `false`                         | Disconnects connected headless clients and blocks new ones. |
+| `WebSocketEnabled`   | `false`                         | Enables the browser WebSocket transport on port 4297. |
+| `WebSocketAllowedOrigins` | empty                    | Comma-separated browser origins accepted by the WebSocket endpoint. |
 
 A more comprehensive list of configurable settings can typically be found by inspecting the generated `config/config.xml` after an initial run, or by checking the server's internal documentation if available.
 
@@ -142,6 +144,24 @@ services:
     ```bash
     docker compose down
     ```
+
+## Local browser E2E with WSS
+
+The browser E2E override terminates TLS inside the Basis Server Kestrel endpoint. Create a locally trusted certificate containing both localhost names, convert it to PKCS#12, and pass its absolute path to Compose:
+
+```bash
+mkcert -install
+mkcert -cert-file basis-local.pem -key-file basis-local-key.pem localhost 127.0.0.1 ::1
+openssl pkcs12 -export -out basis-local.pfx -inkey basis-local-key.pem -in basis-local.pem
+
+BASIS_SERVER_CERTIFICATE_PATH=/absolute/path/to/basis-local.pfx \
+BASIS_SERVER_CERTIFICATE_PASSWORD=choose-a-password \
+BASIS_SERVER_CONFIG_DIR=/absolute/path/to/disposable-config \
+BASIS_SERVER_INITIAL_RESOURCES_DIR=/absolute/path/to/initialresources \
+docker compose -f docker-compose.yml -f docker-compose.web-e2e.yml up -d --build
+```
+
+The browser endpoint is `wss://127.0.0.1:4297/basis` and its CORS-enabled server-info endpoint is `https://127.0.0.1:4297/server-info`. Set `BASIS_WEBSOCKET_ALLOWED_ORIGINS` when the WebGL build is served from an origin other than the two local port 4173 defaults.
 
 ## Customizing Configuration
 

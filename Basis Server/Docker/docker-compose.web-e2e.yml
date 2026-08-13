@@ -1,0 +1,16 @@
+services:
+  basis-server:
+    environment:
+      Password: ${BASIS_SERVER_PASSWORD:-test-password}
+      BasisFirstAdmin: ${BASIS_FIRST_ADMIN:-did:key:basis-local-e2e-admin}
+      WebSocketEnabled: "true"
+      WebSocketPort: 4297
+      WebSocketPath: /basis
+      WebSocketServerInfoPath: /server-info
+      WebSocketAllowedOrigins: ${BASIS_WEBSOCKET_ALLOWED_ORIGINS:-http://127.0.0.1:4173,http://localhost:4173}
+      WebSocketUseTls: "true"
+      WebSocketCertificatePath: /run/certs/basis-server.pfx
+      WebSocketCertificatePassword: ${BASIS_SERVER_CERTIFICATE_PASSWORD:?set BASIS_SERVER_CERTIFICATE_PASSWORD}
+      WorldsLocked: "false"
+    volumes:
+      - ${BASIS_SERVER_CERTIFICATE_PATH:?set BASIS_SERVER_CERTIFICATE_PATH}:/run/certs/basis-server.pfx:ro
