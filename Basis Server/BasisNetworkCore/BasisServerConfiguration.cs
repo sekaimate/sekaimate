@@ -372,6 +372,20 @@ public class Configuration
         FieldInfo[] fields = type.GetFields(BindingFlags.Public | BindingFlags.Instance);
         foreach (var field in fields)
         {
+            if (field.FieldType == typeof(string[]))
+            {
+                string arrayValue = Environment.GetEnvironmentVariable(field.Name);
+                if (arrayValue == null) continue;
+
+                string[] values = arrayValue.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
+                for (int index = 0; index < values.Length; index++)
+                {
+                    values[index] = values[index].Trim();
+                }
+                field.SetValue(target, Array.FindAll(values, value => value.Length > 0));
+                BNL.Log($"Applying Environmental Override with Field:{field.Name} Value:{arrayValue}");
+                continue;
+            }
             if (!field.FieldType.IsPrimitive && field.FieldType != typeof(string) && field.FieldType.IsClass)
             {
                 object nested = field.GetValue(target);

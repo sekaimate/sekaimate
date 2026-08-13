@@ -17,4 +17,28 @@ public sealed class WebSocketServerConfigurationTests
         Assert.Equal(string.Empty, configuration.WebSocketCertificatePath);
         Assert.Empty(configuration.WebSocketAllowedOrigins);
     }
+
+    [Fact]
+    public void EnvironmentalOverrides_ParseAllowedOrigins()
+    {
+        const string variableName = nameof(Configuration.WebSocketAllowedOrigins);
+        string? originalValue = Environment.GetEnvironmentVariable(variableName);
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                variableName,
+                "http://127.0.0.1:4173, http://localhost:4173");
+            Configuration configuration = new();
+
+            configuration.ProcessEnvironmentalOverrides();
+
+            Assert.Equal(
+                new[] { "http://127.0.0.1:4173", "http://localhost:4173" },
+                configuration.WebSocketAllowedOrigins);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(variableName, originalValue);
+        }
+    }
 }
