@@ -33,6 +33,16 @@ public static class BasisWebAudioDiagnosticsBridge
         BasisWebAudioDiagnosticsMarkTalkMode(talkMode);
     }
 
+    public static void MarkRemoteMuted(bool muted)
+    {
+        BasisWebAudioDiagnosticsMarkRemoteMuted(muted ? 1 : 0);
+    }
+
+    public static void MarkRemoteTalkMode(byte talkMode)
+    {
+        BasisWebAudioDiagnosticsMarkRemoteTalkMode(talkMode);
+    }
+
     public static void MarkVisemeProcessed(bool isLocal, float peak)
     {
         BasisWebAudioDiagnosticsMarkVisemeProcessed(isLocal ? 1 : 0, peak);
@@ -55,6 +65,12 @@ public static class BasisWebAudioDiagnosticsBridge
 
     [DllImport("__Internal")]
     private static extern void BasisWebAudioDiagnosticsMarkTalkMode(int talkMode);
+
+    [DllImport("__Internal")]
+    private static extern void BasisWebAudioDiagnosticsMarkRemoteMuted(int muted);
+
+    [DllImport("__Internal")]
+    private static extern void BasisWebAudioDiagnosticsMarkRemoteTalkMode(int talkMode);
 
     [DllImport("__Internal")]
     private static extern void BasisWebAudioDiagnosticsMarkVisemeProcessed(int isLocal, float peak);

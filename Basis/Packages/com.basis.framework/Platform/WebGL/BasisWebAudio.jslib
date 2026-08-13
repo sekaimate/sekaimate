@@ -28,6 +28,10 @@ mergeInto(LibraryManager.library, {
         muteChanges: 0,
         talkMode: 0,
         talkModeChanges: 0,
+        remoteMuted: false,
+        remoteMuteChanges: 0,
+        remoteTalkMode: 0,
+        remoteTalkModeChanges: 0,
         localVisemeFrames: 0,
         localVisemePeak: 0,
         remoteVisemeFrames: 0,
@@ -127,6 +131,16 @@ mergeInto(LibraryManager.library, {
       BasisWebAudioDiagnosticsState.ensureInstalled();
       BasisWebAudioDiagnosticsState.values.talkMode = talkMode;
       BasisWebAudioDiagnosticsState.values.talkModeChanges++;
+    },
+    markRemoteMuted: function(muted) {
+      BasisWebAudioDiagnosticsState.ensureInstalled();
+      BasisWebAudioDiagnosticsState.values.remoteMuted = muted !== 0;
+      BasisWebAudioDiagnosticsState.values.remoteMuteChanges++;
+    },
+    markRemoteTalkMode: function(talkMode) {
+      BasisWebAudioDiagnosticsState.ensureInstalled();
+      BasisWebAudioDiagnosticsState.values.remoteTalkMode = talkMode;
+      BasisWebAudioDiagnosticsState.values.remoteTalkModeChanges++;
     },
     markVisemeProcessed: function(isLocal, peak) {
       BasisWebAudioDiagnosticsState.ensureInstalled();
@@ -457,6 +471,16 @@ mergeInto(LibraryManager.library, {
   BasisWebAudioDiagnosticsMarkTalkMode__deps: ['$BasisWebAudioDiagnosticsState'],
   BasisWebAudioDiagnosticsMarkTalkMode: function(talkMode) {
     BasisWebAudioDiagnosticsState.markTalkMode(talkMode);
+  },
+
+  BasisWebAudioDiagnosticsMarkRemoteMuted__deps: ['$BasisWebAudioDiagnosticsState'],
+  BasisWebAudioDiagnosticsMarkRemoteMuted: function(muted) {
+    BasisWebAudioDiagnosticsState.markRemoteMuted(muted);
+  },
+
+  BasisWebAudioDiagnosticsMarkRemoteTalkMode__deps: ['$BasisWebAudioDiagnosticsState'],
+  BasisWebAudioDiagnosticsMarkRemoteTalkMode: function(talkMode) {
+    BasisWebAudioDiagnosticsState.markRemoteTalkMode(talkMode);
   },
 
   BasisWebAudioDiagnosticsMarkVisemeProcessed__deps: ['$BasisWebAudioDiagnosticsState'],

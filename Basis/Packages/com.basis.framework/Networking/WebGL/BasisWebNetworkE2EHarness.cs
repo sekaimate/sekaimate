@@ -97,6 +97,18 @@ namespace Basis.Scripts.Networking
 
         public void SetTalkMode(string value)
         {
+            int separator = value.IndexOf(':');
+            if (separator > 0 && string.Equals(value.Substring(0, separator), BasisTalkMode.ThisPerson.ToString(), StringComparison.Ordinal))
+            {
+                if (!ushort.TryParse(value.Substring(separator + 1), out ushort playerId))
+                {
+                    Report("talk-mode-rejected", value);
+                    return;
+                }
+                BasisTalkModeManager.SetThisPersonTarget(playerId);
+                Report("talk-mode-changed", BasisTalkModeManager.CurrentMode.ToString());
+                return;
+            }
             if (!Enum.TryParse(value, false, out BasisTalkMode talkMode))
             {
                 Report("talk-mode-rejected", value);

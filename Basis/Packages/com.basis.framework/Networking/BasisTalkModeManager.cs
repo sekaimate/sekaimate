@@ -214,6 +214,9 @@ namespace Basis.Scripts.Networking
                 np != null && np.Player is BasisRemotePlayer remote)
             {
                 remote.SetTalkMode((BasisTalkMode)modeByte);
+#if UNITY_WEBGL && !UNITY_EDITOR
+                BasisWebAudioDiagnosticsBridge.MarkRemoteTalkMode(modeByte);
+#endif
             }
         }
 
@@ -265,6 +268,9 @@ namespace Basis.Scripts.Networking
                 np != null && np.Player is BasisRemotePlayer remote)
             {
                 remote.SetSelfMuted(muted);
+#if UNITY_WEBGL && !UNITY_EDITOR
+                BasisWebAudioDiagnosticsBridge.MarkRemoteMuted(muted);
+#endif
             }
         }
 
