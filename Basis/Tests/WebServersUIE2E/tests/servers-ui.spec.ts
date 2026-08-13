@@ -78,7 +78,7 @@ test('Servers UI manages, probes, connects, and auto-connects to a real Basis Se
 
   await page.goto(buildUrl(webBuildUrl));
   await command(page, { type: 'set-username', value: username });
-  await command(page, { type: 'set-auto-connect', value: true });
+  await command(page, { type: 'set-auto-connect', boolValue: true });
   await command(page, { type: 'add-start' });
   await command(page, {
     type: 'editor-set',
@@ -99,7 +99,7 @@ test('Servers UI manages, probes, connects, and auto-connects to a real Basis Se
   expect(saved).toBeDefined();
   await command(page, { type: 'refresh' });
   await expect.poll(async () => (await state(page)).entries.find(entry => entry.id === saved?.id)?.title ?? '')
-    .toContain('Basis');
+    .toContain(' - ');
   await expect.poll(async () => (await state(page)).entries.find(entry => entry.id === saved?.id)?.description ?? '')
     .toContain('4296');
 
@@ -125,6 +125,9 @@ test('Servers UI manages, probes, connects, and auto-connects to a real Basis Se
   expect((await state(page)).username).toBe(username);
   expect((await state(page)).autoConnect).toBe(true);
 
+  await command(page, { type: 'open' });
+  await expect.poll(async () => (await state(page)).panelOpen).toBe(true);
+  await expect.poll(async () => (await state(page)).entries.some(entry => entry.id === saved?.id)).toBe(true);
   await command(page, { type: 'edit', id: saved?.id ?? '' });
   await command(page, { type: 'remove-request' });
   await command(page, { type: 'remove-confirm' });

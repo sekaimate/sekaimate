@@ -154,9 +154,6 @@ namespace Basis.BasisUI
             _pendingDefaultHighlight = false;
             UnsubscribeSourceEvents();
             _panel = null;
-#if UNITY_WEBGL && !UNITY_EDITOR && DEVELOPMENT_BUILD
-            if (ActiveInstance == this) ActiveInstance = null;
-#endif
         }
 
         private void SubscribeSourceEvents()

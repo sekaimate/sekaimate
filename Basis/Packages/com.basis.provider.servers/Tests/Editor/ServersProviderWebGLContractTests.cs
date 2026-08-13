@@ -4,6 +4,7 @@ using NUnit.Framework;
 public sealed class ServersProviderWebGLContractTests
 {
     private const string ProviderPath = "Packages/com.basis.provider.servers/Runtime/ServersProvider.cs";
+    private const string ProviderHarnessPath = "Packages/com.basis.provider.servers/Runtime/ServersProvider.WebE2E.cs";
     private const string HarnessPath = "Packages/com.basis.provider.servers/Runtime/WebGL/BasisWebServersUIE2EHarness.cs";
     private const string BridgePath = "Packages/com.basis.provider.servers/Runtime/WebGL/BasisWebServersUIE2E.jslib";
 
@@ -20,7 +21,7 @@ public sealed class ServersProviderWebGLContractTests
     [Test]
     public void DevelopmentHarnessOperatesTheProductionServersPanelControls()
     {
-        string provider = File.ReadAllText(ProviderPath);
+        string provider = File.ReadAllText(ProviderHarnessPath);
         string harness = File.ReadAllText(HarnessPath);
 
         StringAssert.Contains("DEVELOPMENT_BUILD", harness);
