@@ -35,6 +35,12 @@ public static class BasisContentShareManager
     /// Fired when a content sphere is removed.
     /// </summary>
     public static Action<string> OnSphereRemoved;
+
+    public static bool TryGetSphere(string sphereNetID, out BasisContentSphere sphere)
+    {
+        return ActiveSpheres.TryGetValue(sphereNetID, out sphere);
+    }
+
     public static string AvatarOrb = "Packages/com.basis.sdk/Prefabs/AvatarOrb.prefab";
     public static string PropOrb = "Packages/com.basis.sdk/Prefabs/PropOrb.prefab";
     public static string WorldOrb = "Packages/com.basis.sdk/Prefabs/WorldOrb.prefab";

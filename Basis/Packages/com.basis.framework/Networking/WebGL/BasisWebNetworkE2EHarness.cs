@@ -2,8 +2,12 @@
 using System;
 using System.Collections;
 using System.Runtime.InteropServices;
+using System.Threading;
 using Basis.Network.Core;
+using Basis.Scripts.Device_Management;
+using Basis.Scripts.Drivers;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace Basis.Scripts.Networking
 {
@@ -121,6 +125,62 @@ namespace Basis.Scripts.Networking
             Report("content-remove-sent", sphereId, sphereId: sphereId);
         }
 
+        public async void LoadContent(string sphereId)
+        {
+            if (!BasisContentShareManager.TryGetSphere(sphereId, out BasisContentSphere sphere)
+                || sphere == null
+                || sphere.ContentType == SerializableBasis.ContentShareType.Server)
+            {
+                Report("content-load-failed", "content-not-loadable", sphereId: sphereId);
+                return;
+            }
+
+            ReportSphere("content-load-started", sphere);
+            try
+            {
+                BasisLoadableBundle bundle = sphere.ToLoadableBundle();
+                string loadedName;
+                if (sphere.ContentType == SerializableBasis.ContentShareType.World)
+                {
+                    Scene scene = await BasisSceneLoad.LoadSceneAssetBundle(bundle, false, false);
+                    if (!scene.IsValid() || !scene.isLoaded)
+                    {
+                        throw new InvalidOperationException("World scene did not finish loading.");
+                    }
+                    loadedName = scene.name;
+                }
+                else
+                {
+                    BundledContentHolder.Selector selector = sphere.ContentType == SerializableBasis.ContentShareType.Avatar
+                        ? BundledContentHolder.Selector.Avatar
+                        : BundledContentHolder.Selector.Prop;
+                    GameObject loadedObject = await BasisLoadHandler.LoadGameObjectBundle(
+                        BasisDeviceManagement.Instance.CreationGameobject,
+                        bundle,
+                        true,
+                        new BasisProgressReport(),
+                        CancellationToken.None,
+                        sphere.transform.position,
+                        Quaternion.identity,
+                        Vector3.one,
+                        false,
+                        selector,
+                        transform);
+                    if (loadedObject == null)
+                    {
+                        throw new InvalidOperationException($"{sphere.ContentType} did not finish instantiating.");
+                    }
+                    loadedName = loadedObject.name;
+                }
+
+                ReportSphere("content-load-complete", sphere, loadedName);
+            }
+            catch (Exception exception)
+            {
+                ReportSphere("content-load-failed", sphere, exception.Message);
+            }
+        }
+
         public async void Reconnect()
         {
             Report("reconnect-started");
@@ -195,6 +255,17 @@ namespace Basis.Scripts.Networking
                 sphereId: contentShare.SphereNetID,
                 contentType: contentShare.ContentType.ToString(),
                 contentUrl: contentShare.ContentURL);
+        }
+
+        private void ReportSphere(string type, BasisContentSphere sphere, string message = "")
+        {
+            Report(
+                type,
+                message,
+                sphere.CreatorPlayerID,
+                sphere.SphereNetID,
+                sphere.ContentType.ToString(),
+                sphere.ContentURL);
         }
 
         private void Report(

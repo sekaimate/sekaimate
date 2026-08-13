@@ -14,6 +14,9 @@ mergeInto(LibraryManager.library, {
     window.basisNetworkE2ERemoveContent = function(sphereId) {
       Module.SendMessage('Basis Web Network E2E', 'RemoveContent', sphereId);
     };
+    window.basisNetworkE2ELoadContent = function(sphereId) {
+      Module.SendMessage('Basis Web Network E2E', 'LoadContent', sphereId);
+    };
     window.basisNetworkE2EEvents.push(event);
     window.dispatchEvent(new CustomEvent('basis-network-e2e', { detail: event }));
   },
