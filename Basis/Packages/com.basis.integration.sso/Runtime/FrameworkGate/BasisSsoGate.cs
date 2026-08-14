@@ -94,7 +94,7 @@ namespace Basis.Integration.Sso.FrameworkGate
                     if (request.responseCode != 404)
                         BasisDebug.LogWarning($"[SSO] Failed to read streaming config '{BasisOidcConfig.StreamingPath}': {request.error}");
                     Destroy(gameObject);
-                    return;
+                    yield break;
                 }
 
                 if (!BasisSsoAuthController.ApplyRuntimeConfiguration(request.downloadHandler.text, out string error))
