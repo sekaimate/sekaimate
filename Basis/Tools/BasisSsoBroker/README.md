@@ -96,9 +96,11 @@ and loopback URL; the child exits with the server.
 
 ## Production HTTPS
 
-Place Nginx in front of the broker, configure it with a certificate trusted for your public
+Place a TLS endpoint in front of the broker, configure it with a certificate trusted for your public
 hostname, and set `https://sso.example.com/admission/SERVER_ID` as
 `serverTransport.admissionEndpoint` in each client `basis-sso.json`.
+For WebGL clients, add every exact HTTPS client origin to `Broker.AllowedWebOrigins`; the broker
+uses that list for the admission POST CORS policy and does not allow wildcard origins.
 
 For a system service, publish the app and use `basis-sso-broker.service.example` as the template:
 

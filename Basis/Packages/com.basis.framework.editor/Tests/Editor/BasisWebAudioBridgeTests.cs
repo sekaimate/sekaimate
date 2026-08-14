@@ -19,6 +19,12 @@ public class BasisWebAudioBridgeTests
     private const string VisemeDriverPath = "Packages/com.basis.framework/Drivers/Common/BasisAudioAndVisemeDriver.cs";
     private const string NetworkHarnessPath = "Packages/com.basis.framework/Networking/WebGL/BasisWebNetworkE2EHarness.cs";
     private const string NetworkHarnessPluginPath = "Packages/com.basis.framework/Networking/WebGL/BasisWebNetworkE2E.jslib";
+    private const string WebOidcPluginPath = "Packages/com.basis.integration.sso/Runtime/WebGL/BasisWebOidc.jslib";
+    private const string WebOidcBridgePath = "Packages/com.basis.integration.sso/Runtime/WebGL/BasisWebOidcBridge.cs";
+    private const string OidcLoginServicePath = "Packages/com.basis.integration.sso/Runtime/BasisOidcLoginService.cs";
+    private const string OidcConfigPath = "Packages/com.basis.integration.sso/Runtime/BasisOidcConfig.cs";
+    private const string SsoAdmissionPath = "Packages/com.basis.integration.sso/Runtime/BasisSsoAdmissionService.cs";
+    private const string SsoBrokerPath = "Tools/BasisSsoBroker/Program.cs";
 
     [Test]
     public void BrowserAudioPluginIsEnabledOnlyForWebGl()
@@ -167,6 +173,40 @@ public class BasisWebAudioBridgeTests
         StringAssert.Contains("BasisWebAudioRequestDevicePermission", pluginSource);
         StringAssert.Contains("BasisWebAudioRequestDevicePermission", bridgeSource);
         StringAssert.Contains("BasisWebAudioCaptureBridge.RequestDevicePermission();", settingsSource);
+    }
+
+    [Test]
+    public void WebSsoUsesHttpsCallbackPkceAndBrowserFetchedKeys()
+    {
+        string pluginSource = File.ReadAllText(WebOidcPluginPath);
+        string bridgeSource = File.ReadAllText(WebOidcBridgePath);
+        string loginSource = File.ReadAllText(OidcLoginServicePath);
+        string configSource = File.ReadAllText(OidcConfigPath);
+
+        StringAssert.Contains("sessionStorage", pluginSource);
+        StringAssert.Contains("code_challenge_method", pluginSource);
+        StringAssert.Contains("BasisWebOidcBegin", pluginSource);
+        StringAssert.Contains("BasisWebOidcRefresh", pluginSource);
+        StringAssert.Contains("BasisWebOidcBegin", bridgeSource);
+        StringAssert.Contains("SignInInteractiveWebAsync", loginSource);
+        StringAssert.Contains("TrySilentWebAsync", loginSource);
+        StringAssert.Contains("Jwks = jwks", loginSource);
+        StringAssert.Contains("redirect.mode must be 'loopback' or 'browser'", configSource);
+    }
+
+    [Test]
+    public void WebSsoUsesBrowserAdmissionPostWithConfiguredCors()
+    {
+        string admissionSource = File.ReadAllText(SsoAdmissionPath);
+        string brokerSource = File.ReadAllText(SsoBrokerPath);
+
+        StringAssert.Contains("#if UNITY_WEBGL && !UNITY_EDITOR", admissionSource);
+        StringAssert.Contains("PostToBrowserBroker", admissionSource);
+        StringAssert.Contains("UnityWebRequest.kHttpVerbPOST", admissionSource);
+        StringAssert.Contains("MapMethods(\"/admission/{serverId}\", new[] { \"OPTIONS\" }", brokerSource);
+        StringAssert.Contains("AllowedWebOrigins", brokerSource);
+        StringAssert.Contains("AccessControlAllowOrigin", brokerSource);
+        StringAssert.DoesNotContain("Access-Control-Allow-Origin: *", brokerSource);
     }
 
     [Test]

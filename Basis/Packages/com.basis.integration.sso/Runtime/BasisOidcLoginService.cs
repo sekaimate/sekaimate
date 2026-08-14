@@ -6,6 +6,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
 
@@ -27,11 +28,11 @@ namespace Basis.Integration.Sso
     }
 
     /// <summary>
-    /// Drives the OIDC Authorization Code + PKCE flow for a native app: system browser +
-    /// 127.0.0.1 loopback redirect. Also handles silent renewal from a stored session. Produces a
-    /// validated <see cref="BasisSsoSession"/>; persistence and access control are the caller's
-    /// job (see <c>BasisSsoGate</c>). Continuations intentionally stay on Unity's main thread so
-    /// <see cref="Application.OpenURL"/> is called safely.
+    /// Drives the OIDC Authorization Code + PKCE flow for native and WebGL clients. Native clients
+    /// use a loopback listener; WebGL clients use the HTTPS callback supplied by the web host.
+    /// Also handles silent renewal from a stored session. Produces a validated
+    /// <see cref="BasisSsoSession"/>; persistence and access control are the caller's job (see
+    /// <c>BasisSsoGate</c>).
     /// </summary>
     public sealed class BasisOidcLoginService
     {
@@ -89,6 +90,11 @@ namespace Basis.Integration.Sso
         /// <param name="prompt">Optional OIDC <c>prompt</c> (e.g. "login" / "select_account" to force account choice).</param>
         public async Task<SsoAuthResult> SignInInteractiveAsync(CancellationToken ct, string prompt = null)
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            return await SignInInteractiveWebAsync(ct, prompt);
+#else
+            if (string.Equals(_config.Redirect?.Mode, "browser", StringComparison.OrdinalIgnoreCase))
+                return SsoAuthResult.Fail("Browser redirect mode is available only in the WebGL client.");
             OidcDiscovery disco;
             try { disco = await GetDiscoveryAsync(ct); }
             catch (OperationCanceledException) { return SsoAuthResult.Canceled(); }
@@ -127,6 +133,7 @@ namespace Basis.Integration.Sso
             {
                 try { listener?.Stop(); listener?.Close(); } catch { /* ignore */ }
             }
+#endif
         }
 
         // ── Silent renewal / offline ───────────────────────────────────────
@@ -137,6 +144,9 @@ namespace Basis.Integration.Sso
         /// </summary>
         public async Task<SsoAuthResult> TrySilentAsync(BasisSsoSession existing, CancellationToken ct)
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            return await TrySilentWebAsync(existing, ct);
+#else
             if (existing == null) return SsoAuthResult.Fail("No stored session.");
             if (!string.Equals(existing.Issuer, _config.Issuer, StringComparison.Ordinal))
                 return SsoAuthResult.Fail("Stored session was issued by a different provider.");
@@ -160,7 +170,67 @@ namespace Basis.Integration.Sso
                 // Offline but access token already expired: cannot safely proceed.
                 return SsoAuthResult.Fail($"Could not renew session: {e.Message}");
             }
+#endif
         }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+        private async Task<SsoAuthResult> SignInInteractiveWebAsync(CancellationToken ct, string prompt)
+        {
+            try
+            {
+                JObject response = await BasisWebOidcBridge.BeginAsync(JsonConvert.SerializeObject(_config), prompt, ct);
+                return await BuildSessionFromWebResponseAsync(response, ct, null);
+            }
+            catch (OperationCanceledException) { return SsoAuthResult.Canceled(); }
+            catch (Exception e) { return SsoAuthResult.Fail($"Web sign-in failed: {e.Message}"); }
+        }
+
+        private async Task<SsoAuthResult> TrySilentWebAsync(BasisSsoSession existing, CancellationToken ct)
+        {
+            if (existing == null) return SsoAuthResult.Fail("No stored session.");
+            if (!existing.RefreshTokenValid)
+                return existing.AccessTokenValid && existing.IdTokenValid
+                    ? SsoAuthResult.Ok(existing)
+                    : SsoAuthResult.Fail("Session expired; sign-in required.");
+
+            try
+            {
+                JObject response = await BasisWebOidcBridge.RefreshAsync(
+                    JsonConvert.SerializeObject(_config), existing.RefreshToken, ct);
+                return await BuildSessionFromWebResponseAsync(response, ct, existing);
+            }
+            catch (OperationCanceledException) { return SsoAuthResult.Canceled(); }
+            catch (Exception e) { return SsoAuthResult.Fail($"Could not renew web session: {e.Message}"); }
+        }
+
+        private async Task<SsoAuthResult> BuildSessionFromWebResponseAsync(
+            JObject response, CancellationToken ct, BasisSsoSession fallback)
+        {
+            if (response == null || response["success"]?.Value<bool>() != true)
+                return SsoAuthResult.Fail((string)response?["error"] ?? "Web OIDC flow failed.");
+
+            JObject discoveryJson = response["discovery"] as JObject;
+            var discovery = new OidcDiscovery
+            {
+                AuthorizationEndpoint = (string)discoveryJson?["authorization_endpoint"],
+                TokenEndpoint = (string)discoveryJson?["token_endpoint"],
+                JwksUri = (string)discoveryJson?["jwks_uri"],
+                UserInfoEndpoint = (string)discoveryJson?["userinfo_endpoint"],
+                EndSessionEndpoint = (string)discoveryJson?["end_session_endpoint"],
+            };
+            if (string.IsNullOrWhiteSpace(discovery.JwksUri) || string.IsNullOrWhiteSpace(discovery.TokenEndpoint))
+                return SsoAuthResult.Fail("OIDC discovery response is incomplete.");
+
+            return await BuildSessionFromTokenResponseAsync(
+                discovery,
+                response["tokenResponse"] as JObject,
+                (string)response["nonce"],
+                ct,
+                fallback,
+                response["userInfo"] as JObject,
+                response["jwks"] as JArray);
+        }
+#endif
 
         // ── HTTP steps ─────────────────────────────────────────────────────
 
@@ -214,7 +284,8 @@ namespace Basis.Integration.Sso
         }
 
         private async Task<SsoAuthResult> BuildSessionFromTokenResponseAsync(
-            OidcDiscovery disco, JObject tokenResponse, string expectedNonce, CancellationToken ct, BasisSsoSession fallback = null)
+            OidcDiscovery disco, JObject tokenResponse, string expectedNonce, CancellationToken ct,
+            BasisSsoSession fallback = null, JObject userInfo = null, JArray jwks = null)
         {
             string idToken = (string)tokenResponse["id_token"] ?? fallback?.IdToken;
             string accessToken = (string)tokenResponse["access_token"] ?? fallback?.AccessToken;
@@ -229,6 +300,7 @@ namespace Basis.Integration.Sso
                 Audience = _config.ClientId,
                 JwksUri = disco.JwksUri,
                 ExpectedNonce = expectedNonce,
+                Jwks = jwks,
             };
             SsoTokenValidationResult validation = await _validator.ValidateIdTokenAsync(idToken, validationParams, ct);
             if (!validation.Valid)
@@ -237,7 +309,11 @@ namespace Basis.Integration.Sso
             var claims = validation.Claims ?? new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
             // Merge UserInfo (groups/profile often live only there), guarding the sub matches.
-            if (!string.IsNullOrEmpty(disco.UserInfoEndpoint) && !string.IsNullOrEmpty(accessToken))
+            if (userInfo != null)
+            {
+                MergeUserInfo(claims, userInfo, validation.Subject);
+            }
+            else if (!string.IsNullOrEmpty(disco.UserInfoEndpoint) && !string.IsNullOrEmpty(accessToken))
             {
                 try
                 {

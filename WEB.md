@@ -12,6 +12,8 @@ Unity 6000.5.2f1のWebGLモジュールを導入したmacOS環境で、リポジ
 ./tools/build-web.sh /absolute/path/to/output
 ```
 
+既存の指定出力ディレクトリだけを置き換えます。Unityの`Library`キャッシュは削除しません。同じ出力先を繰り返し使うことで、古いWebGL成果物を残しません。
+
 Unity Hub以外へUnityを導入している場合は、実行ファイルを`BASIS_UNITY_EXECUTABLE`で指定します。ビルド入口はWebGLへ切り替えてからAddressablesとRelease Playerを生成し、配布に必要なHTML、JavaScript、WebAssembly、データ、TemplateData、Addressablesを検査します。不完全な出力は成功扱いになりません。
 
 ## ブラウザでの実行

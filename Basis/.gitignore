@@ -35,6 +35,7 @@
 ExportedObj/
 .consulo/
 *.csproj
+!/Tools/BasisSsoBroker/BasisSsoBroker.csproj
 *.unityproj
 *.sln
 *.slnx

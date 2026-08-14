@@ -178,13 +178,32 @@ namespace Basis.Integration.Sso
 
         private bool ValidateRedirect(out string error)
         {
-            if (Redirect == null || !string.Equals(Redirect.Mode, "loopback", StringComparison.OrdinalIgnoreCase))
+            if (Redirect == null)
             {
-                error = "OIDC config: only redirect.mode 'loopback' is supported.";
+                error = "OIDC config: redirect is required.";
                 return false;
             }
-            error = null;
-            return true;
+            if (string.Equals(Redirect.Mode, "loopback", StringComparison.OrdinalIgnoreCase))
+            {
+                error = null;
+                return true;
+            }
+            if (string.Equals(Redirect.Mode, "browser", StringComparison.OrdinalIgnoreCase)
+                && IsSafeBrowserPath(Redirect.Path))
+            {
+                error = null;
+                return true;
+            }
+            error = "OIDC config: redirect.mode must be 'loopback' or 'browser'.";
+            return false;
+        }
+
+        private static bool IsSafeBrowserPath(string path)
+        {
+            return !string.IsNullOrWhiteSpace(path)
+                && path.StartsWith("/", StringComparison.Ordinal)
+                && !path.Contains("..", StringComparison.Ordinal)
+                && !path.Contains("#", StringComparison.Ordinal);
         }
 
         internal static bool IsLoopbackHost(string host)
@@ -258,6 +277,9 @@ namespace Basis.Integration.Sso
                     $"or '{OverridePath}'.");
                 return null;
             }
+            if (string.IsNullOrWhiteSpace(config.Issuer)
+                && (config.Providers == null || config.Providers.Count == 0))
+                return null;
             if (!config.TryValidate(out string error))
             {
                 BasisDebug.LogError($"[SSO] {error}");

@@ -10,6 +10,8 @@
     <assembly fullname="Basis.ImagePickup" preserve="all" />
     <assembly fullname="Basis.Integration.AudioLink" preserve="all" />
     <assembly fullname="Basis.Integration.SlimeVR" preserve="all" />
+    <assembly fullname="Basis.Integration.Sso" preserve="all" />
+    <assembly fullname="Basis.Integration.Sso.Framework" preserve="all" />
     <assembly fullname="Basis.Integration.TrackerObjects" preserve="all" />
     <assembly fullname="Basis.OpenLipSync.Runtime" preserve="all" />
     <assembly fullname="Basis.Shims.Samples" preserve="all" />

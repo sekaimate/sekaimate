@@ -13,8 +13,14 @@ if [[ ! -x "$unity_executable" ]]; then
 fi
 
 if [[ -e "$build_path" ]]; then
-  echo "Build output already exists: $build_path" >&2
-  exit 1
+  build_path_parent="$(cd "$(dirname "$build_path")" && pwd)"
+  build_path_name="$(basename "$build_path")"
+  build_path="$build_path_parent/$build_path_name"
+  if [[ "$build_path" == "/" || "$build_path" == "$repository_root" || "$build_path" == "$project_path" ]]; then
+    echo "Refusing to remove an unsafe build path: $build_path" >&2
+    exit 1
+  fi
+  rm -rf -- "$build_path"
 fi
 
 "$unity_executable" \

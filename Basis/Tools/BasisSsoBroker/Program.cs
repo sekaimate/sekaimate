@@ -358,12 +358,18 @@ app.MapGet("/health", (IOptions<BrokerOptions> options) =>
         : Results.Json(new { status = "not_ready", error = "Configure providers and ticket signing keys for every broker server.", servers }, statusCode: StatusCodes.Status503ServiceUnavailable);
 });
 
+app.MapMethods("/admission/{serverId}", new[] { "OPTIONS" }, (string serverId, HttpContext http, IOptions<BrokerOptions> options) =>
+{
+    if (!TryApplyAdmissionCors(http, options.Value)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+    return Results.NoContent();
+});
 app.MapPost("/admission/{serverId}", (AdmissionRequest request, string serverId, HttpContext http, TokenValidator validator, IOptions<BrokerOptions> options, CancellationToken ct) =>
     CreateAdmissionAsync(request, serverId, http, validator, options.Value, ct));
 
 static async Task<IResult> CreateAdmissionAsync(AdmissionRequest request, string serverId, HttpContext http,
     TokenValidator validator, BrokerOptions broker, CancellationToken ct)
 {
+    if (!TryApplyAdmissionCors(http, broker)) return Results.StatusCode(StatusCodes.Status403Forbidden);
     http.Response.Headers.CacheControl = "no-store";
     if (string.IsNullOrWhiteSpace(request.IdToken) || string.IsNullOrWhiteSpace(request.Did)
         || request.IdToken.Length > 16384 || request.Did.Length > 256)
@@ -379,6 +385,21 @@ static async Task<IResult> CreateAdmissionAsync(AdmissionRequest request, string
     if (identity is null) return Results.Unauthorized();
     string key = server.EffectiveTicketSigningKey;
     return Results.Ok(new { ticket = Ticket.Create(key, identity.Issuer, identity.Subject, request.Did) });
+}
+
+static bool TryApplyAdmissionCors(HttpContext http, BrokerOptions broker)
+{
+    string? origin = http.Request.Headers.Origin.FirstOrDefault();
+    if (string.IsNullOrWhiteSpace(origin)) return true;
+    string normalizedOrigin = origin.TrimEnd('/');
+    bool allowed = broker.AllowedWebOrigins?.Any(value => string.Equals(value?.Trim().TrimEnd('/'), normalizedOrigin, StringComparison.OrdinalIgnoreCase)) == true;
+    if (!allowed) return false;
+    http.Response.Headers.AccessControlAllowOrigin = normalizedOrigin;
+    http.Response.Headers.AccessControlAllowMethods = "POST, OPTIONS";
+    http.Response.Headers.AccessControlAllowHeaders = "Content-Type";
+    http.Response.Headers.AccessControlMaxAge = "600";
+    http.Response.Headers.Vary = "Origin";
+    return true;
 }
 
 app.Run();
@@ -491,6 +512,7 @@ sealed class BrokerOptions
     public string? AdminTokenEnvironmentVariable { get; set; }
     public bool AllowUnauthenticatedAdmin { get; set; }
     public string? PublicBaseUrl { get; set; }
+    public List<string>? AllowedWebOrigins { get; set; }
     public OrganizationOptions? Organization { get; set; }
 
     public IReadOnlyList<BrokerServerOptions> GetServers() => Servers ?? [];

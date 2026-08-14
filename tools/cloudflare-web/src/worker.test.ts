@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { cacheControlFor, contentEncodingFor, responseInitFor } from './worker.ts';
+import {
+  browserSsoCallbackResponse,
+  cacheControlFor,
+  contentEncodingFor,
+  responseInitFor,
+} from './worker.ts';
 
 test('fixed build artifacts revalidate in browsers and remain cached at the edge', () => {
   assert.equal(
@@ -32,4 +37,12 @@ test('entry point and addressable catalogs can be updated safely', () => {
     cacheControlFor('StreamingAssets/aa/catalog.bin'),
     'public, max-age=300, s-maxage=300, must-revalidate',
   );
+});
+
+test('browser SSO callback stores the OAuth result and returns to the client', async () => {
+  const response = browserSsoCallbackResponse();
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  const body = await response.text();
+  assert.match(body, /basis\.sso\.callback/u);
+  assert.match(body, /window\.location\.replace/u);
 });

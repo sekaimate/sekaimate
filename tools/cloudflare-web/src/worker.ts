@@ -5,6 +5,8 @@ import {
 } from './browser-cache.ts';
 import { rewriteBuildArtifactReferences } from './build-artifacts.ts';
 
+export const BROWSER_SSO_CALLBACK_PATH = '/sso-callback';
+
 interface R2ObjectBody {
   body: ReadableStream;
   size: number;
@@ -77,9 +79,44 @@ function responseHeaders(object: R2ObjectMetadata, key: string): Headers {
   return headers;
 }
 
+export function browserSsoCallbackResponse(): Response {
+  const body = `<!doctype html>
+<meta charset="utf-8">
+<title>Basis SSO</title>
+<p>認証結果をBasisへ戻しています。</p>
+<script>
+(() => {
+  const params = new URLSearchParams(window.location.search);
+  const result = {};
+  for (const key of ['code', 'state', 'error', 'error_description']) {
+    const value = params.get(key);
+    if (value !== null) result[key] = value;
+  }
+  const returnUrl = sessionStorage.getItem('basis.sso.returnUrl') || '/';
+  sessionStorage.removeItem('basis.sso.returnUrl');
+  sessionStorage.setItem('basis.sso.callback', JSON.stringify(result));
+  window.location.replace(returnUrl);
+})();
+</script>`;
+  return new Response(body, {
+    headers: {
+      'cache-control': 'no-store',
+      'content-security-policy': "default-src 'none'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+      'content-type': 'text/html; charset=utf-8',
+      'x-content-type-options': 'nosniff',
+    },
+  });
+}
+
 export default {
   async fetch(request: Request, environment: Environment): Promise<Response> {
     const requestUrl = new URL(request.url);
+    if (requestUrl.pathname === BROWSER_SSO_CALLBACK_PATH) {
+      return request.method === 'GET' ? browserSsoCallbackResponse() : new Response('Method Not Allowed', {
+        status: 405,
+        headers: { allow: 'GET' },
+      });
+    }
     if (requestUrl.pathname === BROWSER_CACHE_CLEAR_PATH) {
       return browserCacheClearResponse(request);
     }
