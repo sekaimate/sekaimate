@@ -272,8 +272,13 @@ namespace Basis.Integration.Sso.FrameworkGate
                 });
         }
 
-        private static string ProviderLabel(BasisOidcConfig.ProviderConfig provider) =>
-            !string.IsNullOrWhiteSpace(provider?.Label) ? provider.Label : provider?.Id ?? "Sign in";
+        private static string ProviderLabel(BasisOidcConfig.ProviderConfig provider)
+        {
+            if (string.Equals(provider?.Id, "google", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(provider.Label, "Google Workspace", StringComparison.OrdinalIgnoreCase))
+                return "Google organization account";
+            return !string.IsNullOrWhiteSpace(provider?.Label) ? provider.Label : provider?.Id ?? "Sign in";
+        }
 
         private async void BeginInteractiveSignIn()
         {

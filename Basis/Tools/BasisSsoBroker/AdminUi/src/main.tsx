@@ -84,7 +84,7 @@ const organizationFromForm = (form: OrganizationForm): Organization => {
   if (form.googleEnabled)
     providers.push({
       id: "google",
-      label: "Google Workspace",
+      label: "Google organization account",
       issuer: "https://accounts.google.com",
       audience: form.googleNativeClientId.trim() || undefined,
       clientSecret: form.googleNativeClientSecret || undefined,
@@ -115,7 +115,7 @@ const organizationFromForm = (form: OrganizationForm): Organization => {
 
 const validateOrganizationForm = (form: OrganizationForm): string | null => {
   if (!form.googleEnabled && !form.oktaEnabled)
-    return "Google Workspace または Okta を少なくとも一つ有効にしてください。";
+    return "Google organization account または Okta を少なくとも一つ有効にしてください。";
   if (form.googleEnabled && !form.googleWebClientId.trim())
     return "Google Web OAuth Client ID を入力してください。";
   if (
@@ -380,9 +380,9 @@ function OrganizationSettings({
               header={
                 <Header
                   variant="h2"
-                  description="Google Workspace の hosted domain で参加者を限定できます。"
+                  description="Google組織アカウントのhosted domainで参加者を限定できます。"
                 >
-                  Google Workspace
+                  Google organization account
                 </Header>
               }
             >
@@ -393,7 +393,7 @@ function OrganizationSettings({
                     update("googleEnabled", detail.checked)
                   }
                 >
-                  Google Workspace を有効にする
+                  Google organization accountを有効にする
                 </Toggle>
                 <ColumnLayout columns={2}>
                   <FormField
@@ -410,7 +410,7 @@ function OrganizationSettings({
                   </FormField>
                   <FormField
                     label="許可ドメイン"
-                    description="カンマ区切り。*はGoogle WorkspaceまたはCloud Organization所属を必須にします。空欄なら全Googleアカウントを許可します。"
+                    description="カンマ区切り。*はGoogle組織アカウントを必須にします。空欄なら全Googleアカウントを許可します。"
                   >
                     <Input
                       value={form.googleDomains}

@@ -64,7 +64,9 @@ namespace Basis.Integration.Sso
             if (userValues == null || allowed == null || allowed.Count == 0) return false;
             foreach (string v in userValues)
                 foreach (string a in allowed)
-                    if (string.Equals(v, a, StringComparison.OrdinalIgnoreCase)) return true;
+                    if (a == "*"
+                        ? !string.IsNullOrWhiteSpace(v)
+                        : string.Equals(v, a, StringComparison.OrdinalIgnoreCase)) return true;
             return false;
         }
     }

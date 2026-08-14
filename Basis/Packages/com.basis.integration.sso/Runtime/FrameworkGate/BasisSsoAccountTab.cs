@@ -127,8 +127,13 @@ namespace Basis.Integration.Sso.FrameworkGate
             return string.IsNullOrWhiteSpace(id) ? "Unknown" : id;
         }
 
-        private static string ProviderLabel(BasisOidcConfig.ProviderConfig provider) =>
-            !string.IsNullOrWhiteSpace(provider?.Label) ? provider.Label : provider?.Id ?? "provider";
+        private static string ProviderLabel(BasisOidcConfig.ProviderConfig provider)
+        {
+            if (string.Equals(provider?.Id, "google", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(provider.Label, "Google Workspace", StringComparison.OrdinalIgnoreCase))
+                return "Google organization account";
+            return !string.IsNullOrWhiteSpace(provider?.Label) ? provider.Label : provider?.Id ?? "provider";
+        }
 
         private static void Confirm(string title, string body, System.Action onConfirmed)
         {
