@@ -410,7 +410,7 @@ function OrganizationSettings({
                   </FormField>
                   <FormField
                     label="許可ドメイン"
-                    description="カンマ区切り。空欄なら全ドメインを許可します。"
+                    description="カンマ区切り。*はGoogle WorkspaceまたはCloud Organization所属を必須にします。空欄なら全Googleアカウントを許可します。"
                   >
                     <Input
                       value={form.googleDomains}

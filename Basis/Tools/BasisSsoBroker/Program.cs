@@ -559,7 +559,7 @@ static object CreateWebClientConfiguration(HttpContext http, BrokerOptions broke
             clientId = provider.WebClientId,
             tokenEndpoint = $"{RequestOrigin(http, broker)}/web-oidc/{Uri.EscapeDataString(server.Id!)}/{Uri.EscapeDataString(provider.Id!)}" + "/token",
             scopes = new[] { "openid", "email", "profile" },
-            extraAuthParams = new Dictionary<string, string> { ["access_type"] = "offline", ["prompt"] = "consent" },
+            extraAuthParams = HostedDomainPolicy.AuthorizationParameters(provider.AllowedHostedDomains),
             displayNameClaims = new[] { "name", "preferred_username", "email" },
             access = new
             {
@@ -852,7 +852,13 @@ sealed class TokenValidator
     }
     private static bool Audience(JsonElement p, string expected) => p.TryGetProperty("aud", out var a) && (a.ValueKind == JsonValueKind.String ? a.GetString() == expected : a.ValueKind == JsonValueKind.Array && a.EnumerateArray().Any(x => x.GetString() == expected));
     private static bool Expired(JsonElement p) => !p.TryGetProperty("exp", out var e) || e.GetInt64() <= DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-    private static bool Policy(JsonElement p, ProviderOptions o) => Any(p, "hd", o.AllowedHostedDomains) && Any(p, "groups", o.AllowedGroups);
+    private static bool Policy(JsonElement p, ProviderOptions o)
+    {
+        string? hostedDomain = p.TryGetProperty("hd", out JsonElement hd) && hd.ValueKind == JsonValueKind.String
+            ? hd.GetString()
+            : null;
+        return HostedDomainPolicy.Matches(hostedDomain, o.AllowedHostedDomains) && Any(p, "groups", o.AllowedGroups);
+    }
     private static bool Any(JsonElement p, string claim, List<string>? allowed) { if (allowed is not { Count: > 0 }) return true; if (!p.TryGetProperty(claim, out var v)) return false; return v.ValueKind == JsonValueKind.Array ? v.EnumerateArray().Any(x => allowed.Contains(x.GetString()!)) : allowed.Contains(v.GetString()!); }
     private static byte[] Decode(string value) { string s = value.Replace('-', '+').Replace('_', '/'); if (s.Length % 4 == 2) s += "=="; else if (s.Length % 4 == 3) s += "="; return Convert.FromBase64String(s); }
 }
