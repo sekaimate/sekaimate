@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using Newtonsoft.Json;
 using UnityEngine;
+using UnityEngine.Networking;
 
 namespace Basis.Integration.Sso
 {
@@ -270,6 +273,23 @@ namespace Basis.Integration.Sso
         public static BasisOidcConfig Load()
         {
             BasisOidcConfig config = ReadFrom(OverridePath) ?? ReadFrom(StreamingPath);
+            return ValidateLoaded(config);
+        }
+
+        /// <summary>Loads the WebGL streaming asset through the browser URL.</summary>
+        public static async Task<BasisOidcConfig> LoadAsync(CancellationToken cancellationToken = default)
+        {
+            BasisOidcConfig config = ReadFrom(OverridePath);
+#if UNITY_WEBGL && !UNITY_EDITOR
+            if (config == null) config = await ReadFromStreamingUrlAsync(StreamingPath, cancellationToken);
+#else
+            if (config == null) config = ReadFrom(StreamingPath);
+#endif
+            return ValidateLoaded(config);
+        }
+
+        private static BasisOidcConfig ValidateLoaded(BasisOidcConfig config)
+        {
             if (config == null)
             {
                 BasisDebug.LogError(
@@ -331,5 +351,34 @@ namespace Basis.Integration.Sso
                 return null;
             }
         }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+        private static async Task<BasisOidcConfig> ReadFromStreamingUrlAsync(string url, CancellationToken cancellationToken)
+        {
+            using UnityWebRequest request = UnityWebRequest.Get(url);
+            using CancellationTokenRegistration cancellation = cancellationToken.Register(request.Abort);
+            await request.SendWebRequest();
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (request.result != UnityWebRequest.Result.Success)
+            {
+                if (request.responseCode != 404)
+                    BasisDebug.LogWarning($"[SSO] Failed to read streaming config '{url}': {request.error}");
+                return null;
+            }
+
+            try
+            {
+                BasisOidcConfig config = JsonConvert.DeserializeObject<BasisOidcConfig>(request.downloadHandler.text);
+                if (config != null) BasisDebug.Log($"[SSO] Loaded OIDC config from '{url}'.");
+                return config;
+            }
+            catch (Exception e)
+            {
+                BasisDebug.LogWarning($"[SSO] Failed to parse streaming config '{url}': {e.Message}");
+                return null;
+            }
+        }
+#endif
     }
 }

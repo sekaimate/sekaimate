@@ -23,6 +23,7 @@ public class BasisWebAudioBridgeTests
     private const string WebOidcBridgePath = "Packages/com.basis.integration.sso/Runtime/WebGL/BasisWebOidcBridge.cs";
     private const string OidcLoginServicePath = "Packages/com.basis.integration.sso/Runtime/BasisOidcLoginService.cs";
     private const string OidcConfigPath = "Packages/com.basis.integration.sso/Runtime/BasisOidcConfig.cs";
+    private const string SsoGatePath = "Packages/com.basis.integration.sso/Runtime/FrameworkGate/BasisSsoGate.cs";
     private const string SsoAdmissionPath = "Packages/com.basis.integration.sso/Runtime/BasisSsoAdmissionService.cs";
     private const string SsoBrokerPath = "Tools/BasisSsoBroker/Program.cs";
 
@@ -192,6 +193,11 @@ public class BasisWebAudioBridgeTests
         StringAssert.Contains("TrySilentWebAsync", loginSource);
         StringAssert.Contains("Jwks = jwks", loginSource);
         StringAssert.Contains("redirect.mode must be 'loopback' or 'browser'", configSource);
+        StringAssert.Contains("LoadAsync", configSource);
+        StringAssert.Contains("UnityWebRequest.Get(url)", configSource);
+        StringAssert.Contains("await request.SendWebRequest()", configSource);
+        StringAssert.Contains("EnsureConfigLoadedAsync", File.ReadAllText(SsoGatePath));
+        StringAssert.Contains("await Basis.BasisUI.AddressableAssets.InitializeAsync()", File.ReadAllText(SsoGatePath));
     }
 
     [Test]
