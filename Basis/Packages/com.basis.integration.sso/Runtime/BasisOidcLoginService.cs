@@ -317,8 +317,8 @@ namespace Basis.Integration.Sso
             {
                 try
                 {
-                    JObject userInfo = await FetchUserInfoAsync(disco.UserInfoEndpoint, accessToken, ct);
-                    MergeUserInfo(claims, userInfo, validation.Subject);
+                    JObject userInfoResponse = await FetchUserInfoAsync(disco.UserInfoEndpoint, accessToken, ct);
+                    MergeUserInfo(claims, userInfoResponse, validation.Subject);
                 }
                 catch (Exception e)
                 {
