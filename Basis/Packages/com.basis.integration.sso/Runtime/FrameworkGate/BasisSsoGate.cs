@@ -194,18 +194,16 @@ namespace Basis.Integration.Sso.FrameworkGate
                 }
 
                 // 2) Need interactive sign-in — present the prompt through the menu.
-                await EnsureMenuReadyAsync();
-                PresentSignInPrompt();
+                StartCoroutine(EnsureMenuReadyThen(PresentSignInPrompt));
             }
             catch (OperationCanceledException) { /* re-gate cancelled */ }
             catch (Exception e)
             {
                 BasisDebug.LogError($"[SSO] Gate failure: {e}");
-                await EnsureMenuReadyAsync();
-                ShowDialog("Sign-in error", e.Message, "Retry", "Quit", ok =>
+                StartCoroutine(EnsureMenuReadyThen(() => ShowDialog("Sign-in error", e.Message, "Retry", "Quit", ok =>
                 {
                     if (ok) StartFlow(); else Quit();
-                });
+                })));
             }
         }
 
@@ -340,11 +338,10 @@ namespace Basis.Integration.Sso.FrameworkGate
             done?.Invoke();
         }
 
-        private async System.Threading.Tasks.Task EnsureMenuReadyAsync()
+        private IEnumerator EnsureMenuReadyThen(Action action)
         {
-            var tcs = new System.Threading.Tasks.TaskCompletionSource<bool>();
-            StartCoroutine(EnsureMenuReadyCoroutine(() => tcs.TrySetResult(true)));
-            await tcs.Task;
+            yield return EnsureMenuReadyCoroutine(null);
+            action?.Invoke();
         }
 
         private static void ShowDialog(string title, string desc, string accept, string deny, Action<bool> cb)
