@@ -201,7 +201,7 @@ namespace Basis.Integration.Sso.FrameworkGate
                 SsoAuthResult silent = await BasisSsoAuthController.InitializeAsync(_cts.Token);
                 if (silent.Success)
                 {
-                    Succeed();
+                    Succeed(false);
                     return;
                 }
 
@@ -304,7 +304,7 @@ namespace Basis.Integration.Sso.FrameworkGate
 
             if (result.Success)
             {
-                Succeed();
+                Succeed(true);
             }
             else if (result.AccessDenied)
             {
@@ -330,12 +330,20 @@ namespace Basis.Integration.Sso.FrameworkGate
             }
         }
 
-        private void Succeed()
+        private void Succeed(bool showConfirmation)
         {
             ReleaseDialogue();
             BasisSsoGate.OnSignedIn();
             _flowActive = false;
             BasisDebug.Log($"[SSO] Signed in as '{BasisSsoAuthController.ActiveDisplayName}'.");
+            if (showConfirmation)
+            {
+                ShowDialog(
+                    "Signed in",
+                    $"Signed in as {BasisSsoAuthController.ActiveDisplayName}.",
+                    "Continue",
+                    _ => ReleaseDialogue());
+            }
         }
 
         // ── Helpers ────────────────────────────────────────────────────────
