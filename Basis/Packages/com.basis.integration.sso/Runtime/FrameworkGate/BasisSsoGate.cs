@@ -138,7 +138,11 @@ namespace Basis.Integration.Sso.FrameworkGate
         private void Start()
         {
             BasisSsoAuthController.StateChanged += OnStateChanged;
+#if UNITY_WEBGL && !UNITY_EDITOR
+            StartCoroutine(StartFlowWhenDeviceReady());
+#else
             StartFlow();
+#endif
         }
 
         private void OnDestroy()
@@ -187,7 +191,6 @@ namespace Basis.Integration.Sso.FrameworkGate
             try
             {
 #if UNITY_WEBGL && !UNITY_EDITOR
-                await AddressableAssets.InitializeAsync();
                 if (BasisSsoAuthController.HasPendingBrowserCallback)
                 {
                     BeginInteractiveSignIn();
@@ -215,6 +218,18 @@ namespace Basis.Integration.Sso.FrameworkGate
                 })));
             }
         }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+        private IEnumerator StartFlowWhenDeviceReady()
+        {
+            while (!BasisDeviceManagement.OnInitializationComplete)
+            {
+                yield return null;
+            }
+
+            StartFlow();
+        }
+#endif
 
         // ── Dialog steps ───────────────────────────────────────────────────
 
