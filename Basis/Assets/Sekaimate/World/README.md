@@ -3,6 +3,7 @@
 `MinimalWalkable.unity` and the materials under `Materials/` are the source of truth. Edit the scene directly in Unity.
 
 - The shared lobby leads to three equal-sized, walkable concept zones: prototype exhibition (A), final presentation venue (B), and virtual-first collaboration (C).
+- An east-side connector leads to the fourth concept: a compact B202-inspired lecture hall (D) with an upper entrance, six descending seating terraces, 48 seats, and a stage roughly three metres below the entrance.
 - The concepts intentionally share one visual language and prop set so the team can compare layout and experience instead of modeling quality.
 - Kenney furniture and space-station props are stored under `Assets/Sekaimate/ThirdParty/Kenney/`; their source and CC0 license records live beside the imported files.
 - `Assets/Sekaimate/Documentation/ComparisonEvidence/` contains fixed review views of the lobby and each concept.
