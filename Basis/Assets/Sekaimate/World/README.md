@@ -5,6 +5,7 @@
 - The shared lobby retains the three comparison concepts: prototype exhibition (A), final presentation venue (B), and virtual-first collaboration (C).
 - The east-side connector leads to the selected B202-inspired lecture hall (D). Its upper entrance looks across six descending seating terraces toward a stage roughly three metres below.
 - D v2 uses four seating blocks on every terrace: 24 long desks and 96 chairs in total. The centre and two side stair lanes remain clear.
+- The upper rear landing is 2.75 metres deep. Its connector, entrance wall, and three ceiling tiles share exact boundary coordinates so the room has no longitudinal roof gaps or coplanar overlap.
 - The D stage includes a large presentation screen, an ASCII `U*PoC 2026 / SEKAIMATE` placeholder, two speakers, two spotlights, and ten replaceable poster surfaces. The asterisk avoids a missing-glyph box in the current TMP font; displayed content is temporary.
 - The concepts intentionally share one visual language and prop set so the team can compare layout and experience instead of modeling quality.
 - Kenney furniture and space-station props are stored under `Assets/Sekaimate/ThirdParty/Kenney/`; their source and CC0 license records live beside the imported files.
