@@ -19,6 +19,8 @@ namespace Basis.Network.Core
 
 		private static readonly byte[] InfoAB = Encoding.ASCII.GetBytes("basis-crypto-v1-ab");
 		private static readonly byte[] InfoBA = Encoding.ASCII.GetBytes("basis-crypto-v1-ba");
+		private static readonly byte[] InfoClientToServer = Encoding.ASCII.GetBytes("basis-sso-v1-client-to-server");
+		private static readonly byte[] InfoServerToClient = Encoding.ASCII.GetBytes("basis-sso-v1-server-to-client");
 
 		public static void GenerateKeyPair(out byte[] privateKey, out byte[] publicKey)
 			=> BasisX25519.GenerateKeyPair(out privateKey, out publicKey);
@@ -64,6 +66,37 @@ namespace Basis.Network.Core
 			{
 				return false;
 			}
+		}
+
+		/// <summary>
+		/// Derives keys for the SSO pre-auth channel. The client pins the server's long-lived public
+		/// key, while it generates a new ephemeral X25519 keypair for every join attempt.
+		/// </summary>
+		public static bool DeriveSsoClientKeys(
+			ReadOnlySpan<byte> clientPrivate, ReadOnlySpan<byte> clientPublic, ReadOnlySpan<byte> serverPublic,
+			out byte[] sendKey, out byte[] recvKey)
+			=> DeriveSsoKeys(clientPrivate, clientPublic, serverPublic, true, out sendKey, out recvKey);
+
+		public static bool DeriveSsoServerKeys(
+			ReadOnlySpan<byte> serverPrivate, ReadOnlySpan<byte> clientPublic, ReadOnlySpan<byte> serverPublic,
+			out byte[] sendKey, out byte[] recvKey)
+			=> DeriveSsoKeys(serverPrivate, clientPublic, serverPublic, false, out sendKey, out recvKey);
+
+		private static bool DeriveSsoKeys(ReadOnlySpan<byte> privateKey, ReadOnlySpan<byte> clientPublic,
+			ReadOnlySpan<byte> serverPublic, bool client, out byte[] sendKey, out byte[] recvKey)
+		{
+			sendKey = Array.Empty<byte>(); recvKey = Array.Empty<byte>();
+			try
+			{
+				byte[] shared = BasisX25519.Agree(privateKey, client ? serverPublic : clientPublic);
+				byte[] salt = Concat(clientPublic, serverPublic);
+				byte[] clientToServer = BasisHkdf.DeriveKey(shared, salt, InfoClientToServer, KeySize);
+				byte[] serverToClient = BasisHkdf.DeriveKey(shared, salt, InfoServerToClient, KeySize);
+				sendKey = client ? clientToServer : serverToClient;
+				recvKey = client ? serverToClient : clientToServer;
+				return true;
+			}
+			catch { return false; }
 		}
 
 		private static byte[] Concat(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b)

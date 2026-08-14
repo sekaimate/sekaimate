@@ -5,6 +5,7 @@ using System.IO;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Xml.Serialization;
+using System.Collections.Generic;
 
 [Serializable]
 public class Configuration
@@ -38,7 +39,6 @@ public class Configuration
     public string HealthCheckHost = "localhost";
     public ushort HealthCheckPort = 10666;
     public string HealthPath = "/health";
-    public bool HealthIncludeBSRProfiling = false;
     public int BSRSMillisecondDefaultInterval = 50;
     public int BSRBaseMultiplier = 1;
     public float BSRSIncreaseRate = 0.005f;
@@ -52,6 +52,23 @@ public class Configuration
     public string Password = "default_password";
     public bool UseAuth = true;
     public bool UseAuthIdentity = true;
+    /// <summary>Enables the encrypted OIDC pre-authentication handshake. Old clients are rejected.</summary>
+    public bool RequireSso = false;
+    [XmlArray("SsoProviders")]
+    [XmlArrayItem("Provider")]
+    public List<SsoProviderConfiguration> SsoProviders = new List<SsoProviderConfiguration>();
+    /// <summary>Base64url X25519 private key for the server transport. Do not distribute this value.</summary>
+    public string SsoTransportPrivateKey = "";
+    /// <summary>Base64url X25519 public key copied into client basis-sso.json files.</summary>
+    public string SsoTransportPublicKey = "";
+    /// <summary>Shared only with the HTTPS admission broker; never expose this to clients or admin UI.</summary>
+    public string SsoAdmissionTicketSigningKey = "";
+    /// <summary>When RequireSso is enabled, start the colocated HTTPS admission broker with the server process.</summary>
+    public bool AutoStartSsoBroker = true;
+    /// <summary>Directory containing the published BasisSsoBroker.dll. Relative paths are resolved from the server executable.</summary>
+    public string SsoBrokerDirectory = "sso-broker";
+    /// <summary>Loopback URL used by the colocated broker. Put a TLS reverse proxy in front of it for public client access.</summary>
+    public string SsoBrokerBindUrl = "http://127.0.0.1:5080";
     public string NetworkStackId = "";
     public bool WebSocketEnabled = false;
     public ushort WebSocketPort = 4297;
@@ -75,45 +92,10 @@ public class Configuration
     /// exceed peer MTU. Clients must implement the matching decoder.
     /// </summary>
     public bool EnableAvatarBundleCompression = true;
-    /// <summary>Minimum queued avatar messages to a single receiver before a bundle is even attempted. Two correlated avatar payloads already LZ4 well and share one datagram; AvatarBundleMinBytes still guards the tiny-delta case.</summary>
-    public int AvatarBundleMinMessages = 2;
+    /// <summary>Minimum queued avatar messages to a single receiver before a bundle is even attempted.</summary>
+    public int AvatarBundleMinMessages = 4;
     /// <summary>Minimum uncompressed bundle bytes before LZ4 compression is attempted. With LZ4 having near-zero per-call setup, 128 just guards the very smallest cases where LZ4 can't find any redundancy.</summary>
     public int AvatarBundleMinBytes = 128;
-    /// <summary>
-    /// When true, the reduction system sends periodic full avatar keyframes and, in between, sends
-    /// only the fields that changed since the last keyframe (per-bone dirty mask) on
-    /// DeltaAvatarChannel. Cuts server→client bandwidth heavily for idle/distant avatars. When false,
-    /// every send is a full keyframe (legacy behavior). Clients must implement the delta decoder.
-    /// </summary>
-    public bool EnableAvatarDeltaCompression = true;
-    /// <summary>
-    /// Milliseconds between forced full avatar keyframes per sender when delta compression is on.
-    /// Lower = faster recovery from a lost keyframe over unreliable UDP, but more keyframe bandwidth;
-    /// higher = smaller average bandwidth but longer worst-case staleness. 500ms is a balanced default.
-    /// </summary>
-    public int AvatarDeltaKeyframeIntervalMs = 500;
-    /// <summary>
-    /// Ceiling for the adaptive keyframe stretch. While a sender's deltas stay tiny (idle avatar)
-    /// the periodic keyframe interval doubles per streak of small deltas, up to this value; any
-    /// real motion snaps it back to AvatarDeltaKeyframeIntervalMs. Receivers that miss a keyframe
-    /// request one on demand (v42 DeltaControlKeyframeRequest) instead of waiting the stretch out.
-    /// Set to 0 (or at/below the base interval) to disable stretching.
-    /// </summary>
-    public int AvatarDeltaKeyframeMaxIntervalMs = 2000;
-    /// <summary>
-    /// Strip AdditionalAvatarData (face blendshapes, custom avatar-behaviour params) from the Low
-    /// and VeryLow avatar tiers. Faces are unreadable past the Medium quality distance, and the
-    /// reliable low-frequency behaviour channel still reaches everyone, so this only removes
-    /// bytes nobody can see. High and Medium keep the data.
-    /// </summary>
-    public bool StripAdditionalDataAtLowQuality = true;
-    /// <summary>
-    /// Accept client→server avatar deltas on DeltaAvatarChannel and advertise support to clients
-    /// (v42). Clients then upload a full keyframe every ~500 ms plus small deltas in between
-    /// instead of full 237-byte frames every packet — 60-90% less uplink/ingress avatar traffic.
-    /// When false, clients upload full keyframes only (legacy behavior).
-    /// </summary>
-    public bool EnableUplinkAvatarDelta = true;
     public bool EnableBSRProfiling = false;
     /// <summary>
     /// Worker cap for the BSR tick's parallel phases (send loop, message processing, distance
@@ -295,6 +277,13 @@ public class Configuration
             result.WriteXml(filePath);
         }
 
+        // An SSO-enabled server needs a stable, pinned transport key before it ever accepts a
+        // client. Generate it once and persist it atomically with the rest of config.xml.
+        if (result.RequireSso && BasisSsoTransportKeys.Ensure(result, out bool generatedKeyPair) && generatedKeyPair)
+        {
+            result.WriteXml(filePath);
+        }
+
         string configDir = Path.GetDirectoryName(filePath);
         BasisTransportConfigStore.LoadAll(configDir);
         return result;
@@ -428,4 +417,15 @@ public class Configuration
             }
         }
     }
+}
+
+[Serializable]
+public class SsoProviderConfiguration
+{
+    public string Id = "";
+    public string Issuer = "";
+    public string ClientId = "";
+    public string JwksUri = "";
+    public string AllowedHostedDomains = "";
+    public string AllowedGroups = "";
 }
