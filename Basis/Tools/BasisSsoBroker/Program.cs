@@ -313,15 +313,16 @@ app.MapGet("/join/{token}", (string token, HttpContext http, IOptions<BrokerOpti
     string configurationUrl = $"{RequestOrigin(http, options.Value)}/join/{Uri.EscapeDataString(token)}/config";
     string loopbackUrl = "http://127.0.0.1:56831/basis-join?config=" + Uri.EscapeDataString(configurationUrl)
         + "&link=" + Uri.EscapeDataString(deepLink);
-    string encodedDeepLink = System.Net.WebUtility.HtmlEncode(deepLink);
-    string encodedLoopbackUrl = System.Net.WebUtility.HtmlEncode(loopbackUrl);
+    string webJoinUrl = BuildWebJoinUrl(meeting, token, options.Value, http);
+    string encodedWebJoinUrl = System.Net.WebUtility.HtmlEncode(webJoinUrl);
     string redirectScriptUrl = System.Text.Json.JsonSerializer.Serialize(deepLink);
+    string loopbackScriptUrl = System.Text.Json.JsonSerializer.Serialize(loopbackUrl);
     string title = System.Net.WebUtility.HtmlEncode(meeting.Title);
     string page = $$"""
 <!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{{title}} — SekaiMate</title><style>body{margin:0;background:#f5f7fa;color:#202332;font:16px system-ui,-apple-system,sans-serif}.page{max-width:44rem;margin:0 auto;padding:4rem 1.25rem}.card{background:#fff;border:1px solid #d5dbdb;border-radius:16px;padding:2rem;box-shadow:0 4px 16px #172b4d12}.eyebrow{color:#553bc0;font-size:.8rem;font-weight:800;letter-spacing:.12em}h1{margin:.5rem 0 1rem;font-size:2rem}p{line-height:1.65}.button{display:inline-block;margin:1rem 0;padding:.8rem 1.2rem;border-radius:8px;background:#553bc0;color:#fff;text-decoration:none;font-weight:700}.hint{color:#5f6b7a;font-size:.9rem}iframe{display:none}</style>
-<main class="page"><section class="card"><div class="eyebrow">SEKAIMATE</div><h1>{{title}}</h1><p id="status">Basis を開いて会議への参加を準備しています…</p><p><a class="button" href="{{encodedDeepLink}}">Basis で参加する</a></p><p class="hint">自動で開かない場合は、上のボタンを押してください。</p><iframe id="basis-join" src="{{encodedLoopbackUrl}}" title="Basis join bridge"></iframe></section></main>
-<script>let received=false;addEventListener('message',e=>e.data==='basis-join-received'&&(received=true,document.querySelector('#status').textContent='Basis に会議への参加を渡しました。Basis に戻ってください。'));setTimeout(()=>!received&&(location.href={{redirectScriptUrl}}),900);</script>
+<title>{{title}} — SekaiMate</title><style>body{margin:0;background:#f5f7fa;color:#202332;font:16px system-ui,-apple-system,sans-serif}.page{max-width:44rem;margin:0 auto;padding:4rem 1.25rem}.card{background:#fff;border:1px solid #d5dbdb;border-radius:16px;padding:2rem;box-shadow:0 4px 16px #172b4d12}.eyebrow{color:#553bc0;font-size:.8rem;font-weight:800;letter-spacing:.12em}h1{margin:.5rem 0 1rem;font-size:2rem}p{line-height:1.65}.actions{display:flex;flex-wrap:wrap;gap:.75rem;margin:1.25rem 0}.button{display:inline-block;padding:.8rem 1.2rem;border:0;border-radius:8px;background:#553bc0;color:#fff;text-decoration:none;font:inherit;font-weight:700;cursor:pointer}.button.secondary{background:#364152}.hint{color:#5f6b7a;font-size:.9rem}iframe{display:none}</style>
+<main class="page"><section class="card"><div class="eyebrow">SEKAIMATE</div><h1>{{title}}</h1><p id="status">参加方法を選択してください。</p><p class="actions"><a class="button" href="{{encodedWebJoinUrl}}">Webで参加</a><button class="button secondary" id="native-join" type="button">ネイティブで参加</button></p><p class="hint">Web版はブラウザで開きます。ネイティブ版はBasisアプリが起動している端末で選択してください。</p><iframe id="basis-join" title="Basis join bridge"></iframe></section></main>
+<script>const bridgeUrl={{loopbackScriptUrl}},deepLink={{redirectScriptUrl}},status=document.querySelector('#status'),frame=document.querySelector('#basis-join');let received=false;addEventListener('message',e=>e.data==='basis-join-received'&&(received=true,status.textContent='Basisに会議への参加を渡しました。Basisに戻ってください。'));document.querySelector('#native-join').addEventListener('click',()=>{status.textContent='Basisを起動しています…';frame.src=bridgeUrl;setTimeout(()=>!received&&(location.href=deepLink),2000)});</script>
 """;
     return Results.Content(page, "text/html; charset=utf-8");
 });
@@ -494,6 +495,23 @@ static string RequestOrigin(HttpContext http, BrokerOptions broker)
     if (Uri.TryCreate(broker.PublicBaseUrl, UriKind.Absolute, out Uri? configured) && configured.Scheme == Uri.UriSchemeHttps)
         return configured.GetLeftPart(UriPartial.Authority);
     return $"{http.Request.Scheme}://{http.Request.Host}";
+}
+
+static string BuildWebJoinUrl(MeetingRecord meeting, string token, BrokerOptions broker, HttpContext http)
+{
+    string? webOrigin = broker.AllowedWebOrigins?.Select(origin => origin?.Trim().TrimEnd('/'))
+        .FirstOrDefault(origin => Uri.TryCreate(origin, UriKind.Absolute, out Uri? uri)
+            && uri.Scheme == Uri.UriSchemeHttps && !string.IsNullOrWhiteSpace(uri.Host));
+    if (string.IsNullOrWhiteSpace(webOrigin)) return string.Empty;
+    if (!Uri.TryCreate(RequestOrigin(http, broker), UriKind.Absolute, out Uri? brokerOrigin)
+        || brokerOrigin.Scheme != Uri.UriSchemeHttps) return string.Empty;
+
+    string websocketUri = $"wss://{brokerOrigin.Authority}/basis";
+    string userName = "web-guest-" + token[..Math.Min(token.Length, 8)];
+    return $"{webOrigin}/?basisNetworkE2E=1"
+        + $"&websocketUri={Uri.EscapeDataString(websocketUri)}"
+        + $"&password={Uri.EscapeDataString(meeting.Password)}"
+        + $"&userName={Uri.EscapeDataString(userName)}";
 }
 
 static object TransportConfig(HttpContext http, BrokerOptions broker, string publicKey, string serverId)
