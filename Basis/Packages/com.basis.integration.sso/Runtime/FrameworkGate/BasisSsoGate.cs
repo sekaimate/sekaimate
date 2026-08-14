@@ -3,6 +3,7 @@ using System.Collections;
 using System.Threading;
 using Basis.BasisUI;
 using Basis.Integration.Sso;
+using Basis.Scripts.Device_Management;
 using Basis.Scripts.Networking;
 using UnityEngine;
 using UnityEngine.Networking;
@@ -322,6 +323,11 @@ namespace Basis.Integration.Sso.FrameworkGate
 
         private IEnumerator EnsureMenuReadyCoroutine(Action done)
         {
+            while (!BasisDeviceManagement.OnInitializationComplete)
+            {
+                yield return null;
+            }
+
             float deadline = Time.realtimeSinceStartup + 20f;
             while (Time.realtimeSinceStartup < deadline)
             {
