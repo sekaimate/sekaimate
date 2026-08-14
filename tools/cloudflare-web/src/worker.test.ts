@@ -5,6 +5,7 @@ import {
   cacheControlFor,
   contentEncodingFor,
   responseInitFor,
+  webSsoConfigurationResponse,
 } from './worker.ts';
 
 test('fixed build artifacts revalidate in browsers and remain cached at the edge', () => {
@@ -45,4 +46,18 @@ test('browser SSO callback stores the OAuth result and returns to the client', a
   const body = await response.text();
   assert.match(body, /basis\.sso\.callback/u);
   assert.match(body, /window\.location\.replace/u);
+});
+
+test('web SSO configuration is streamed from the broker without caching', async () => {
+  const response = await webSsoConfigurationResponse(
+    'https://auth.example/web-client-config/local',
+    async request => {
+      assert.equal(request, 'https://auth.example/web-client-config/local');
+      return new Response('{"providers":[{"id":"google"}]}');
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.deepEqual(await response.json(), { providers: [{ id: 'google' }] });
 });

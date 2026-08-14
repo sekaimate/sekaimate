@@ -10,6 +10,7 @@ builder.Services.Configure<BrokerOptions>(builder.Configuration.GetSection("Brok
 builder.Services.AddSingleton<TokenValidator>();
 builder.Services.AddSingleton<EnrollmentStore>();
 builder.Services.AddSingleton<MeetingStore>();
+builder.Services.AddHttpClient<WebOidcTokenExchange>();
 var app = builder.Build();
 app.UseForwardedHeaders(new ForwardedHeadersOptions
 {
@@ -43,6 +44,17 @@ app.MapGet("/client-config/{serverId}", (string serverId, IOptions<BrokerOptions
     string? path = broker.ClientConfigPath(serverId);
     if (path == null || !File.Exists(path)) return Results.NotFound();
     return Results.Content(ClientConfig.RemoveSecrets(File.ReadAllText(path)), "application/json; charset=utf-8");
+});
+
+app.MapGet("/web-client-config/{serverId}", (string serverId, HttpContext http, IOptions<BrokerOptions> options) =>
+{
+    BrokerOptions broker = options.Value;
+    BrokerServerOptions? server = broker.FindServer(serverId);
+    if (server == null) return Results.NotFound();
+    IReadOnlyList<ProviderOptions> providers = broker.GetOrganization().Providers ?? server.Providers ?? [];
+    ProviderOptions[] webProviders = providers.Where(provider => provider.IsWebConfigured).ToArray();
+    if (webProviders.Length == 0) return Results.Problem("Web SSO is not configured.", statusCode: 503);
+    return Results.Json(CreateWebClientConfiguration(http, broker, server, webProviders));
 });
 
 app.MapGet("/admin/servers", (HttpContext http, IOptions<BrokerOptions> options) =>
@@ -366,6 +378,56 @@ app.MapMethods("/admission/{serverId}", new[] { "OPTIONS" }, (string serverId, H
 app.MapPost("/admission/{serverId}", (AdmissionRequest request, string serverId, HttpContext http, TokenValidator validator, IOptions<BrokerOptions> options, CancellationToken ct) =>
     CreateAdmissionAsync(request, serverId, http, validator, options.Value, ct));
 
+app.MapMethods("/web-oidc/{serverId}/{providerId}/token", new[] { "OPTIONS" },
+    (HttpContext http, IOptions<BrokerOptions> options) =>
+{
+    if (!TryApplyAdmissionCors(http, options.Value)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+    return Results.NoContent();
+});
+app.MapPost("/web-oidc/{serverId}/{providerId}/token", async (
+    string serverId,
+    string providerId,
+    HttpContext http,
+    IOptions<BrokerOptions> options,
+    WebOidcTokenExchange exchange,
+    CancellationToken ct) =>
+{
+    BrokerOptions broker = options.Value;
+    if (!TryApplyAdmissionCors(http, broker)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+    if (!http.Request.HasFormContentType) return Results.BadRequest(new { error = "form_encoded_request_required" });
+    BrokerServerOptions? server = broker.FindServer(serverId);
+    ProviderOptions? provider = (broker.GetOrganization().Providers ?? server?.Providers ?? [])
+        .FirstOrDefault(candidate => string.Equals(candidate.Id, providerId, StringComparison.Ordinal));
+    if (server == null || provider == null) return Results.NotFound();
+    if (!provider.TryGetWebCredential(out Uri? tokenEndpoint, out string clientId, out string clientSecret))
+        return Results.Problem("Web SSO provider credentials are incomplete.", statusCode: 503);
+
+    IFormCollection form = await http.Request.ReadFormAsync(ct);
+    string grantType = form["grant_type"].ToString();
+    var forwarded = new Dictionary<string, string>(StringComparer.Ordinal);
+    if (grantType == "authorization_code")
+    {
+        string redirectUri = form["redirect_uri"].ToString();
+        if (!AllowedWebRedirect(broker, redirectUri)) return Results.BadRequest(new { error = "invalid_redirect_uri" });
+        foreach (string key in new[] { "grant_type", "code", "redirect_uri", "code_verifier" })
+            if (!string.IsNullOrWhiteSpace(form[key])) forwarded[key] = form[key].ToString();
+        if (!forwarded.ContainsKey("code") || !forwarded.ContainsKey("code_verifier"))
+            return Results.BadRequest(new { error = "invalid_request" });
+    }
+    else if (grantType == "refresh_token")
+    {
+        forwarded["grant_type"] = grantType;
+        forwarded["refresh_token"] = form["refresh_token"].ToString();
+        if (string.IsNullOrWhiteSpace(forwarded["refresh_token"])) return Results.BadRequest(new { error = "invalid_request" });
+    }
+    else return Results.BadRequest(new { error = "unsupported_grant_type" });
+
+    using HttpResponseMessage response = await exchange.SendAsync(tokenEndpoint!, clientId, clientSecret, forwarded, ct);
+    string body = await response.Content.ReadAsStringAsync(ct);
+    http.Response.Headers.CacheControl = "no-store";
+    return Results.Content(body, response.Content.Headers.ContentType?.ToString() ?? "application/json", statusCode: (int)response.StatusCode);
+});
+
 static async Task<IResult> CreateAdmissionAsync(AdmissionRequest request, string serverId, HttpContext http,
     TokenValidator validator, BrokerOptions broker, CancellationToken ct)
 {
@@ -400,6 +462,13 @@ static bool TryApplyAdmissionCors(HttpContext http, BrokerOptions broker)
     http.Response.Headers.AccessControlMaxAge = "600";
     http.Response.Headers.Vary = "Origin";
     return true;
+}
+
+static bool AllowedWebRedirect(BrokerOptions broker, string value)
+{
+    if (!Uri.TryCreate(value, UriKind.Absolute, out Uri? redirect) || redirect.AbsolutePath != "/sso-callback") return false;
+    string origin = redirect.GetLeftPart(UriPartial.Authority).TrimEnd('/');
+    return broker.AllowedWebOrigins?.Any(allowed => string.Equals(allowed?.Trim().TrimEnd('/'), origin, StringComparison.OrdinalIgnoreCase)) == true;
 }
 
 app.Run();
@@ -469,6 +538,36 @@ static object CreateClientConfiguration(HttpContext http, BrokerOptions broker, 
             },
         }),
         redirect = new { mode = "loopback", host = "127.0.0.1", port = 0, path = "/callback" },
+        enforcement = new { allowOfflineWithinTokenValidity = true },
+    };
+}
+
+static object CreateWebClientConfiguration(HttpContext http, BrokerOptions broker, BrokerServerOptions server,
+    IReadOnlyList<ProviderOptions> providers)
+{
+    OrganizationOptions organization = broker.GetOrganization();
+    return new
+    {
+        defaultProviderId = providers.Any(provider => string.Equals(provider.Id, organization.DefaultProviderId, StringComparison.Ordinal))
+            ? organization.DefaultProviderId : providers[0].Id,
+        serverTransport = TransportConfig(http, broker, server.EffectiveTransportPublicKey, server.Id!),
+        providers = providers.Select(provider => new
+        {
+            id = provider.Id,
+            label = string.IsNullOrWhiteSpace(provider.Label) ? provider.Id : provider.Label,
+            issuer = provider.Issuer,
+            clientId = provider.WebClientId,
+            tokenEndpoint = $"{RequestOrigin(http, broker)}/web-oidc/{Uri.EscapeDataString(server.Id!)}/{Uri.EscapeDataString(provider.Id!)}" + "/token",
+            scopes = new[] { "openid", "email", "profile" },
+            extraAuthParams = new Dictionary<string, string> { ["access_type"] = "offline", ["prompt"] = "consent" },
+            displayNameClaims = new[] { "name", "preferred_username", "email" },
+            access = new
+            {
+                allowedGroups = provider.AllowedGroups ?? [],
+                allowedClaims = (provider.AllowedHostedDomains ?? []).Select(domain => new { claim = "hd", values = new[] { domain } }),
+            },
+        }),
+        redirect = new { mode = "browser", path = "/sso-callback" },
         enforcement = new { allowOfflineWithinTokenValidity = true },
     };
 }
@@ -580,7 +679,54 @@ sealed class OrganizationOptions
         return true;
     }
 }
-sealed class ProviderOptions { public string? Id { get; set; } public string? Label { get; set; } public string? Issuer { get; set; } public string? Audience { get; set; } public string? ClientSecret { get; set; } public string? JwksUri { get; set; } public List<string>? AllowedHostedDomains { get; set; } public List<string>? AllowedGroups { get; set; } public ProviderOptions Copy() => new() { Id = Id, Label = Label, Issuer = Issuer, Audience = Audience, ClientSecret = ClientSecret, JwksUri = JwksUri, AllowedHostedDomains = AllowedHostedDomains?.ToList() ?? [], AllowedGroups = AllowedGroups?.ToList() ?? [] }; public bool IsStructurallyValid() => !string.IsNullOrWhiteSpace(Id) && Uri.TryCreate(Issuer, UriKind.Absolute, out Uri? issuer) && issuer.Scheme == Uri.UriSchemeHttps && !string.IsNullOrWhiteSpace(Audience) && Uri.TryCreate(JwksUri, UriKind.Absolute, out Uri? jwks) && jwks.Scheme == Uri.UriSchemeHttps; }
+sealed class ProviderOptions
+{
+    public string? Id { get; set; }
+    public string? Label { get; set; }
+    public string? Issuer { get; set; }
+    public string? Audience { get; set; }
+    public string? ClientSecret { get; set; }
+    public string? WebClientId { get; set; }
+    public string? WebClientSecretEnvironmentVariable { get; set; }
+    public string? TokenEndpoint { get; set; }
+    public string? JwksUri { get; set; }
+    public List<string>? AllowedHostedDomains { get; set; }
+    public List<string>? AllowedGroups { get; set; }
+    public bool IsWebConfigured => !string.IsNullOrWhiteSpace(WebClientId)
+        && !string.IsNullOrWhiteSpace(WebClientSecretEnvironmentVariable)
+        && Uri.TryCreate(TokenEndpoint, UriKind.Absolute, out Uri? endpoint)
+        && endpoint.Scheme == Uri.UriSchemeHttps;
+    public ProviderOptions Copy() => new()
+    {
+        Id = Id,
+        Label = Label,
+        Issuer = Issuer,
+        Audience = Audience,
+        ClientSecret = ClientSecret,
+        WebClientId = WebClientId,
+        WebClientSecretEnvironmentVariable = WebClientSecretEnvironmentVariable,
+        TokenEndpoint = TokenEndpoint,
+        JwksUri = JwksUri,
+        AllowedHostedDomains = AllowedHostedDomains?.ToList() ?? [],
+        AllowedGroups = AllowedGroups?.ToList() ?? [],
+    };
+    public bool IsStructurallyValid() => !string.IsNullOrWhiteSpace(Id)
+        && Uri.TryCreate(Issuer, UriKind.Absolute, out Uri? issuer)
+        && issuer.Scheme == Uri.UriSchemeHttps
+        && (!string.IsNullOrWhiteSpace(Audience) || IsWebConfigured)
+        && Uri.TryCreate(JwksUri, UriKind.Absolute, out Uri? jwks)
+        && jwks.Scheme == Uri.UriSchemeHttps;
+    public bool TryGetWebCredential(out Uri? tokenEndpoint, out string clientId, out string clientSecret)
+    {
+        clientId = WebClientId ?? string.Empty;
+        clientSecret = Environment.GetEnvironmentVariable(WebClientSecretEnvironmentVariable ?? string.Empty) ?? string.Empty;
+        bool valid = Uri.TryCreate(TokenEndpoint, UriKind.Absolute, out tokenEndpoint)
+            && tokenEndpoint?.Scheme == Uri.UriSchemeHttps
+            && !string.IsNullOrWhiteSpace(clientId)
+            && !string.IsNullOrWhiteSpace(clientSecret);
+        return valid;
+    }
+}
 
 sealed class EnrollmentStore
 {
@@ -682,10 +828,11 @@ sealed class TokenValidator
         string? issuer = payload.RootElement.TryGetProperty("iss", out var iss) ? iss.GetString() : null;
         ProviderOptions? provider = providers.FirstOrDefault(p => p.Issuer == issuer);
         if (provider == null) return null;
-        string audience = provider.Audience ?? string.Empty;
+        string[] audiences = new[] { provider.Audience, provider.WebClientId }
+            .Where(value => !string.IsNullOrWhiteSpace(value)).Cast<string>().ToArray();
         string jwksUriText = provider.JwksUri ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(audience) || !Uri.TryCreate(jwksUriText, UriKind.Absolute, out Uri? jwksUri)
-            || jwksUri == null || jwksUri.Scheme != Uri.UriSchemeHttps || !Audience(payload.RootElement, audience) || Expired(payload.RootElement)) return null;
+        if (audiences.Length == 0 || !Uri.TryCreate(jwksUriText, UriKind.Absolute, out Uri? jwksUri)
+            || jwksUri == null || jwksUri.Scheme != Uri.UriSchemeHttps || !audiences.Any(audience => Audience(payload.RootElement, audience)) || Expired(payload.RootElement)) return null;
         string? subject = payload.RootElement.TryGetProperty("sub", out var sub) ? sub.GetString() : null;
         if (string.IsNullOrWhiteSpace(subject) || !Policy(payload.RootElement, provider)) return null;
         string? kid = header.RootElement.TryGetProperty("kid", out var kidValue) ? kidValue.GetString() : null;

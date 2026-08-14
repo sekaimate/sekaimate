@@ -9,10 +9,6 @@ COPY src ./src
 RUN pnpm run build
 
 FROM nginx:1.27-alpine
-RUN apk add --no-cache openssl
 COPY nginx.conf /etc/nginx/nginx.conf
-COPY nginx-entrypoint.sh /usr/local/bin/basis-sso-gateway
-RUN chmod 755 /usr/local/bin/basis-sso-gateway
 COPY --from=build /src/dist /usr/share/nginx/html/admin
-EXPOSE 443
-ENTRYPOINT ["/usr/local/bin/basis-sso-gateway"]
+EXPOSE 8080

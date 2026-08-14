@@ -2,8 +2,11 @@ export type Provider = {
   id: string;
   label?: string;
   issuer: string;
-  audience: string;
+  audience?: string;
   clientSecret?: string;
+  webClientId?: string;
+  webClientSecretEnvironmentVariable?: string;
+  tokenEndpoint?: string;
   jwksUri: string;
   allowedHostedDomains?: string[];
   allowedGroups?: string[];
@@ -29,10 +32,14 @@ export type Meeting = {
 };
 
 export class ControlPlaneApi {
+  constructor(private readonly adminToken: string) {}
+
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const headers = new Headers(init.headers);
+    headers.set("Authorization", `Bearer ${this.adminToken}`);
     const response = await fetch(`/api${path}`, {
       ...init,
-      headers: init.headers,
+      headers,
       cache: "no-store",
     });
     if (!response.ok) {

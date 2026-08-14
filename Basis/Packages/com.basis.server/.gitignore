@@ -59,5 +59,10 @@ Docker/*
 !Docker/.env.example
 !Docker/Caddyfile
 !Docker/Caddyfile.local
+!Docker/sso/
+!Docker/sso/**
+Docker/sso/.env
+Docker/sso/broker/appsettings.json
 Docker/sso/broker/control-plane.json
+Docker/sso/broker/client-config/
 !BasisServerConsole/BasisNetworkConsole.csproj

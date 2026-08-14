@@ -53,28 +53,26 @@ mergeInto(LibraryManager.library, {
       return await BasisWebOidc.fetchJson(issuer + '/.well-known/openid-configuration');
     },
 
-    exchangeCode: async function(discovery, config, code, verifier, redirectUri) {
-      if (config.clientSecret) throw new Error('Web SSO cannot use clientSecret. Create a public PKCE client.');
+    exchangeCode: async function(config, code, verifier, redirectUri) {
+      if (!config.tokenEndpoint) throw new Error('Web SSO tokenEndpoint is not configured.');
       var body = new URLSearchParams();
       body.set('grant_type', 'authorization_code');
       body.set('code', code);
       body.set('redirect_uri', redirectUri);
-      body.set('client_id', config.clientId);
       body.set('code_verifier', verifier);
-      return await BasisWebOidc.fetchJson(discovery.token_endpoint, {
+      return await BasisWebOidc.fetchJson(config.tokenEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: body.toString(),
       });
     },
 
-    refresh: async function(discovery, config, refreshToken) {
-      if (config.clientSecret) throw new Error('Web SSO cannot use clientSecret. Create a public PKCE client.');
+    refresh: async function(config, refreshToken) {
+      if (!config.tokenEndpoint) throw new Error('Web SSO tokenEndpoint is not configured.');
       var body = new URLSearchParams();
       body.set('grant_type', 'refresh_token');
       body.set('refresh_token', refreshToken);
-      body.set('client_id', config.clientId);
-      return await BasisWebOidc.fetchJson(discovery.token_endpoint, {
+      return await BasisWebOidc.fetchJson(config.tokenEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: body.toString(),
@@ -93,7 +91,6 @@ mergeInto(LibraryManager.library, {
     complete: async function(gameObjectName, config, pending, callback) {
       var discovery = await BasisWebOidc.discovery(config);
       var tokenResponse = await BasisWebOidc.exchangeCode(
-        discovery,
         config,
         callback.code,
         pending.verifier,
@@ -161,7 +158,7 @@ mergeInto(LibraryManager.library, {
 
     refreshSession: async function(gameObjectName, config, refreshToken) {
       var discovery = await BasisWebOidc.discovery(config);
-      var tokenResponse = await BasisWebOidc.refresh(discovery, config, refreshToken);
+      var tokenResponse = await BasisWebOidc.refresh(config, refreshToken);
       var accessToken = tokenResponse.access_token || '';
       var jwks = await BasisWebOidc.fetchJson(discovery.jwks_uri);
       var userInfo = await BasisWebOidc.optionalJson(discovery.userinfo_endpoint, accessToken);

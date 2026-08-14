@@ -27,6 +27,7 @@ interface R2Bucket {
 
 interface Environment {
   WEB_BUILD: R2Bucket;
+  SSO_CONFIG_URL: string;
 }
 
 interface CloudflareResponseInit extends ResponseInit {
@@ -108,6 +109,21 @@ export function browserSsoCallbackResponse(): Response {
   });
 }
 
+export async function webSsoConfigurationResponse(
+  url: string,
+  fetchConfiguration: typeof fetch = fetch,
+): Promise<Response> {
+  const upstream = await fetchConfiguration(url, { headers: { accept: 'application/json' } });
+  if (!upstream.ok) return new Response('SSO configuration unavailable', { status: 503 });
+  return new Response(upstream.body, {
+    headers: {
+      'cache-control': 'no-store',
+      'content-type': 'application/json; charset=utf-8',
+      'x-content-type-options': 'nosniff',
+    },
+  });
+}
+
 export default {
   async fetch(request: Request, environment: Environment): Promise<Response> {
     const requestUrl = new URL(request.url);
@@ -119,6 +135,11 @@ export default {
     }
     if (requestUrl.pathname === BROWSER_CACHE_CLEAR_PATH) {
       return browserCacheClearResponse(request);
+    }
+    if (requestUrl.pathname === '/StreamingAssets/basis-sso.json') {
+      return request.method === 'GET'
+        ? webSsoConfigurationResponse(environment.SSO_CONFIG_URL)
+        : new Response('Method Not Allowed', { status: 405, headers: { allow: 'GET' } });
     }
 
     if (request.method !== 'GET' && request.method !== 'HEAD') {

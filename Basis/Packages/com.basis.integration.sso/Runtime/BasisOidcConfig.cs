@@ -41,6 +41,7 @@ namespace Basis.Integration.Sso
         /// the Basis server or SSO broker. Native-client secrets are not confidential secrets.
         /// </summary>
         [JsonProperty("clientSecret")] public string ClientSecret = string.Empty;
+        [JsonProperty("tokenEndpoint")] public string TokenEndpoint = string.Empty;
 
         [JsonProperty("scopes")] public List<string> Scopes = new List<string> { "openid", "profile", "email" };
 
@@ -64,6 +65,7 @@ namespace Basis.Integration.Sso
             [JsonProperty("issuer")] public string Issuer = string.Empty;
             [JsonProperty("clientId")] public string ClientId = string.Empty;
             [JsonProperty("clientSecret")] public string ClientSecret = string.Empty;
+            [JsonProperty("tokenEndpoint")] public string TokenEndpoint = string.Empty;
             [JsonProperty("scopes")] public List<string> Scopes = new List<string> { "openid", "profile", "email" };
             [JsonProperty("extraAuthParams")] public Dictionary<string, string> ExtraAuthParams = new Dictionary<string, string>();
             [JsonProperty("displayNameClaims")] public List<string> DisplayNameClaims = new List<string> { "name", "preferred_username", "email" };
@@ -192,13 +194,21 @@ namespace Basis.Integration.Sso
                 return true;
             }
             if (string.Equals(Redirect.Mode, "browser", StringComparison.OrdinalIgnoreCase)
-                && IsSafeBrowserPath(Redirect.Path))
+                && IsSafeBrowserPath(Redirect.Path)
+                && IsSafeBrowserTokenEndpoint(TokenEndpoint))
             {
                 error = null;
                 return true;
             }
-            error = "OIDC config: redirect.mode must be 'loopback' or 'browser'.";
+            error = "OIDC config: browser redirects require a safe path and HTTPS tokenEndpoint.";
             return false;
+        }
+
+        private static bool IsSafeBrowserTokenEndpoint(string value)
+        {
+            if (!Uri.TryCreate(value, UriKind.Absolute, out Uri endpoint)) return false;
+            return endpoint.Scheme == Uri.UriSchemeHttps
+                || (endpoint.Scheme == Uri.UriSchemeHttp && IsLoopbackHost(endpoint.Host));
         }
 
         private static bool IsSafeBrowserPath(string path)
@@ -250,6 +260,7 @@ namespace Basis.Integration.Sso
                 Issuer = provider.Issuer,
                 ClientId = provider.ClientId,
                 ClientSecret = provider.ClientSecret,
+                TokenEndpoint = provider.TokenEndpoint,
                 Scopes = provider.Scopes,
                 ExtraAuthParams = provider.ExtraAuthParams,
                 Redirect = Redirect,

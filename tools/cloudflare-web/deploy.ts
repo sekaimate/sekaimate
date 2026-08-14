@@ -16,6 +16,7 @@ interface Options {
   workerName: string;
   bucketName: string;
   workerOnly: boolean;
+  ssoConfigUrl: string;
 }
 
 interface Upload {
@@ -56,10 +57,12 @@ function parseOptions(arguments_: string[]): Options {
 
   const domain = values.get('--domain')?.trim();
   const buildDirectory = values.get('--build-dir')?.trim();
-  if (!domain || !buildDirectory) {
-    throw new Error('--domain and --build-dir are required.');
+  const ssoConfigUrl = values.get('--sso-config-url')?.trim();
+  if (!domain || !buildDirectory || !ssoConfigUrl) {
+    throw new Error('--domain, --build-dir, and --sso-config-url are required.');
   }
   if (!/^[a-z0-9.-]+$/u.test(domain)) throw new Error(`Invalid domain: ${domain}`);
+  if (new URL(ssoConfigUrl).protocol !== 'https:') throw new Error('--sso-config-url must be an HTTPS URL.');
 
   const defaultName = domain.toLowerCase().replace(/[^a-z0-9-]+/gu, '-').replace(/^-|-$/gu, '');
   return {
@@ -68,6 +71,7 @@ function parseOptions(arguments_: string[]): Options {
     workerName: values.get('--worker-name') ?? defaultName,
     bucketName: values.get('--bucket-name') ?? `${defaultName}-web`,
     workerOnly,
+    ssoConfigUrl,
   };
 }
 
@@ -201,6 +205,7 @@ async function main(): Promise<void> {
     compatibilityDate: new Date().toISOString().slice(0, 10),
     domain: options.domain,
     bucketName: options.bucketName,
+    ssoConfigUrl: options.ssoConfigUrl,
   });
 
   try {

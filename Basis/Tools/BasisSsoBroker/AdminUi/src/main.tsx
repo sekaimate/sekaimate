@@ -26,8 +26,9 @@ type Notice = { type: "success" | "error"; text: string } | null;
 type OrganizationForm = {
   displayName: string;
   googleEnabled: boolean;
-  googleClientId: string;
-  googleClientSecret: string;
+  googleWebClientId: string;
+  googleNativeClientId: string;
+  googleNativeClientSecret: string;
   googleDomains: string;
   oktaEnabled: boolean;
   oktaIssuer: string;
@@ -47,8 +48,9 @@ const find = (providers: Provider[], id: string) =>
 const blankForm = (): OrganizationForm => ({
   displayName: "",
   googleEnabled: true,
-  googleClientId: "",
-  googleClientSecret: "",
+  googleWebClientId: "",
+  googleNativeClientId: "",
+  googleNativeClientSecret: "",
   googleDomains: "",
   oktaEnabled: false,
   oktaIssuer: "",
@@ -63,9 +65,10 @@ const formFromOrganization = (organization: Organization): OrganizationForm => {
   const okta = find(organization.providers, "okta");
   return {
     displayName: organization.displayName ?? "",
-    googleEnabled: Boolean(google?.audience),
-    googleClientId: google?.audience ?? "",
-    googleClientSecret: google?.clientSecret ?? "",
+    googleEnabled: Boolean(google?.webClientId),
+    googleWebClientId: google?.webClientId ?? "",
+    googleNativeClientId: google?.audience ?? "",
+    googleNativeClientSecret: google?.clientSecret ?? "",
     googleDomains: (google?.allowedHostedDomains ?? []).join(", "),
     oktaEnabled: Boolean(okta?.issuer && okta?.audience && okta?.jwksUri),
     oktaIssuer: okta?.issuer ?? "",
@@ -83,8 +86,11 @@ const organizationFromForm = (form: OrganizationForm): Organization => {
       id: "google",
       label: "Google Workspace",
       issuer: "https://accounts.google.com",
-      audience: form.googleClientId.trim(),
-      clientSecret: form.googleClientSecret,
+      audience: form.googleNativeClientId.trim() || undefined,
+      clientSecret: form.googleNativeClientSecret || undefined,
+      webClientId: form.googleWebClientId.trim(),
+      webClientSecretEnvironmentVariable: "BASIS_SSO_GOOGLE_CLIENT_SECRET",
+      tokenEndpoint: "https://oauth2.googleapis.com/token",
       jwksUri: "https://www.googleapis.com/oauth2/v3/certs",
       allowedHostedDomains: csv(form.googleDomains),
       allowedGroups: [],
@@ -110,8 +116,8 @@ const organizationFromForm = (form: OrganizationForm): Organization => {
 const validateOrganizationForm = (form: OrganizationForm): string | null => {
   if (!form.googleEnabled && !form.oktaEnabled)
     return "Google Workspace または Okta を少なくとも一つ有効にしてください。";
-  if (form.googleEnabled && !form.googleClientId.trim())
-    return "Google Workspace の OAuth Client ID を入力してください。";
+  if (form.googleEnabled && !form.googleWebClientId.trim())
+    return "Google Web OAuth Client ID を入力してください。";
   if (
     form.oktaEnabled &&
     (!form.oktaIssuer.trim() ||
@@ -390,11 +396,14 @@ function OrganizationSettings({
                   Google Workspace を有効にする
                 </Toggle>
                 <ColumnLayout columns={2}>
-                  <FormField label="OAuth Client ID">
+                  <FormField
+                    label="Web OAuth Client ID"
+                    description="Google Cloud Consoleで種類をウェブアプリケーションとして作成したClient IDです。"
+                  >
                     <Input
-                      value={form.googleClientId}
+                      value={form.googleWebClientId}
                       onChange={({ detail }) =>
-                        update("googleClientId", detail.value)
+                        update("googleWebClientId", detail.value)
                       }
                       placeholder="…apps.googleusercontent.com"
                     />
@@ -411,12 +420,12 @@ function OrganizationSettings({
                       placeholder="mimifuwa.cc"
                     />
                   </FormField>
-                  <SecretField
-                    label="OAuth Client secret"
-                    value={form.googleClientSecret}
-                    onChange={(value) => update("googleClientSecret", value)}
-                    description="Desktop app では通常不要です。"
-                  />
+                  <FormField
+                    label="Web OAuth Client secret"
+                    description="サーバー環境変数BASIS_SSO_GOOGLE_CLIENT_SECRETから読み込みます。この画面や設定JSONには保存しません。"
+                  >
+                    <Input value="サーバー環境変数で設定" readOnly />
+                  </FormField>
                 </ColumnLayout>
               </SpaceBetween>
             </Container>
@@ -640,9 +649,36 @@ function Meetings({
   );
 }
 
+function AdminLogin({ onLogin }: { onLogin(token: string): void }) {
+  const [token, setToken] = useState("");
+  return (
+    <Page>
+      <Container header={<Header variant="h2">管理者認証</Header>}>
+        <SpaceBetween size="m">
+          <SecretField
+            label="管理トークン"
+            value={token}
+            onChange={setToken}
+            description="サーバーのBASIS_SSO_ADMIN_TOKENを入力してください。ブラウザを閉じると消去されます。"
+          />
+          <Button variant="primary" disabled={token.length < 32} onClick={() => onLogin(token)}>
+            ログイン
+          </Button>
+        </SpaceBetween>
+      </Container>
+    </Page>
+  );
+}
+
 function AdminApp() {
+  const [adminToken, setAdminToken] = useState(() => sessionStorage.getItem("basis.sso.adminToken") ?? "");
   const [meetings, setMeetings] = useState<Meeting[]>([]);
-  const api = useMemo(() => new ControlPlaneApi(), []);
+  const api = useMemo(() => new ControlPlaneApi(adminToken), [adminToken]);
+  if (!adminToken)
+    return <AdminLogin onLogin={(token) => {
+      sessionStorage.setItem("basis.sso.adminToken", token);
+      setAdminToken(token);
+    }} />;
   const refresh = async () => {
     const next = await api.listMeetings();
     setMeetings(next);

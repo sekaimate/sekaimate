@@ -4,6 +4,7 @@ interface WorkerConfigOptions {
   compatibilityDate: string;
   domain: string;
   bucketName: string;
+  ssoConfigUrl: string;
 }
 
 export function createWorkerConfig(options: WorkerConfigOptions) {
@@ -15,5 +16,6 @@ export function createWorkerConfig(options: WorkerConfigOptions) {
     cache: { enabled: true },
     routes: [{ pattern: options.domain, custom_domain: true }],
     r2_buckets: [{ binding: 'WEB_BUILD', bucket_name: options.bucketName }],
+    vars: { SSO_CONFIG_URL: options.ssoConfigUrl },
   };
 }
