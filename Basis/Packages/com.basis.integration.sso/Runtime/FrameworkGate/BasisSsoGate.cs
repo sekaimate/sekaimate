@@ -185,6 +185,9 @@ namespace Basis.Integration.Sso.FrameworkGate
         {
             try
             {
+#if UNITY_WEBGL && !UNITY_EDITOR
+                await AddressableAssets.InitializeAsync();
+#endif
                 // 1) Try to reuse a stored session (silent renew / offline).
                 SsoAuthResult silent = await BasisSsoAuthController.InitializeAsync(_cts.Token);
                 if (silent.Success)
