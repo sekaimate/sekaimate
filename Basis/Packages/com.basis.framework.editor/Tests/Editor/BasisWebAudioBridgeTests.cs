@@ -196,8 +196,10 @@ public class BasisWebAudioBridgeTests
         StringAssert.Contains("LoadAsync", configSource);
         StringAssert.Contains("UnityWebRequest.Get(url)", configSource);
         StringAssert.Contains("await request.SendWebRequest()", configSource);
-        StringAssert.Contains("EnsureConfigLoadedAsync", File.ReadAllText(SsoGatePath));
-        StringAssert.Contains("await Basis.BasisUI.AddressableAssets.InitializeAsync()", File.ReadAllText(SsoGatePath));
+        string gateSource = File.ReadAllText(SsoGatePath);
+        StringAssert.Contains("yield return request.SendWebRequest()", gateSource);
+        StringAssert.Contains("ApplyRuntimeConfiguration", gateSource);
+        StringAssert.Contains("await Basis.BasisUI.AddressableAssets.InitializeAsync()", gateSource);
     }
 
     [Test]

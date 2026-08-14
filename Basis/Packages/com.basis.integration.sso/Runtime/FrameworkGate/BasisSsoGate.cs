@@ -5,6 +5,7 @@ using Basis.BasisUI;
 using Basis.Integration.Sso;
 using Basis.Scripts.Networking;
 using UnityEngine;
+using UnityEngine.Networking;
 
 namespace Basis.Integration.Sso.FrameworkGate
 {
@@ -79,17 +80,27 @@ namespace Basis.Integration.Sso.FrameworkGate
 #if UNITY_WEBGL && !UNITY_EDITOR
         private sealed class BasisSsoConfigLoader : MonoBehaviour
         {
-            private async void Start()
+            private void Start()
             {
-                bool loaded = await BasisSsoAuthController.EnsureConfigLoadedAsync();
-                if (!loaded)
+                StartCoroutine(LoadConfigCoroutine());
+            }
+
+            private IEnumerator LoadConfigCoroutine()
+            {
+                using UnityWebRequest request = UnityWebRequest.Get(BasisOidcConfig.StreamingPath);
+                yield return request.SendWebRequest();
+                if (request.result != UnityWebRequest.Result.Success)
                 {
-                    BasisDebug.Log("[SSO] No OIDC config found; launch gate disabled.");
+                    if (request.responseCode != 404)
+                        BasisDebug.LogWarning($"[SSO] Failed to read streaming config '{BasisOidcConfig.StreamingPath}': {request.error}");
                     Destroy(gameObject);
                     return;
                 }
 
-                ActivateConfiguredGate();
+                if (!BasisSsoAuthController.ApplyRuntimeConfiguration(request.downloadHandler.text, out string error))
+                {
+                    BasisDebug.LogError($"[SSO] Failed to load streaming config: {error}");
+                }
                 Destroy(gameObject);
             }
         }
