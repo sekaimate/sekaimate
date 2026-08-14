@@ -89,6 +89,7 @@ namespace Basis.Integration.Sso.FrameworkGate
         {
             // Allow the Servers panel's auto-connect to run on next open now that we're signed in.
             BasisConnectionService.AutoConnectAttempted = false;
+            BasisConnectionService.NotifyConnectionPermissionChanged();
         }
 
         /// <summary>Called on sign-out: re-arm the block so nothing connects until sign-in again.</summary>

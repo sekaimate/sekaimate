@@ -30,6 +30,8 @@ namespace Basis.Scripts.Networking
         private bool _acceptedReported;
         private bool _authenticatedReported;
         private bool _observeConnectionState = true;
+        private bool _connectStarted;
+        private bool _connectionPermissionChanged;
         private int _remotePlayerCount = -1;
 
         [DllImport("__Internal")]
@@ -56,6 +58,12 @@ namespace Basis.Scripts.Networking
 
         private void Update()
         {
+            if (_connectionPermissionChanged)
+            {
+                _connectionPermissionChanged = false;
+                RequestConnection();
+            }
+
             if (_observeConnectionState && !_acceptedReported && BasisNetworkConnection.LocalPlayerPeer != null)
             {
                 _acceptedReported = true;
@@ -414,8 +422,30 @@ namespace Basis.Scripts.Networking
                 yield break;
             }
 
+            RequestConnection();
+        }
+
+        private void RequestConnection()
+        {
+            if (_connectStarted || BasisNetworkConnection.LocalPlayerIsConnected)
+            {
+                return;
+            }
+
+            string blockedReason = BasisConnectionService.ConnectionBlockedReason?.Invoke();
+            if (!string.IsNullOrWhiteSpace(blockedReason))
+            {
+                return;
+            }
+
+            _connectStarted = true;
             Report("connect-requested");
             _ = BasisConnectionService.ConnectAsync(_entry, _userName);
+        }
+
+        private void OnConnectionPermissionChanged()
+        {
+            _connectionPermissionChanged = true;
         }
 
         private static void SaveServerDirectoryEntry(ServerDirectoryEntry entry)
@@ -545,6 +575,8 @@ namespace Basis.Scripts.Networking
             BasisContentShareManager.OnSphereCreated += OnContentSphereCreated;
             BasisContentShareManager.OnSphereRemoved -= OnContentSphereRemoved;
             BasisContentShareManager.OnSphereRemoved += OnContentSphereRemoved;
+            BasisConnectionService.ConnectionPermissionChanged -= OnConnectionPermissionChanged;
+            BasisConnectionService.ConnectionPermissionChanged += OnConnectionPermissionChanged;
         }
 
         private void OnDestroy()
@@ -552,6 +584,7 @@ namespace Basis.Scripts.Networking
             BasisNetworkHandleChat.OnChatMessageReceived -= OnChatMessageReceived;
             BasisContentShareManager.OnSphereCreated -= OnContentSphereCreated;
             BasisContentShareManager.OnSphereRemoved -= OnContentSphereRemoved;
+            BasisConnectionService.ConnectionPermissionChanged -= OnConnectionPermissionChanged;
         }
 
         private void OnChatMessageReceived(ushort senderPlayerId, string message)

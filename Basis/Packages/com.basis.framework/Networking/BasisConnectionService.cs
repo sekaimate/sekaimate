@@ -36,6 +36,10 @@ namespace Basis.Scripts.Networking
         public static Func<string> ConnectionBlockedReason;
         /// <summary>Optional integration hook that replaces the wire auth payload immediately before connecting.</summary>
         public static Func<string, Task<byte[]>> ConnectionAuthenticationPayloadProvider;
+        public static event Action ConnectionPermissionChanged;
+
+        public static void NotifyConnectionPermissionChanged() =>
+            ConnectionPermissionChanged?.Invoke();
 
         // Stable key the loading bar uses to merge updates for the same connection
         // attempt, distinct from the bundle-load key BasisSceneLoad reports under.
