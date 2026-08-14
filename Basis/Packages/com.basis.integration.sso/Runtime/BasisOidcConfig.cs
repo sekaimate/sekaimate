@@ -156,7 +156,7 @@ namespace Basis.Integration.Sso
                     error = $"OIDC config: defaultProviderId '{DefaultProviderId}' is not in providers.";
                     return false;
                 }
-                if (!ValidateRedirect(out error)) return false;
+                if (!ValidateRedirect(Providers, out error)) return false;
                 if (ServerTransport == null || string.IsNullOrWhiteSpace(ServerTransport.ServerPublicKey))
                 {
                     error = "OIDC config: serverTransport.serverPublicKey is required when SSO providers are configured.";
@@ -178,10 +178,10 @@ namespace Basis.Integration.Sso
             }
 
             if (!TryValidateProvider(Issuer, ClientId, Scopes, out error)) return false;
-            return ValidateRedirect(out error);
+            return ValidateRedirect(null, out error);
         }
 
-        private bool ValidateRedirect(out string error)
+        private bool ValidateRedirect(IReadOnlyList<ProviderConfig> providers, out string error)
         {
             if (Redirect == null)
             {
@@ -195,13 +195,23 @@ namespace Basis.Integration.Sso
             }
             if (string.Equals(Redirect.Mode, "browser", StringComparison.OrdinalIgnoreCase)
                 && IsSafeBrowserPath(Redirect.Path)
-                && IsSafeBrowserTokenEndpoint(TokenEndpoint))
+                && HasSafeBrowserTokenEndpoints(providers))
             {
                 error = null;
                 return true;
             }
             error = "OIDC config: browser redirects require a safe path and HTTPS tokenEndpoint.";
             return false;
+        }
+
+        private bool HasSafeBrowserTokenEndpoints(IReadOnlyList<ProviderConfig> providers)
+        {
+            if (providers == null || providers.Count == 0) return IsSafeBrowserTokenEndpoint(TokenEndpoint);
+            for (int index = 0; index < providers.Count; index++)
+            {
+                if (!IsSafeBrowserTokenEndpoint(providers[index].TokenEndpoint)) return false;
+            }
+            return true;
         }
 
         private static bool IsSafeBrowserTokenEndpoint(string value)
