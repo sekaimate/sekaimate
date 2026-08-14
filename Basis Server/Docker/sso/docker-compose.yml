@@ -1,14 +1,12 @@
 services:
   basis-sso-broker:
     build:
-      context: ../../../../Tools/BasisSsoBroker
+      context: ../../../Basis/Tools/BasisSsoBroker
     image: basis-sso-broker:local
     container_name: basis-sso-broker
     restart: unless-stopped
-    env_file:
-      - .env
+    env_file: [.env]
     environment:
-      ASPNETCORE_URLS: http://0.0.0.0:5080
       BASIS_SERVER_CONFIG: /basis-server-config/config.xml
       BASIS_SSO_BROKER_CONFIG_PATH: /state/appsettings.json
       BASIS_CONTROL_PLANE_STORE_PATH: /state/control-plane.json
@@ -20,23 +18,18 @@ services:
     volumes:
       - ../config:/basis-server-config:ro
       - ./broker:/state
-    networks:
-      - basis-sso
+    networks: [sso]
 
   basis-sso-admin:
     build:
-      context: ../../../../Tools/BasisSsoBroker/AdminUi
+      context: ../../../Basis/Tools/BasisSsoBroker/AdminUi
     image: basis-sso-admin:local
     container_name: basis-sso-admin
     restart: unless-stopped
-    depends_on:
-      - basis-sso-broker
+    depends_on: [basis-sso-broker]
     ports:
       - "127.0.0.1:${BASIS_SSO_GATEWAY_PORT:-5081}:8080"
-    networks:
-      - basis-sso
+    networks: [sso]
 
 networks:
-  basis-sso:
-    external: true
-    name: basis-sso
+  sso:

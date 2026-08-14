@@ -53,3 +53,7 @@ Docker/certificates/
 Docker/config/
 Docker/initialresources/
 Docker/logs/
+Docker/sso/.env
+Docker/sso/broker/appsettings.json
+Docker/sso/broker/control-plane.json
+Docker/sso/broker/client-config/
