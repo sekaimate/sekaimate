@@ -195,4 +195,9 @@ mergeInto(LibraryManager.library, {
       BasisWebOidc.publish(gameObjectName, { success: false, error: error && error.message ? error.message : String(error) });
     });
   },
+
+  BasisWebOidcHasPendingCallback__deps: ['$BasisWebOidc'],
+  BasisWebOidcHasPendingCallback: function() {
+    return sessionStorage.getItem(BasisWebOidc.callbackKey) ? 1 : 0;
+  },
 });

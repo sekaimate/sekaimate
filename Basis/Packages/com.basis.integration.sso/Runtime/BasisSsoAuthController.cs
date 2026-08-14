@@ -26,6 +26,18 @@ namespace Basis.Integration.Sso
         /// <summary>True once config has loaded and validated. When false, SSO cannot proceed.</summary>
         public static bool IsConfigured => _config != null;
 
+        public static bool HasPendingBrowserCallback
+        {
+            get
+            {
+#if UNITY_WEBGL && !UNITY_EDITOR
+                return BasisWebOidcBridge.HasPendingCallback;
+#else
+                return false;
+#endif
+            }
+        }
+
         public static string ActiveDisplayName =>
             IsSignedIn ? BasisSsoIdentityBinding.ResolveDisplayNameFromClaims(_activeProviderConfig ?? _config, Current) : null;
 

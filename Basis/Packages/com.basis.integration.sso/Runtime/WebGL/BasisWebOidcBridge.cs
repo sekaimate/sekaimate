@@ -14,6 +14,8 @@ namespace Basis.Integration.Sso
         private static BasisWebOidcReceiver receiver;
         private static TaskCompletionSource<string> pending;
 
+        public static bool HasPendingCallback => BasisWebOidcHasPendingCallback() != 0;
+
         public static Task<JObject> BeginAsync(string configJson, string prompt, CancellationToken cancellationToken)
         {
             return StartAsync(() => BasisWebOidcBegin(GameObjectName, configJson, prompt ?? string.Empty), cancellationToken);
@@ -69,6 +71,9 @@ namespace Basis.Integration.Sso
 
         [DllImport("__Internal")]
         private static extern void BasisWebOidcRefresh(string gameObjectName, string configJson, string refreshToken);
+
+        [DllImport("__Internal")]
+        private static extern int BasisWebOidcHasPendingCallback();
     }
 }
 #endif

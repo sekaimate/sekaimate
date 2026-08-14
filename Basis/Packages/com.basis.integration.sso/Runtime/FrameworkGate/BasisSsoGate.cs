@@ -188,6 +188,11 @@ namespace Basis.Integration.Sso.FrameworkGate
             {
 #if UNITY_WEBGL && !UNITY_EDITOR
                 await AddressableAssets.InitializeAsync();
+                if (BasisSsoAuthController.HasPendingBrowserCallback)
+                {
+                    BeginInteractiveSignIn();
+                    return;
+                }
 #endif
                 // 1) Try to reuse a stored session (silent renew / offline).
                 SsoAuthResult silent = await BasisSsoAuthController.InitializeAsync(_cts.Token);
