@@ -26,6 +26,11 @@ namespace Basis.Integration.Sso.FrameworkGate
         {
             BasisSsoAuthController.RuntimeConfigurationApplied -= ActivateRuntimeConfiguration;
             BasisSsoAuthController.RuntimeConfigurationApplied += ActivateRuntimeConfiguration;
+#if UNITY_WEBGL && !UNITY_EDITOR
+            GameObject loader = new GameObject("BasisSsoConfigLoader");
+            UnityEngine.Object.DontDestroyOnLoad(loader);
+            loader.AddComponent<BasisSsoConfigLoader>();
+#else
             if (!BasisSsoAuthController.EnsureConfigLoaded())
             {
                 BasisDebug.Log("[SSO] No OIDC config found; launch gate disabled.");
@@ -33,6 +38,7 @@ namespace Basis.Integration.Sso.FrameworkGate
             }
 
             ActivateConfiguredGate();
+#endif
         }
 
         /// <summary>Enables the gate after a broker-issued runtime configuration arrives.</summary>
@@ -69,6 +75,25 @@ namespace Basis.Integration.Sso.FrameworkGate
         {
             BasisConnectionService.AutoConnectAttempted = true;
         }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+        private sealed class BasisSsoConfigLoader : MonoBehaviour
+        {
+            private async void Start()
+            {
+                bool loaded = await BasisSsoAuthController.EnsureConfigLoadedAsync();
+                if (!loaded)
+                {
+                    BasisDebug.Log("[SSO] No OIDC config found; launch gate disabled.");
+                    Destroy(gameObject);
+                    return;
+                }
+
+                ActivateConfiguredGate();
+                Destroy(gameObject);
+            }
+        }
+#endif
     }
 
     /// <summary>
@@ -304,11 +329,12 @@ namespace Basis.Integration.Sso.FrameworkGate
             done?.Invoke();
         }
 
-        private System.Threading.Tasks.Task EnsureMenuReadyAsync()
+        private async System.Threading.Tasks.Task EnsureMenuReadyAsync()
         {
+            await Basis.BasisUI.AddressableAssets.InitializeAsync();
             var tcs = new System.Threading.Tasks.TaskCompletionSource<bool>();
             StartCoroutine(EnsureMenuReadyCoroutine(() => tcs.TrySetResult(true)));
-            return tcs.Task;
+            await tcs.Task;
         }
 
         private static void ShowDialog(string title, string desc, string accept, string deny, Action<bool> cb)

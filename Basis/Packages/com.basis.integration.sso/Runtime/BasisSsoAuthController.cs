@@ -47,11 +47,26 @@ namespace Basis.Integration.Sso
             if (_config != null) return true;
             _config = BasisOidcConfig.Load();
             if (_config == null) return false;
+            ConfigureLoadedConfig();
+            return true;
+        }
+
+        /// <summary>Loads streaming assets asynchronously when WebGL exposes them as browser URLs.</summary>
+        public static async Task<bool> EnsureConfigLoadedAsync(CancellationToken cancellationToken = default)
+        {
+            if (_config != null) return true;
+            _config = await BasisOidcConfig.LoadAsync(cancellationToken);
+            if (_config == null) return false;
+            ConfigureLoadedConfig();
+            return true;
+        }
+
+        private static void ConfigureLoadedConfig()
+        {
             SelectedProviderId = !string.IsNullOrEmpty(_config.DefaultProviderId)
                 ? _config.DefaultProviderId
                 : (_config.Providers != null && _config.Providers.Count > 0 ? _config.Providers[0].Id : null);
             ConfigureService(SelectedProviderId);
-            return true;
         }
 
         /// <summary>
