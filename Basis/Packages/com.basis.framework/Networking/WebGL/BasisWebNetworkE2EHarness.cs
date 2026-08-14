@@ -23,6 +23,7 @@ namespace Basis.Scripts.Networking
         private const string WebSocketParameter = "websocketUri";
         private const string PasswordParameter = "password";
         private const string UserNameParameter = "userName";
+        private const float ConnectionGateWaitSeconds = 120f;
 
         private ServerDirectoryEntry _entry;
         private string _userName;
@@ -47,6 +48,7 @@ namespace Basis.Scripts.Networking
             BasisWebNetworkE2EHarness harness = gameObject.AddComponent<BasisWebNetworkE2EHarness>();
             harness._entry = entry;
             harness._userName = userName;
+            SaveServerDirectoryEntry(entry);
             harness.Subscribe();
             harness.Report("harness-ready");
             harness.StartCoroutine(harness.ConnectWhenReady());
@@ -397,8 +399,52 @@ namespace Basis.Scripts.Networking
                 yield return null;
             }
 
+            float deadline = Time.realtimeSinceStartup + ConnectionGateWaitSeconds;
+            while (Time.realtimeSinceStartup < deadline)
+            {
+                string blockedReason = BasisConnectionService.ConnectionBlockedReason?.Invoke();
+                if (string.IsNullOrWhiteSpace(blockedReason)) break;
+                yield return null;
+            }
+
+            string remainingBlockedReason = BasisConnectionService.ConnectionBlockedReason?.Invoke();
+            if (!string.IsNullOrWhiteSpace(remainingBlockedReason))
+            {
+                Report("connect-blocked", remainingBlockedReason);
+                yield break;
+            }
+
             Report("connect-requested");
             _ = BasisConnectionService.ConnectAsync(_entry, _userName);
+        }
+
+        private static void SaveServerDirectoryEntry(ServerDirectoryEntry entry)
+        {
+            if (entry == null || string.IsNullOrWhiteSpace(entry.WebSocketUri)
+                || !Uri.TryCreate(entry.WebSocketUri, UriKind.Absolute, out Uri webSocketUri))
+            {
+                return;
+            }
+
+            List<SavedServerEntry> savedEntries = SavedServerStore.Load();
+            SavedServerEntry saved = savedEntries.Find(candidate =>
+                candidate != null && string.Equals(candidate.Id, entry.Id, StringComparison.Ordinal));
+            if (saved == null)
+            {
+                saved = new SavedServerEntry { Id = entry.Id };
+                savedEntries.Add(saved);
+            }
+
+            saved.DisplayName = entry.DisplayName;
+            saved.Address = webSocketUri.Host;
+            saved.Port = (ushort)webSocketUri.Port;
+            saved.Password = entry.Password ?? string.Empty;
+            saved.HasPassword = entry.HasPassword;
+            saved.NetworkStackId = BasisNetworkStackRegistry.WebSocketId;
+            saved.WebSocketUri = entry.WebSocketUri;
+            saved.ServerInfoUri = $"https://{webSocketUri.Authority}/server-info";
+            SavedServerStore.Save(savedEntries);
+            SavedServersDirectorySource.Instance?.NotifyChanged();
         }
 
         private IEnumerator ReportPlayerListAfterLayout()
@@ -638,8 +684,14 @@ namespace Basis.Scripts.Networking
 
             string password = ReadQueryParameter(uri.Query, PasswordParameter);
             ConnectionTarget target = new ConnectionTarget(BasisNetworkStackRegistry.DefaultId, "localhost:4296");
-            target.Set(ConnectionTarget.Keys.Address, "localhost");
-            target.Set(ConnectionTarget.Keys.Port, "4296");
+            if (!Uri.TryCreate(webSocketUri, UriKind.Absolute, out Uri parsedWebSocketUri))
+            {
+                return false;
+            }
+
+            target = new ConnectionTarget(BasisNetworkStackRegistry.WebSocketId, webSocketUri);
+            target.Set(ConnectionTarget.Keys.Address, parsedWebSocketUri.Host);
+            target.Set(ConnectionTarget.Keys.Port, parsedWebSocketUri.Port.ToString(CultureInfo.InvariantCulture));
             entry = new ServerDirectoryEntry
             {
                 Id = "__web_network_e2e__",
@@ -649,6 +701,7 @@ namespace Basis.Scripts.Networking
                 WebSocketUri = webSocketUri,
                 HasPassword = !string.IsNullOrEmpty(password),
                 Password = password,
+                ServerInfoUri = $"https://{parsedWebSocketUri.Authority}/server-info",
                 CanEdit = false,
                 CanRemove = false,
             };

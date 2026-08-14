@@ -94,7 +94,7 @@ namespace Basis.Integration.Sso
                 && string.Equals(Current.ProviderId, nextProvider.Id, StringComparison.OrdinalIgnoreCase)
                 && string.Equals(_activeProviderConfig.Issuer, nextProvider.Issuer, StringComparison.Ordinal)
                 && string.Equals(_activeProviderConfig.ClientId, nextProvider.ClientId, StringComparison.Ordinal);
-            if (!keepSession)
+            if (Current != null && !keepSession)
             {
                 Current = null;
                 BasisSsoSessionStore.Clear();

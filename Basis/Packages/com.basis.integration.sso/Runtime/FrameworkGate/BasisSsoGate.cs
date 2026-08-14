@@ -21,14 +21,16 @@ namespace Basis.Integration.Sso.FrameworkGate
     public static class BasisSsoGate
     {
         internal const string BlockedReason = "Please sign in before connecting.";
-        private static bool _activated;
+        private static bool _hooksInstalled;
+        private static bool _runnerStarted;
 
-        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         private static void Bootstrap()
         {
             BasisSsoAuthController.RuntimeConfigurationApplied -= ActivateRuntimeConfiguration;
             BasisSsoAuthController.RuntimeConfigurationApplied += ActivateRuntimeConfiguration;
 #if UNITY_WEBGL && !UNITY_EDITOR
+            InstallConnectionHooks();
             GameObject loader = new GameObject("BasisSsoConfigLoader");
             UnityEngine.Object.DontDestroyOnLoad(loader);
             loader.AddComponent<BasisSsoConfigLoader>();
@@ -52,17 +54,34 @@ namespace Basis.Integration.Sso.FrameworkGate
 
         private static void ActivateConfiguredGate()
         {
-            if (_activated) return;
-            _activated = true;
+            InstallConnectionHooks();
+            if (_runnerStarted) return;
+            _runnerStarted = true;
+            BasisSsoAccountTab.Register();
+            BasisSsoGateRunner.Begin();
+        }
+
+        private static void InstallConnectionHooks()
+        {
+            if (_hooksInstalled) return;
+            _hooksInstalled = true;
             // Block startup auto-connect and every manual/CLI connect until sign-in completes.
             BasisConnectionService.AutoConnectAttempted = true;
             BasisConnectionService.ConnectionBlockedReason = () =>
-                (BasisSsoAuthController.IsConfigured && !BasisSsoAuthController.IsSignedIn) ? BlockedReason : null;
+                !BasisSsoAuthController.IsConfigured
+                    ? "SSO configuration is loading."
+                    : (!BasisSsoAuthController.IsSignedIn ? BlockedReason : null);
             BasisConnectionService.ConnectionAuthenticationPayloadProvider = password =>
                 BasisSsoAdmissionService.CreateConnectionPayloadAsync(password);
+        }
 
-            BasisSsoAccountTab.Register();
-            BasisSsoGateRunner.Begin();
+        private static void DisableConnectionHooks()
+        {
+            if (!_hooksInstalled) return;
+            _hooksInstalled = false;
+            BasisConnectionService.AutoConnectAttempted = false;
+            BasisConnectionService.ConnectionBlockedReason = null;
+            BasisConnectionService.ConnectionAuthenticationPayloadProvider = null;
         }
 
         /// <summary>Called once sign-in succeeds: let connections through again.</summary>
@@ -95,12 +114,14 @@ namespace Basis.Integration.Sso.FrameworkGate
                     if (request.responseCode != 404)
                         BasisDebug.LogWarning($"[SSO] Failed to read streaming config '{BasisOidcConfig.StreamingPath}': {request.error}");
                     Destroy(gameObject);
+                    DisableConnectionHooks();
                     yield break;
                 }
 
                 if (!BasisSsoAuthController.ApplyRuntimeConfiguration(request.downloadHandler.text, out string error))
                 {
                     BasisDebug.LogError($"[SSO] Failed to load streaming config: {error}");
+                    DisableConnectionHooks();
                 }
                 Destroy(gameObject);
             }
