@@ -342,7 +342,6 @@ namespace Basis.Integration.Sso.FrameworkGate
 
         private async System.Threading.Tasks.Task EnsureMenuReadyAsync()
         {
-            await Basis.BasisUI.AddressableAssets.InitializeAsync();
             var tcs = new System.Threading.Tasks.TaskCompletionSource<bool>();
             StartCoroutine(EnsureMenuReadyCoroutine(() => tcs.TrySetResult(true)));
             await tcs.Task;
