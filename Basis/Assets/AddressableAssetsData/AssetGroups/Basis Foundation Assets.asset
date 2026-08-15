@@ -232,6 +232,51 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: e99c186615b9b453aae405921d0858bd
+    m_Address: Packages/com.basis.sdk/Fonts/NotoSans-Regular.ttf
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 1249df42e968946e0a0857b05089fe24
+    m_Address: Packages/com.basis.sdk/Fonts/NotoSansArabic-Regular.ttf
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: b79df4c618b154df3bd02d3964dded63
+    m_Address: Packages/com.basis.sdk/Fonts/NotoSansBengali-Regular.ttf
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 56f37ea6bd9c44ba2a815244e3e7f520
+    m_Address: Packages/com.basis.sdk/Fonts/NotoSansDevanagari-Regular.ttf
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 221b818d1d171498e93eb28101b692e4
+    m_Address: Packages/com.basis.sdk/Fonts/NotoSansThai-Regular.ttf
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 40419a5060a434515b2a1145de9456b5
+    m_Address: Packages/com.basis.sdk/Fonts/NotoSansHebrew-Regular.ttf
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 0b1105a45ee0f4429bb410be9573284c
+    m_Address: Packages/com.basis.sdk/Fonts/NotoSansKR-Regular.otf
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: f13fbd6a0f59145199534971404731ad
+    m_Address: Packages/com.basis.sdk/Fonts/NotoSansSC-Regular.otf
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 78afd7c7753a64a50aa5e3d042ba9cff
+    m_Address: Packages/com.basis.sdk/Fonts/NotoSansTC-Regular.otf
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 5ae1051fd2d154e43bd647430b08a010
     m_Address: Packages/com.basis.basisdk/Materials/VideoPlayer.mat
     m_ReadOnly: 0

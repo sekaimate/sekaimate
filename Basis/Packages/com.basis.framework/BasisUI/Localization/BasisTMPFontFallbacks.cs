@@ -20,16 +20,46 @@ namespace Basis.BasisUI
     public static class BasisTMPFontFallbacks
     {
         private const int DefaultSamplingPointSize = 90;
+        private const string UnicodeLabel = "Basis Fallback - Unicode";
+        private const string ArabicLabel = "Basis Fallback - Arabic";
+        private const string DevanagariLabel = "Basis Fallback - Devanagari";
+        private const string BengaliLabel = "Basis Fallback - Bengali";
+        private const string ThaiLabel = "Basis Fallback - Thai";
+        private const string HebrewLabel = "Basis Fallback - Hebrew";
+        private const string CyrillicLabel = "Basis Fallback - Cyrillic";
         private const string JaJpLabel = "Basis Fallback - ja-JP";
         private const string KoKrLabel = "Basis Fallback - ko-KR";
         private const string ZhHansLabel = "Basis Fallback - zh-Hans";
         private const string ZhHantLabel = "Basis Fallback - zh-Hant";
-        private const string ShippedJapaneseFontAddress = "Packages/com.basis.sdk/Fonts/NotoSansJP-Regular.ttf";
+        private const string NotoSansAddress = "Packages/com.basis.sdk/Fonts/NotoSans-Regular.ttf";
+        private const string NotoSansArabicAddress = "Packages/com.basis.sdk/Fonts/NotoSansArabic-Regular.ttf";
+        private const string NotoSansBengaliAddress = "Packages/com.basis.sdk/Fonts/NotoSansBengali-Regular.ttf";
+        private const string NotoSansDevanagariAddress = "Packages/com.basis.sdk/Fonts/NotoSansDevanagari-Regular.ttf";
+        private const string NotoSansHebrewAddress = "Packages/com.basis.sdk/Fonts/NotoSansHebrew-Regular.ttf";
+        private const string NotoSansJpAddress = "Packages/com.basis.sdk/Fonts/NotoSansJP-Regular.ttf";
+        private const string NotoSansKrAddress = "Packages/com.basis.sdk/Fonts/NotoSansKR-Regular.otf";
+        private const string NotoSansScAddress = "Packages/com.basis.sdk/Fonts/NotoSansSC-Regular.otf";
+        private const string NotoSansThaiAddress = "Packages/com.basis.sdk/Fonts/NotoSansThai-Regular.ttf";
+        private const string NotoSansTcAddress = "Packages/com.basis.sdk/Fonts/NotoSansTC-Regular.otf";
 
         private static readonly string[] CjkLabels = { JaJpLabel, KoKrLabel, ZhHansLabel, ZhHantLabel };
+        private static readonly Dictionary<string, string> ShippedFontAddresses = new(StringComparer.Ordinal)
+        {
+            [UnicodeLabel] = NotoSansAddress,
+            [CyrillicLabel] = NotoSansAddress,
+            [ArabicLabel] = NotoSansArabicAddress,
+            [BengaliLabel] = NotoSansBengaliAddress,
+            [DevanagariLabel] = NotoSansDevanagariAddress,
+            [HebrewLabel] = NotoSansHebrewAddress,
+            [JaJpLabel] = NotoSansJpAddress,
+            [KoKrLabel] = NotoSansKrAddress,
+            [ZhHansLabel] = NotoSansScAddress,
+            [ZhHantLabel] = NotoSansTcAddress,
+            [ThaiLabel] = NotoSansThaiAddress,
+        };
 
         private static bool _installed;
-        private static TMP_FontAsset _shippedJapaneseFallback;
+        private static readonly Dictionary<string, TMP_FontAsset> ShippedFallbacks = new(StringComparer.Ordinal);
 
         /// <summary>
         /// Ordered candidates for each fallback slot. Names are OS font
@@ -42,7 +72,7 @@ namespace Basis.BasisUI
         /// </summary>
         private static readonly (string Label, string[] Candidates)[] FallbackGroups = new[]
         {
-            ("Basis Fallback - zh-Hant", new[]
+            (ZhHantLabel, new[]
             {
                 // Windows
                 "Microsoft JhengHei UI",
@@ -53,7 +83,7 @@ namespace Basis.BasisUI
                 "Noto Sans CJK TC",
                 "Noto Sans TC",
             }),
-            ("Basis Fallback - zh-Hans", new[]
+            (ZhHansLabel, new[]
             {
                 // Windows
                 "Microsoft YaHei UI",
@@ -65,7 +95,7 @@ namespace Basis.BasisUI
                 "Noto Sans SC",
                 "Source Han Sans",
             }),
-            ("Basis Fallback - ko-KR", new[]
+            (KoKrLabel, new[]
             {
                 // Windows
                 "Malgun Gothic",
@@ -75,7 +105,7 @@ namespace Basis.BasisUI
                 "Noto Sans CJK KR",
                 "Noto Sans KR",
             }),
-            ("Basis Fallback - ja-JP", new[]
+            (JaJpLabel, new[]
             {
                 // Windows 10/11 (ships by default, including English SKUs)
                 "Yu Gothic UI",
@@ -91,7 +121,7 @@ namespace Basis.BasisUI
                 "Noto Sans CJK JP",
                 "Noto Sans JP",
             }),
-            ("Basis Fallback - Unicode", new[]
+            (UnicodeLabel, new[]
             {
                 "Segoe UI",
                 "Segoe UI Symbol",
@@ -105,7 +135,7 @@ namespace Basis.BasisUI
                 "Noto Sans",
                 "Roboto",
             }),
-            ("Basis Fallback - Arabic", new[]
+            (ArabicLabel, new[]
             {
                 // Windows 10/11 (Segoe UI ships Arabic, Tahoma/Arial too)
                 "Segoe UI",
@@ -135,7 +165,7 @@ namespace Basis.BasisUI
                 "Droid Arabic Naskh",
                 "Droid Sans Arabic",
             }),
-            ("Basis Fallback - Devanagari", new[]
+            (DevanagariLabel, new[]
             {
                 // Windows 10/11
                 "Nirmala UI",
@@ -157,7 +187,7 @@ namespace Basis.BasisUI
                 // Android
                 "Droid Sans Devanagari",
             }),
-            ("Basis Fallback - Bengali", new[]
+            (BengaliLabel, new[]
             {
                 // Windows 10/11
                 "Nirmala UI",
@@ -175,7 +205,7 @@ namespace Basis.BasisUI
                 // Android
                 "Droid Sans Bengali",
             }),
-            ("Basis Fallback - Thai", new[]
+            (ThaiLabel, new[]
             {
                 // Windows 10/11
                 "Leelawadee UI",
@@ -199,7 +229,7 @@ namespace Basis.BasisUI
                 // Android
                 "Droid Sans Thai",
             }),
-            ("Basis Fallback - Hebrew", new[]
+            (HebrewLabel, new[]
             {
                 // Windows 10/11
                 "Segoe UI",
@@ -221,7 +251,7 @@ namespace Basis.BasisUI
                 // Android
                 "Droid Sans Hebrew",
             }),
-            ("Basis Fallback - Cyrillic", new[]
+            (CyrillicLabel, new[]
             {
                 // Windows 10/11
                 "Segoe UI",
@@ -248,24 +278,35 @@ namespace Basis.BasisUI
 #if BASIS_DISABLE_TMP_FALLBACKS
             await Task.CompletedTask;
 #else
-            if (_shippedJapaneseFallback == null)
-            {
-                Font font = await Addressables.LoadAssetAsync<Font>(ShippedJapaneseFontAddress).Task;
-                if (font == null)
-                {
-                    throw new InvalidOperationException($"Embedded Japanese font not found at '{ShippedJapaneseFontAddress}'.");
-                }
-
-                _shippedJapaneseFallback = TMP_FontAsset.CreateFontAsset(font);
-                if (_shippedJapaneseFallback == null)
-                {
-                    throw new InvalidOperationException("CreateFontAsset returned null for the embedded Japanese font.");
-                }
-                _shippedJapaneseFallback.name = JaJpLabel;
-            }
-
+            await LoadShippedFallbacksAsync();
             InstallFallbacks();
 #endif
+        }
+
+        private static async Task LoadShippedFallbacksAsync()
+        {
+            foreach (KeyValuePair<string, string> entry in ShippedFontAddresses)
+            {
+                if (ShippedFallbacks.ContainsKey(entry.Key))
+                {
+                    continue;
+                }
+
+                Font font = await Addressables.LoadAssetAsync<Font>(entry.Value).Task;
+                if (font == null)
+                {
+                    throw new InvalidOperationException($"Embedded fallback font not found at '{entry.Value}'.");
+                }
+
+                TMP_FontAsset fontAsset = TMP_FontAsset.CreateFontAsset(font);
+                if (fontAsset == null)
+                {
+                    throw new InvalidOperationException($"CreateFontAsset returned null for '{entry.Key}'.");
+                }
+
+                fontAsset.name = entry.Key;
+                ShippedFallbacks.Add(entry.Key, fontAsset);
+            }
         }
 
         /// <summary>
@@ -293,7 +334,7 @@ namespace Basis.BasisUI
             {
                 var group = FallbackGroups[i];
 #if UNITY_WEBGL && !UNITY_EDITOR
-                if (group.Label != JaJpLabel)
+                if (!ShippedFontAddresses.ContainsKey(group.Label))
                 {
                     continue;
                 }
@@ -303,13 +344,11 @@ namespace Basis.BasisUI
                     continue;
                 }
 
-                TMP_FontAsset tmpFont = group.Label == JaJpLabel
-                    ? (GetShippedJapaneseFallback() ?? TryCreateDynamicOSFallback(group.Label, group.Candidates))
-                    : TryCreateDynamicOSFallback(group.Label, group.Candidates);
+                TMP_FontAsset tmpFont = GetShippedFallback(group.Label) ?? TryCreateDynamicOSFallback(group.Label, group.Candidates);
                 if (tmpFont != null)
                 {
                     fallbacks.Add(tmpFont);
-                    BasisDebug.Log($"[BasisTMPFontFallbacks] Installed {group.Label} using OS font family '{tmpFont.faceInfo.familyName}'.");
+                    BasisDebug.Log($"[BasisTMPFontFallbacks] Installed {group.Label} using '{tmpFont.faceInfo.familyName}'.");
                 }
                 else
                 {
@@ -331,12 +370,12 @@ namespace Basis.BasisUI
         /// </summary>
         public static TMP_FontAsset GetShippedJapaneseFallback()
         {
-            if (_shippedJapaneseFallback != null)
-            {
-                return _shippedJapaneseFallback;
-            }
+            return GetShippedFallback(JaJpLabel);
+        }
 
-            return null;
+        private static TMP_FontAsset GetShippedFallback(string label)
+        {
+            return ShippedFallbacks.TryGetValue(label, out TMP_FontAsset fontAsset) ? fontAsset : null;
         }
 
         /// <summary>
