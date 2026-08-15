@@ -157,6 +157,8 @@ namespace Basis.BasisUI
         private void SubscribeSourceEvents()
         {
             UnsubscribeSourceEvents();
+            BasisConnectionService.ConnectionStateChanged -= OnConnectionStateChanged;
+            BasisConnectionService.ConnectionStateChanged += OnConnectionStateChanged;
             BasisServerDirectoryRegistry.SourcesChanged += OnSourcesChanged;
             foreach (IServerDirectorySource source in BasisServerDirectoryRegistry.Sources)
             {
@@ -167,12 +169,23 @@ namespace Basis.BasisUI
 
         private void UnsubscribeSourceEvents()
         {
+            BasisConnectionService.ConnectionStateChanged -= OnConnectionStateChanged;
             BasisServerDirectoryRegistry.SourcesChanged -= OnSourcesChanged;
             foreach (IServerDirectorySource source in _subscribedSources)
             {
                 source.SourceChanged -= OnSourceChanged;
             }
             _subscribedSources.Clear();
+        }
+
+        private void OnConnectionStateChanged()
+        {
+            if (_panel == null || !BasisNetworkConnection.LocalPlayerIsConnected)
+            {
+                return;
+            }
+
+            _ = RefreshAllAsync();
         }
 
         private void OnSourcesChanged()

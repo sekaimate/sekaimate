@@ -234,6 +234,7 @@ namespace Basis.Scripts.Networking
 
                     BasisNetworkPlayer.OnLocalPlayerJoined?.Invoke(transmitter, BasisLocalPlayer.Instance);
                     BasisNetworkPlayer.OnPlayerJoined?.Invoke(transmitter);
+                    BasisConnectionService.NotifyConnectionStateChanged();
                 }
                 catch (Exception ex)
                 {
