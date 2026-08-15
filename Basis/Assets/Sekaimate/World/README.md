@@ -3,10 +3,10 @@
 `MinimalWalkable.unity` and the materials under `Materials/` are the source of truth. Edit the scene directly in Unity.
 
 - The active layout is a D-only, B202-inspired lecture hall. The upper entrance looks across six descending seating terraces toward the stage.
-- Four straight seating columns and five straight stair lanes form a symmetric fan. Every desk column keeps one fixed angle and is centred between its neighbouring aisles.
-- The current checkpoint has 24 variable-width desks and 68 chairs. The per-column chair schedule from the stage side is `1 / 2 / 2 / 4 / 4 / 4`.
-- The first seating terrace is the lowest floor at `y=0`; the stage top and second seating terrace are at `y=0.5`. Each later terrace rises by another `0.5` metre.
-- Furniture packages are centred front-to-back in their terrace cells with roughly `0.30` metre of visible margin on each side. The closest first-row furniture-to-stage distance is `1.10` metres.
+- Four straight seating columns and five straight stair lanes form a symmetric fan. Every desk column keeps one fixed angle and is centred between its neighbouring aisles. The centre and side stairs are `1.20` metres wide, and the two outer stairs are `1.125` metres wide.
+- The accepted layout has 20 variable-width desks and 64 chairs. The per-column chair schedule from the stage side is `0 / 2 / 2 / 4 / 4 / 4`.
+- The empty first seating terrace is the lowest floor at `y=0`; the stage top and first occupied terrace are at `y=0.5`. Each later terrace rises by another `0.5` metre.
+- Furniture packages are centred front-to-back in their terrace cells with roughly `0.30` metre of visible margin on each side. The closest occupied furniture is about `3.16` metres from the stage.
 - The stage includes a large presentation screen, an ASCII `U-PoC` placeholder, two speakers, two spotlights, and four replaceable poster surfaces on the entrance wall. Displayed content is temporary.
 - Kenney furniture and space-station props are stored under `Assets/Sekaimate/ThirdParty/Kenney/`; their source and CC0 license records live beside the imported files.
 - The rejected A/B/C concepts remain recoverable from Git history and the existing comparison evidence; they are not part of the active world.
