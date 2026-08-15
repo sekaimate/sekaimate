@@ -1,15 +1,15 @@
-# U☆PoC concept comparison world
+# U☆PoC B202 lecture hall
 
 `MinimalWalkable.unity` and the materials under `Materials/` are the source of truth. Edit the scene directly in Unity.
 
-- The shared lobby retains the three comparison concepts: prototype exhibition (A), final presentation venue (B), and virtual-first collaboration (C).
-- The east-side connector leads to the selected B202-inspired lecture hall (D). Its upper entrance looks across six descending seating terraces toward a stage roughly three metres below.
-- D v2 uses four seating blocks on every terrace: 24 long desks and 96 chairs in total. The centre and two side stair lanes remain clear.
-- The upper rear landing is 2.75 metres deep. Its connector, entrance wall, and three ceiling tiles share exact boundary coordinates so the room has no longitudinal roof gaps or coplanar overlap.
-- The D stage includes a large presentation screen, an ASCII `U*PoC 2026 / SEKAIMATE` placeholder, two speakers, two spotlights, and ten replaceable poster surfaces. The asterisk avoids a missing-glyph box in the current TMP font; displayed content is temporary.
-- The concepts intentionally share one visual language and prop set so the team can compare layout and experience instead of modeling quality.
+- The active layout is a D-only, B202-inspired lecture hall. The upper entrance looks across six descending seating terraces toward the stage.
+- Four straight seating columns and five straight stair lanes form a symmetric fan. Every desk column keeps one fixed angle and is centred between its neighbouring aisles.
+- The current checkpoint has 24 variable-width desks and 68 chairs. The per-column chair schedule from the stage side is `1 / 2 / 2 / 4 / 4 / 4`.
+- The first seating terrace is the lowest floor at `y=0`; the stage top and second seating terrace are at `y=0.5`. Each later terrace rises by another `0.5` metre.
+- Furniture packages are centred front-to-back in their terrace cells with roughly `0.30` metre of visible margin on each side. The closest first-row furniture-to-stage distance is `1.10` metres.
+- The stage includes a large presentation screen, an ASCII `U-PoC` placeholder, two speakers, two spotlights, and four replaceable poster surfaces on the entrance wall. Displayed content is temporary.
 - Kenney furniture and space-station props are stored under `Assets/Sekaimate/ThirdParty/Kenney/`; their source and CC0 license records live beside the imported files.
-- `Assets/Sekaimate/Documentation/ComparisonEvidence/` contains the original comparison views and fixed D v2 review views.
+- The rejected A/B/C concepts remain recoverable from Git history and the existing comparison evidence; they are not part of the active world.
 - The `.BEE` output remains derived local data and is never committed.
 
 ## Build and local smoke test
@@ -18,7 +18,7 @@
 2. Run `Sekaimate > UPoC > Mac用BEEを生成`.
 3. Play `Packages/com.basis.framework/Scenes/initialization.unity`.
 4. Drag the generated `.BEE` from Finder into Unity's Scene view while Play Mode is active.
-5. Open Library, select Worlds, and load `UPoC Concept Comparison Gallery` as local content.
+5. Open Library, select Worlds, and load `UPoC B202 Radial Hall` as local content.
 
 The build helper targets macOS only and temporarily uses the Standalone Mono backend to avoid the current Mac IL2CPP `Unity.Scripting` reference failure. It restores the previous build target and backend afterward.
 
