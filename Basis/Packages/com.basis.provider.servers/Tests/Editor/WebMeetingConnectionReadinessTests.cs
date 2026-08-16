@@ -4,21 +4,24 @@ namespace Basis.BasisUI.Tests
 {
     public sealed class WebMeetingConnectionReadinessTests
     {
-        [TestCase(false, true, true, true)]
-        [TestCase(true, false, true, true)]
-        [TestCase(true, true, false, true)]
-        [TestCase(true, true, true, false)]
+        [TestCase(false, true, true, true, true)]
+        [TestCase(true, false, true, true, true)]
+        [TestCase(true, true, false, true, true)]
+        [TestCase(true, true, true, false, true)]
+        [TestCase(true, true, true, true, false)]
         public void IsReady_RejectsIncompleteStartup(
             bool hasPendingRequest,
             bool networkInitialized,
             bool connectionPermitted,
-            bool localPlayerInitialized)
+            bool localPlayerInitialized,
+            bool localPlayerSetupCompleted)
         {
             bool isReady = WebMeetingConnectionReadiness.IsReady(
                 hasPendingRequest,
                 networkInitialized,
                 connectionPermitted,
-                localPlayerInitialized);
+                localPlayerInitialized,
+                localPlayerSetupCompleted);
 
             Assert.That(isReady, Is.False);
         }
@@ -30,7 +33,8 @@ namespace Basis.BasisUI.Tests
                 hasPendingRequest: true,
                 networkInitialized: true,
                 connectionPermitted: true,
-                localPlayerInitialized: true);
+                localPlayerInitialized: true,
+                localPlayerSetupCompleted: true);
 
             Assert.That(isReady, Is.True);
         }

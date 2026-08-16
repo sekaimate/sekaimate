@@ -6,12 +6,14 @@ namespace Basis.BasisUI
             bool hasPendingRequest,
             bool networkInitialized,
             bool connectionPermitted,
-            bool localPlayerInitialized)
+            bool localPlayerInitialized,
+            bool localPlayerSetupCompleted)
         {
             return hasPendingRequest
                 && networkInitialized
                 && connectionPermitted
-                && localPlayerInitialized;
+                && localPlayerInitialized
+                && localPlayerSetupCompleted;
         }
     }
 }
