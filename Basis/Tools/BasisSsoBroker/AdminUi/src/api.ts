@@ -61,8 +61,4 @@ export class ControlPlaneApi {
     return this.request<void>("/admin/organization", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(organization) });
   }
   issueInvitation(meetingId: string) { return this.request<{ url: string; meetingId: string }>(`/admin/meetings/${encodeURIComponent(meetingId)}/invitations`, { method: "POST" }); }
-  issueEnrollment(serverId: string) {
-    return this.request<{ url: string; webUrl: string; expiresInSeconds: number }>(`/admin/enrollment/${encodeURIComponent(serverId)}`,
-      { method: "POST", body: "" });
-  }
 }

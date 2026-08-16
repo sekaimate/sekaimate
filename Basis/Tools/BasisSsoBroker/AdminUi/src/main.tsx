@@ -142,7 +142,7 @@ function Page({
     <div className="control-plane-shell">
       <div className="control-plane-top-navigation">
         <TopNavigation
-          identity={{ href: "/", title: "SekaiMate Console" }}
+          identity={{ href: "/admin", title: "SekaiMate Console" }}
         />
       </div>
       <main className="control-plane-main">
@@ -273,9 +273,6 @@ function OrganizationSettings({
   const navigate = useNavigate();
   const [form, setForm] = useState<OrganizationForm>(blankForm);
   const [notice, setNotice] = useState<Notice>(null);
-  const [enrollmentUrl, setEnrollmentUrl] = useState<string | null>(null);
-  const [webEnrollmentUrl, setWebEnrollmentUrl] = useState<string | null>(null);
-  const [enrollmentIssued, setEnrollmentIssued] = useState(false);
   const [busy, setBusy] = useState(false);
   const update = <K extends keyof OrganizationForm>(
     key: K,
@@ -313,26 +310,6 @@ function OrganizationSettings({
     }
   };
 
-  const issueEnrollment = async () => {
-    setBusy(true);
-    try {
-      const result = await api.issueEnrollment("local");
-      setEnrollmentUrl(result.url);
-      setWebEnrollmentUrl(result.webUrl);
-      setEnrollmentIssued(true);
-    } catch (error) {
-      setNotice({
-        type: "error",
-        text:
-          error instanceof Error
-            ? error.message
-            : "組織設定 URL を発行できませんでした。",
-      });
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
     <Page
       notifications={
@@ -354,13 +331,6 @@ function OrganizationSettings({
           }
           actions={
             <SpaceBetween direction="horizontal" size="xs">
-              <Button
-                formAction="none"
-                onClick={() => void issueEnrollment()}
-                disabled={busy}
-              >
-                組織設定 URL を発行
-              </Button>
               <Button
                 variant="primary"
                 onClick={() => void save()}
@@ -506,8 +476,6 @@ function OrganizationSettings({
             </Container>
           </SpaceBetween>
         </Form>
-        {enrollmentUrl && <IssuedLinkCard title="組織設定 URL" description="会議に入らず、この URL を開いた端末の Basis に組織設定だけを適用します。" url={enrollmentUrl} statusText="組織設定 URL を発行しました。必要な端末で URL を開いてください。" validityText="この URL は 10 分間・一回限りです。" />}
-        {webEnrollmentUrl && <IssuedLinkCard title="Web版の組織設定 URL" description="ブラウザでWeb版Basisを開き、この端末のWeb SSO設定を適用します。Desktop版URLとは別に、どちらか一方だけ使用してください。" url={webEnrollmentUrl} statusText="Web版の組織設定 URLを発行しました。" validityText="このURLは10分間・一回限りです。" />}
       </SpaceBetween>
     </Page>
   );
