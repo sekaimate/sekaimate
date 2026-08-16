@@ -2,6 +2,7 @@
 using System;
 using System.Collections;
 using System.Globalization;
+using Basis.Network.Core;
 using UnityEngine;
 
 namespace Basis.Scripts.Networking
