@@ -1042,7 +1042,8 @@ namespace Basis.BasisUI
             string userName = _pendingWebMeetingUserName;
             _pendingWebMeetingEntry = null;
             _pendingWebMeetingUserName = null;
-            _ = ConnectToAsync(entry, isHostMode: false, userNameOverride: userName);
+            BasisLocalPlayer.Instance.ExecuteNextFrame(() =>
+                _ = ConnectToAsync(entry, isHostMode: false, userNameOverride: userName));
         }
 
         private async Task ConnectToAsync(ServerDirectoryEntry entry, bool isHostMode = false, string userNameOverride = null)
