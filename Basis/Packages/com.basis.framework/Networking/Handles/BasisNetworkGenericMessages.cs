@@ -424,49 +424,66 @@ public static class BasisNetworkGenericMessages
         }
     }
     
-    public static async Task LoadResourceMessage(NetPacketReader reader, DeliveryMethod Method)
+    public static async Task LoadResourceMessage(LocalLoadResource localLoadResource, DeliveryMethod Method)
     {
-        LocalLoadResource LocalLoadResource = new LocalLoadResource();
-        LocalLoadResource.Deserialize(reader);
-
         try
         {
+            BasisDebug.Log(
+                $"Received server resource: mode={localLoadResource.Mode}, strategy={localLoadResource.LoadStrategy}, " +
+                $"netId={localLoadResource.LoadedNetID}, url={localLoadResource.CombinedURL}",
+                BasisDebug.LogTag.Networking);
+
+            BasisDebug.Log(
+                $"Waiting for local player connection before loading resource: netId={localLoadResource.LoadedNetID}",
+                BasisDebug.LogTag.Networking);
             if (!await WaitForLocalPlayerConnectionAsync())
             {
+                BasisDebug.LogWarning(
+                    $"Local player connection wait ended without readiness: netId={localLoadResource.LoadedNetID}");
                 return;
             }
+            BasisDebug.Log(
+                $"Local player connection ready; continuing resource load: netId={localLoadResource.LoadedNetID}",
+                BasisDebug.LogTag.Networking);
 
             // Check the load strategy before spawning
-            switch (LocalLoadResource.LoadStrategy)
+            switch (localLoadResource.LoadStrategy)
             {
                 case 2: // Synchronized - download, report readiness, wait for spawn signal
-                    await BasisNetworkPreloadManager.HandleSynchronizedPreload(LocalLoadResource);
+                    await BasisNetworkPreloadManager.HandleSynchronizedPreload(localLoadResource);
                     return;
                 case 3: // Predownload only - cache to disc, never spawn, never report readiness
-                    await BasisNetworkPreloadManager.HandlePredownload(LocalLoadResource);
+                    await BasisNetworkPreloadManager.HandlePredownload(localLoadResource);
                     return;
             }
 
             // LoadStrategy 0 (Immediate) - existing behavior
-            switch (LocalLoadResource.Mode)
+            switch (localLoadResource.Mode)
             {
                 case 0:
-                    await BasisNetworkSpawnItem.SpawnGameObject(LocalLoadResource, BundledContentHolder.Selector.Prop);
+                    await BasisNetworkSpawnItem.SpawnGameObject(localLoadResource, BundledContentHolder.Selector.Prop);
                     break;
                 case 1:
-                    await BasisNetworkSpawnItem.SpawnScene(LocalLoadResource);
+                    await BasisNetworkSpawnItem.SpawnScene(localLoadResource);
                     break;
                 case 2:
-                    await BasisNetworkSpawnItem.SpawnGameObject(LocalLoadResource, BundledContentHolder.Selector.Avatar);
+                    await BasisNetworkSpawnItem.SpawnGameObject(localLoadResource, BundledContentHolder.Selector.Avatar);
                     break;
                 default:
-                    BNL.LogError($"tried to Load Mode {LocalLoadResource.Mode}");
+                    BNL.LogError($"tried to Load Mode {localLoadResource.Mode}");
                     break;
             }
         }
         catch (OperationCanceledException)
         {
-            BasisDebug.Log($"Load cancelled for {LocalLoadResource.LoadedNetID} (disconnected)", BasisDebug.LogTag.Networking);
+            BasisDebug.Log($"Load cancelled for {localLoadResource.LoadedNetID} (disconnected)", BasisDebug.LogTag.Networking);
+        }
+        catch (Exception ex)
+        {
+            BasisDebug.LogError(
+                $"Server resource load failed: netId={localLoadResource.LoadedNetID}, " +
+                $"url={localLoadResource.CombinedURL}, error={ex}",
+                BasisDebug.LogTag.Networking);
         }
     }
 

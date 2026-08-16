@@ -35,7 +35,6 @@ namespace Basis.Scripts.Networking
             {
                 return;
             }
-            BasisConnectionService.AutoConnectAttempted = true;
             BasisConnectionService.RequestWebMeetingConnection(entry, userName);
         }
 

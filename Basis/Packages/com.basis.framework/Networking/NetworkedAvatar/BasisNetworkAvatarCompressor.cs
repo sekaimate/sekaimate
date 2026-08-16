@@ -135,6 +135,20 @@ namespace Basis.Scripts.Networking.NetworkedAvatar
         /// </summary>
         public static void ForceUplinkKeyframe() => sUplinkForceKeyframe = true;
 
+        /// <summary>
+        /// Marks the local pose as changed after a scene spawn/teleport. URL joins can connect
+        /// before the server-provided world arrives, so the initial ready packet may contain the
+        /// loading-scene position. The next network tick must publish the post-spawn world pose,
+        /// even when the avatar itself is otherwise idle.
+        /// </summary>
+        public static void RequestPoseResync()
+        {
+            sHasLastSent = false;
+            sHasRawLastSent = false;
+            sRawCaptured = false;
+            sUplinkForceKeyframe = true;
+        }
+
         // Cached array for additional avatar data — avoids .ToArray() allocation per frame.
         static AdditionalAvatarData[] sCachedAdditionalData;
 

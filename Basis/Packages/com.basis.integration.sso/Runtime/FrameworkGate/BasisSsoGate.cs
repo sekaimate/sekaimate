@@ -27,6 +27,11 @@ namespace Basis.Integration.Sso.FrameworkGate
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         private static void Bootstrap()
         {
+            // Register the Account tab before the Settings UI builds its tab list.
+            // Runtime enrollment can arrive after the menu is already available;
+            // delaying registration until the config is applied makes the tab
+            // disappear for that first session even though sign-in succeeded.
+            BasisSsoAccountTab.Register();
             BasisSsoAuthController.RuntimeConfigurationApplied -= ActivateRuntimeConfiguration;
             BasisSsoAuthController.RuntimeConfigurationApplied += ActivateRuntimeConfiguration;
 #if UNITY_WEBGL && !UNITY_EDITOR
@@ -57,7 +62,6 @@ namespace Basis.Integration.Sso.FrameworkGate
             InstallConnectionHooks();
             if (_runnerStarted) return;
             _runnerStarted = true;
-            BasisSsoAccountTab.Register();
             BasisSsoGateRunner.Begin();
         }
 
