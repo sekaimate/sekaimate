@@ -1,4 +1,5 @@
 [tools]
+node="latest"
 pnpm = "11"
 
 [tasks."build:web:dev"]
@@ -24,6 +25,22 @@ run = 'docker compose -f "Basis Server/Docker/docker-compose.yml" -f "Basis Serv
 [tasks."server:logs"]
 description = "Follow local Basis Server logs"
 run = 'docker compose -f "Basis Server/Docker/docker-compose.yml" -f "Basis Server/Docker/docker-compose.local-web.yml" logs -f basis-server'
+
+[tasks."admin:up"]
+description = "Build and start the SSO Broker and Admin UI"
+run = 'docker compose -f "Basis Server/Docker/sso/docker-compose.yml" up -d --build'
+
+[tasks."admin:down"]
+description = "Stop the SSO Broker and Admin UI"
+run = 'docker compose -f "Basis Server/Docker/sso/docker-compose.yml" down'
+
+[tasks."admin:logs"]
+description = "Follow SSO Broker and Admin UI logs"
+run = 'docker compose -f "Basis Server/Docker/sso/docker-compose.yml" logs -f'
+
+[tasks."admin:ui"]
+description = "Run the SSO Admin UI development server"
+run = "cd 'Basis/Tools/BasisSsoBroker/AdminUi' && vp run dev"
 
 [tasks.dev]
 description = "Build WebGL, start Basis Server, and serve the Web client"
