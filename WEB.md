@@ -1,6 +1,6 @@
 # Webビルド
 
-Unity 6000.5.2f1のWebGLモジュールを導入したmacOS環境で、リポジトリのルートから次を実行します。
+Unity 6000.5.3f1のWebGLモジュールを導入したmacOS環境で、リポジトリのルートから次を実行します。
 
 ```sh
 ./tools/build-web.sh
@@ -15,6 +15,35 @@ Unity 6000.5.2f1のWebGLモジュールを導入したmacOS環境で、リポジ
 既存の指定出力ディレクトリだけを置き換えます。Unityの`Library`キャッシュは削除しません。同じ出力先を繰り返し使うことで、古いWebGL成果物を残しません。
 
 Unity Hub以外へUnityを導入している場合は、実行ファイルを`BASIS_UNITY_EXECUTABLE`で指定します。ビルド入口はWebGLへ切り替えてからAddressablesとRelease Playerを生成し、配布に必要なHTML、JavaScript、WebAssembly、データ、TemplateData、Addressablesを検査します。不完全な出力は成功扱いになりません。
+
+## 高速な開発用ビルド
+
+開発中は、Addressablesを毎回再ビルドしないDevelopment Buildを使用できます。Addressablesのアセットを変更した場合だけ通常ビルドを実行してください。
+
+初回だけ通常ビルドを実行してAddressablesの成果物を作成します。
+
+```sh
+mise run web
+```
+
+```sh
+mise run web-dev
+mise run web-serve
+```
+
+`mise`を使う場合は、次のタスクも利用できます。
+
+```sh
+mise run web-dev       # 高速開発ビルド
+mise run server-up     # WebSocket対応Basis Serverを起動
+mise run web-serve     # Web版とBEEを配信
+mise run server-logs   # Serverログを表示
+mise run server-down   # Serverを停止
+```
+
+全部を順番に起動する場合は`mise run dev`を使用します。配信中はそのターミナルを終了せず、ブラウザーで`http://127.0.0.1:4173/`を開いてください。
+
+開発用の出力先は`Build/WebDev`です。既存の出力を削除せずに再利用し、ワールドBEEは`Build/Web/BEE/world.BEE`から自動的に配置します。通常のリリース用ビルドは従来どおり`./tools/build-web.sh`を使用します。
 
 ## ブラウザでの実行
 

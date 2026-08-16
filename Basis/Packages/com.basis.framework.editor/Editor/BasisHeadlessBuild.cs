@@ -26,24 +26,29 @@ public static class BasisHeadlessBuild
 
     public static void BuildWeb()
     {
-        BuildWeb(false);
+        BuildWeb(false, buildAddressables: true, allowExistingOutput: false);
     }
 
     public static void BuildWebE2E()
     {
-        BuildWeb(true);
+        BuildWeb(true, buildAddressables: true, allowExistingOutput: false);
     }
 
-    private static void BuildWeb(bool developmentBuild)
+    public static void BuildWebDev()
+    {
+        BuildWeb(true, buildAddressables: false, allowExistingOutput: true);
+    }
+
+    private static void BuildWeb(bool developmentBuild, bool buildAddressables, bool allowExistingOutput)
     {
         string buildPath = RequireArgument("customBuildPath");
-        if (Directory.Exists(buildPath) && Directory.EnumerateFileSystemEntries(buildPath).Any())
+        if (!allowExistingOutput && Directory.Exists(buildPath) && Directory.EnumerateFileSystemEntries(buildPath).Any())
         {
             throw new BuildFailedException($"Web build output directory must be empty: {buildPath}");
         }
 
         EnsureActiveBuildTarget(BuildTarget.WebGL);
-        BuildPlayer(BuildTarget.WebGL, CreateWebBuildPlayerOptions(buildPath, developmentBuild));
+        BuildPlayer(BuildTarget.WebGL, CreateWebBuildPlayerOptions(buildPath, developmentBuild), buildAddressables);
     }
 
     public static BuildPlayerOptions CreateWebBuildPlayerOptions(string buildPath, bool developmentBuild = false)
@@ -89,7 +94,7 @@ public static class BasisHeadlessBuild
         BuildPlayer(target, options);
     }
 
-    private static void BuildPlayer(BuildTarget target, BuildPlayerOptions options)
+    private static void BuildPlayer(BuildTarget target, BuildPlayerOptions options, bool buildAddressables = true)
     {
         string projectPath = GetArgument("projectPath") ?? Directory.GetCurrentDirectory();
 
@@ -113,12 +118,12 @@ public static class BasisHeadlessBuild
         {
             originalBuildAddressablesWithPlayerBuild = addressableSettings.BuildAddressablesWithPlayerBuild;
             restoreBuildAddressablesWithPlayerBuild = true;
-            if (ShouldBuildAddressablesWithPlayerBuild(originalBuildAddressablesWithPlayerBuild))
+            if (buildAddressables && ShouldBuildAddressablesWithPlayerBuild(originalBuildAddressablesWithPlayerBuild))
             {
                 BuildAddressables(target, addressableSettings);
             }
             addressableSettings.BuildAddressablesWithPlayerBuild = AddressableAssetSettings.PlayerBuildOption.DoNotBuildWithPlayer;
-            Debug.Log($"[BasisHeadlessBuild] Overriding BuildAddressablesWithPlayerBuild: {originalBuildAddressablesWithPlayerBuild} -> {addressableSettings.BuildAddressablesWithPlayerBuild}");
+            Debug.Log($"[BasisHeadlessBuild] Addressables player build: requested={buildAddressables}, preference={originalBuildAddressablesWithPlayerBuild}, effective={addressableSettings.BuildAddressablesWithPlayerBuild}");
         }
         else
         {

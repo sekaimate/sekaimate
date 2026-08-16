@@ -5,6 +5,10 @@
 [Bb]in/
 [Oo]bj/
 
+# Local WebGL builds and downloaded BEE fixtures
+/Build/
+/.env.local
+
 # Nix stuff
 .direnv/
 .envrc
