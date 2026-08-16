@@ -101,6 +101,7 @@ public static class BasisBeeManagement
         var (IsMetaOnDisc, MetaInfo) = await BasisLoadHandler.IsMetaDataOnDiscAsync(beeLocation);
         bool didForceRedownload = false;
         bool shouldUseOnDiskMeta = IsMetaOnDisc;
+        bool cacheIsCurrent = false;
 
         if (shouldUseOnDiskMeta && !HasCompatibleDownloadedPlatform(MetaInfo) && !string.IsNullOrEmpty(MetaInfo.DownloadedPlatform))
         {
@@ -112,11 +113,37 @@ public static class BasisBeeManagement
         {
             shouldUseOnDiskMeta = false;
         }
+        else if (shouldUseOnDiskMeta)
+        {
+            cacheIsCurrent = true;
+        }
+
+        BasisDebug.Log(
+            $"BEE cache decision: metaFound={IsMetaOnDisc}, useOnDiskMeta={shouldUseOnDiskMeta}, " +
+            $"cacheIsCurrent={cacheIsCurrent}, cachedPlatform={MetaInfo?.DownloadedPlatform}, " +
+            $"cachedVersion={MetaInfo?.CachedVersionTag}, requestedVersion={wrapper?.LoadableBundle?.BasisRemoteBundleEncrypted?.RemoteVersionTag}, " +
+            $"storedBee={MetaInfo?.StoredLocal?.DownloadedBeeFileLocation}, " +
+            $"storedConnector={MetaInfo?.StoredLocal?.DownloadedConnectorFileLocation}",
+            BasisDebug.LogTag.Event);
 
         (BasisBundleGenerated, byte[], string) output;
         if (shouldUseOnDiskMeta)
         {
             output = await BasisBundleManagement.LocalLoadBundleConnector(wrapper, MetaInfo.StoredLocal, report, cancellationToken);
+
+            // A cached metadata file can outlive a partially written/corrupted BEE
+            // payload (especially on WebGL/IDBFS). Treat any cached read failure as
+            // stale cache and recover once through the remote download path.
+            if (output.Item1 == null || output.Item2 == null || output.Item2.Length == 0 || !string.IsNullOrEmpty(output.Item3))
+            {
+                BasisDebug.Log(
+                    $"Cached BEE payload is invalid; forcing one re-download. error={output.Item3}",
+                    BasisDebug.LogTag.Event);
+                BasisContentVersion.Invalidate(beeLocation);
+                shouldUseOnDiskMeta = false;
+                didForceRedownload = true;
+                output = await BasisBundleManagement.DownloadLoadBundleConnector(wrapper, report, cancellationToken, MaxDownloadSizeInBytes);
+            }
         }
         else
         {
@@ -146,7 +173,7 @@ public static class BasisBeeManagement
         if(output.Item2 == null || output.Item2.Length == 0)
         {
             //lets force download it again. this guards against partial file, corrupt file or reattempt at downloading if it fails.
-            BasisDebug.Log("Local load returned null section data, forcing re-download", BasisDebug.LogTag.Event);
+            BasisDebug.Log("BEE load returned null section data, forcing re-download", BasisDebug.LogTag.Event);
             output = await BasisBundleManagement.DownloadLoadBundleConnector(wrapper, report, cancellationToken, MaxDownloadSizeInBytes);
             didForceRedownload = true;
         }
@@ -155,6 +182,10 @@ public static class BasisBeeManagement
         {
             throw new Exception($"Bundle load failed for {wrapper?.LoadableBundle?.BasisRemoteBundleEncrypted?.RemoteBeeFileLocation ?? "unknown"}: {output.Item3}");
         }
+        BasisDebug.Log(
+            $"BEE payload ready: connector={output.Item1 != null}, sectionBytes={output.Item2?.Length ?? 0}, " +
+            $"assetToLoad={output.Item1.AssetToLoadName}, crc={output.Item1.AssetBundleCRC}",
+            BasisDebug.LogTag.Event);
         // Generic (glTF) fallback section: no AssetBundle exists for this platform, the bytes
         // are an encrypted glb. Build the template instead of an AssetBundle, with the same
         // cache-refresh retry the bundle path gets for stale cached bytes.
@@ -184,7 +215,9 @@ public static class BasisBeeManagement
                 throw new Exception($"Generic (glTF) avatar template creation failed for {wrapper?.LoadableBundle?.BasisRemoteBundleEncrypted?.RemoteBeeFileLocation ?? "unknown"}.");
             }
 
+            BasisDebug.Log("Saving BEE cache metadata after AssetBundle generation.", BasisDebug.LogTag.Event);
             await SaveMetaIfNeeded(wrapper, shouldUseOnDiskMeta, didForceRedownload, output.Item1.Platform);
+            BasisDebug.Log("BEE cache metadata save completed.", BasisDebug.LogTag.Event);
             return;
         }
         IEnumerable<AssetBundle> AssetBundles = AssetBundle.GetAllLoadedAssetBundles();
@@ -212,7 +245,9 @@ public static class BasisBeeManagement
         BasisDebug.Log("Calling Load Request", BasisDebug.LogTag.System);
         try
         {
+            BasisDebug.Log("Generating AssetBundle from downloaded BEE payload.", BasisDebug.LogTag.Event);
             AssetBundle assetBundle = await BasisEncryptionToData.GenerateBundleFromFile(wrapper.LoadableBundle.UnlockPassword, output.Item2, output.Item1.AssetBundleCRC, report);
+            BasisDebug.Log($"AssetBundle generation returned: loaded={assetBundle != null}", BasisDebug.LogTag.Event);
             if (assetBundle == null)
             {
                 if (shouldUseOnDiskMeta && !didForceRedownload)

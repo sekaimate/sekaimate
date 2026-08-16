@@ -29,6 +29,10 @@ public static class BasisBundleManagement
         }
 
         BasisIOManagement.BeeDownloadResult bee = result.Value;
+        BasisDebug.Log(
+            $"Web BEE download completed: path={bee.LocalPath}, connector={bee.Connector != null}, " +
+            $"sectionBytes={bee.SectionData?.Length ?? 0}, version={bee.ObservedVersionTag}",
+            BasisDebug.LogTag.Event);
 
         if (string.IsNullOrWhiteSpace(bee.LocalPath))
         {
@@ -57,6 +61,10 @@ public static class BasisBundleManagement
         {
             return (null, null, "Connector loaded, but " + pfErr + " (platform=" + Application.platform + ").");
         }
+        BasisDebug.Log(
+            $"Web BEE platform section resolved: platform={generated.Platform}, bytes={bee.SectionData.Length}, " +
+            $"assetToLoad={generated.AssetToLoadName}, crc={generated.AssetBundleCRC}",
+            BasisDebug.LogTag.Event);
 
         return (generated, bee.SectionData, string.Empty);
     }

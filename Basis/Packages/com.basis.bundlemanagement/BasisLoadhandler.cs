@@ -655,6 +655,7 @@ public static class BasisLoadHandler
         OnDiscData[discKey] = discInfo;
         string filePath = BasisIOManagement.GetMetaCacheFilePath(discInfo.UniqueVersion, discInfo.DownloadedPlatform);
         byte[] serializedData = BasisSerialization.SerializeValue(discInfo);
+        BasisDebug.Log($"Writing BEE cache metadata: path={filePath}, bytes={serializedData?.Length ?? 0}", BasisDebug.LogTag.Event);
 
         try
         {
@@ -672,6 +673,7 @@ public static class BasisLoadHandler
 #else
             await File.WriteAllBytesAsync(tempPath, serializedData);
 #endif
+            BasisDebug.Log($"BEE cache metadata bytes written: path={tempPath}", BasisDebug.LogTag.Event);
             if (File.Exists(filePath))
             {
                 File.Replace(tempPath, filePath, null);
