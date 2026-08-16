@@ -1014,22 +1014,28 @@ namespace Basis.BasisUI
             BasisNetworkManagement.OnIstanceCreated += TryStartWebMeetingConnection;
             BasisConnectionService.ConnectionPermissionChanged -= TryStartWebMeetingConnection;
             BasisConnectionService.ConnectionPermissionChanged += TryStartWebMeetingConnection;
+            BasisLocalPlayer.OnLocalPlayerInitialized -= TryStartWebMeetingConnection;
+            BasisLocalPlayer.OnLocalPlayerInitialized += TryStartWebMeetingConnection;
             TryStartWebMeetingConnection();
         }
 
         private void TryStartWebMeetingConnection()
         {
-            if (_pendingWebMeetingEntry == null || !BasisNetworkManagement.IsInitialized)
-            {
-                return;
-            }
-            if (!string.IsNullOrWhiteSpace(BasisConnectionService.ConnectionBlockedReason?.Invoke()))
+            bool connectionPermitted = string.IsNullOrWhiteSpace(
+                BasisConnectionService.ConnectionBlockedReason?.Invoke());
+            bool localPlayerInitialized = BasisLocalPlayer.PlayerReady && BasisLocalPlayer.Instance != null;
+            if (!WebMeetingConnectionReadiness.IsReady(
+                _pendingWebMeetingEntry != null,
+                BasisNetworkManagement.IsInitialized,
+                connectionPermitted,
+                localPlayerInitialized))
             {
                 return;
             }
 
             BasisNetworkManagement.OnIstanceCreated -= TryStartWebMeetingConnection;
             BasisConnectionService.ConnectionPermissionChanged -= TryStartWebMeetingConnection;
+            BasisLocalPlayer.OnLocalPlayerInitialized -= TryStartWebMeetingConnection;
             ServerDirectoryEntry entry = _pendingWebMeetingEntry;
             string userName = _pendingWebMeetingUserName;
             _pendingWebMeetingEntry = null;
