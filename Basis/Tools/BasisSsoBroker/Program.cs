@@ -281,13 +281,10 @@ app.MapGet("/enroll/{token}/web-config", (string token, HttpContext http, IOptio
     string? serverId = enrollments.Take(token);
     if (serverId == null) return Results.Content("This Basis SSO setup link has expired or was already used.", "text/plain; charset=utf-8", statusCode: 410);
     BrokerServerOptions? server = broker.FindServer(serverId);
-    MeetingRecord? meeting = meetings.Find(serverId);
     if (server == null) return Results.Problem("Broker server is not configured.", statusCode: 503);
     IReadOnlyList<ProviderOptions> providers = broker.GetOrganization().Providers is { Count: > 0 }
         ? broker.GetOrganization().Providers : server.Providers ?? [];
-    string publicKey = meeting?.TransportPublicKey ?? server.EffectiveTransportPublicKey;
-    if (string.IsNullOrWhiteSpace(publicKey)) return Results.Problem("Broker transport configuration is incomplete.", statusCode: 503);
-    return Results.Json(CreateWebClientConfiguration(http, broker, server, providers, publicKey));
+    return Results.Json(CreateWebClientConfiguration(http, broker, server, providers, enrollmentOnly: true));
 });
 app.MapGet("/enroll/{token}/config", (string token, HttpContext http, IOptions<BrokerOptions> options, EnrollmentStore enrollments, MeetingStore meetings) =>
 {
@@ -606,14 +603,17 @@ static object CreateClientConfiguration(HttpContext http, BrokerOptions broker, 
 }
 
 static object CreateWebClientConfiguration(HttpContext http, BrokerOptions broker, BrokerServerOptions server,
-    IReadOnlyList<ProviderOptions> providers, string? publicKeyOverride = null)
+    IReadOnlyList<ProviderOptions> providers, string? publicKeyOverride = null, bool enrollmentOnly = false)
 {
     OrganizationOptions organization = broker.GetOrganization();
     return new
     {
         defaultProviderId = providers.Any(provider => string.Equals(provider.Id, organization.DefaultProviderId, StringComparison.Ordinal))
             ? organization.DefaultProviderId : providers[0].Id,
-        serverTransport = TransportConfig(http, broker, publicKeyOverride ?? server.EffectiveTransportPublicKey, server.Id!),
+        organizationEnrollment = enrollmentOnly,
+        serverTransport = enrollmentOnly
+            ? new { serverPublicKey = "", admissionEndpoint = "" }
+            : TransportConfig(http, broker, publicKeyOverride ?? server.EffectiveTransportPublicKey, server.Id!),
         providers = providers.Select(provider => new
         {
             id = provider.Id,

@@ -32,6 +32,7 @@ namespace Basis.Integration.Sso
         [JsonProperty("defaultProviderId")] public string DefaultProviderId = string.Empty;
         /// <summary>Public key pinned for the SSO server transport. It is never a private OAuth secret.</summary>
         [JsonProperty("serverTransport")] public ServerTransportConfig ServerTransport = new ServerTransportConfig();
+        [JsonProperty("organizationEnrollment")] public bool OrganizationEnrollment;
 
         [JsonProperty("issuer")] public string Issuer = string.Empty;
         [JsonProperty("clientId")] public string ClientId = string.Empty;
@@ -157,6 +158,11 @@ namespace Basis.Integration.Sso
                     return false;
                 }
                 if (!ValidateRedirect(Providers, out error)) return false;
+                if (OrganizationEnrollment)
+                {
+                    error = null;
+                    return true;
+                }
                 if (ServerTransport == null || string.IsNullOrWhiteSpace(ServerTransport.ServerPublicKey))
                 {
                     error = "OIDC config: serverTransport.serverPublicKey is required when SSO providers are configured.";
