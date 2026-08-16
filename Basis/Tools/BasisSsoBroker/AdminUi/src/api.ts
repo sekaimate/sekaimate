@@ -62,7 +62,7 @@ export class ControlPlaneApi {
   }
   issueInvitation(meetingId: string) { return this.request<{ url: string; meetingId: string }>(`/admin/meetings/${encodeURIComponent(meetingId)}/invitations`, { method: "POST" }); }
   issueEnrollment(serverId: string) {
-    return this.request<{ url: string; expiresInSeconds: number }>(`/admin/enrollment/${encodeURIComponent(serverId)}`,
+    return this.request<{ url: string; webUrl: string; expiresInSeconds: number }>(`/admin/enrollment/${encodeURIComponent(serverId)}`,
       { method: "POST", body: "" });
   }
 }

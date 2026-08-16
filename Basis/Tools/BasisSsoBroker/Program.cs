@@ -244,7 +244,8 @@ app.MapPost("/admin/enrollment/{serverId}", (string serverId, HttpContext http, 
     if (!AdminAuthorized(http, broker)) return Results.Unauthorized();
     if (broker.FindServer(serverId) == null) return Results.NotFound();
     string token = enrollments.Issue(serverId);
-    return Results.Ok(new { url = $"{RequestOrigin(http, broker)}/enroll/{token}", expiresInSeconds = 600 });
+    string baseUrl = $"{RequestOrigin(http, broker)}/enroll/{token}";
+    return Results.Ok(new { url = baseUrl, webUrl = baseUrl + "/web", expiresInSeconds = 600 });
 });
 app.MapGet("/enroll/{token}", (string token, HttpContext http, IOptions<BrokerOptions> options, EnrollmentStore enrollments) =>
 {
@@ -261,6 +262,31 @@ app.MapGet("/enroll/{token}", (string token, HttpContext http, IOptions<BrokerOp
 <p class="hint">設定 URL は 10 分間・一回限りです。送信後は Basis に戻ってログインしてください。</p></section></main>
 """;
     return Results.Content(page, "text/html; charset=utf-8");
+});
+app.MapGet("/enroll/{token}/web", (string token, HttpContext http, IOptions<BrokerOptions> options, EnrollmentStore enrollments) =>
+{
+    if (!enrollments.Exists(token)) return Results.Content("This Basis SSO setup link has expired.", "text/plain; charset=utf-8", statusCode: 410);
+    string? webOrigin = options.Value.AllowedWebOrigins?.Select(origin => origin?.Trim().TrimEnd('/'))
+        .FirstOrDefault(origin => Uri.TryCreate(origin, UriKind.Absolute, out Uri? uri)
+            && (uri.Scheme == Uri.UriSchemeHttps || (uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback))
+            && !string.IsNullOrWhiteSpace(uri.Host));
+    if (string.IsNullOrWhiteSpace(webOrigin)) return Results.Problem("No WebGL origin is configured.", statusCode: 503);
+    string configUrl = $"{RequestOrigin(http, options.Value)}/enroll/{Uri.EscapeDataString(token)}/web-config";
+    return Results.Redirect($"{webOrigin}/?basisEnrollment=1&configUrl={Uri.EscapeDataString(configUrl)}");
+});
+app.MapGet("/enroll/{token}/web-config", (string token, HttpContext http, IOptions<BrokerOptions> options, EnrollmentStore enrollments, MeetingStore meetings) =>
+{
+    string? serverId = enrollments.Take(token);
+    if (serverId == null) return Results.Content("This Basis SSO setup link has expired or was already used.", "text/plain; charset=utf-8", statusCode: 410);
+    BrokerOptions broker = options.Value;
+    BrokerServerOptions? server = broker.FindServer(serverId);
+    MeetingRecord? meeting = meetings.Find(serverId);
+    if (server == null) return Results.Problem("Broker server is not configured.", statusCode: 503);
+    IReadOnlyList<ProviderOptions> providers = broker.GetOrganization().Providers is { Count: > 0 }
+        ? broker.GetOrganization().Providers : server.Providers ?? [];
+    string publicKey = meeting?.TransportPublicKey ?? server.EffectiveTransportPublicKey;
+    if (string.IsNullOrWhiteSpace(publicKey)) return Results.Problem("Broker transport configuration is incomplete.", statusCode: 503);
+    return Results.Json(CreateWebClientConfiguration(http, broker, server, providers, publicKey));
 });
 app.MapGet("/enroll/{token}/config", (string token, HttpContext http, IOptions<BrokerOptions> options, EnrollmentStore enrollments, MeetingStore meetings) =>
 {
@@ -565,14 +591,14 @@ static object CreateClientConfiguration(HttpContext http, BrokerOptions broker, 
 }
 
 static object CreateWebClientConfiguration(HttpContext http, BrokerOptions broker, BrokerServerOptions server,
-    IReadOnlyList<ProviderOptions> providers)
+    IReadOnlyList<ProviderOptions> providers, string? publicKeyOverride = null)
 {
     OrganizationOptions organization = broker.GetOrganization();
     return new
     {
         defaultProviderId = providers.Any(provider => string.Equals(provider.Id, organization.DefaultProviderId, StringComparison.Ordinal))
             ? organization.DefaultProviderId : providers[0].Id,
-        serverTransport = TransportConfig(http, broker, server.EffectiveTransportPublicKey, server.Id!),
+        serverTransport = TransportConfig(http, broker, publicKeyOverride ?? server.EffectiveTransportPublicKey, server.Id!),
         providers = providers.Select(provider => new
         {
             id = provider.Id,
