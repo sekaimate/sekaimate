@@ -472,17 +472,15 @@ public static class BasisNetworkGenericMessages
 
     private static async Task<bool> WaitForLocalPlayerConnectionAsync()
     {
-        while (!BasisNetworkConnection.LocalPlayerIsConnected)
+        try
         {
-            if (BasisNetworkConnection.LocalPlayerPeer == null)
-            {
-                return false;
-            }
-
-            await Task.Yield();
+            await BasisNetworkConnection.WaitForLocalPlayerConnectionAsync();
+            return true;
         }
-
-        return true;
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
     }
 
     /// <summary>

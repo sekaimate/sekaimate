@@ -25,6 +25,7 @@ namespace Basis.Scripts.Networking
         public static NetworkClient NetworkClient { get; set; } = new NetworkClient();
         public static bool LocalPlayerIsConnected { get; set; }
         public static BasisNetworkServerRunner BasisNetworkServerRunner = null;
+        private static TaskCompletionSource<bool> _localPlayerConnectionReady = CreateLocalPlayerConnectionReady();
 #if UNITY_SERVER
         public static bool HeadlessReconnectSuppressed { get; set; }
         public static Action<DisconnectInfo> OnDisconnectedAfterReboot;
@@ -32,6 +33,21 @@ namespace Basis.Scripts.Networking
         private static void LogErrorOutput(string msg) => BasisDebug.LogError(msg, BasisDebug.LogTag.Networking);
         private static void LogWarningOutput(string msg) => BasisDebug.LogWarning(msg);
         private static void LogOutput(string msg) => BasisDebug.Log(msg, BasisDebug.LogTag.Networking);
+        private static TaskCompletionSource<bool> CreateLocalPlayerConnectionReady() =>
+            new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public static Task WaitForLocalPlayerConnectionAsync() => _localPlayerConnectionReady.Task;
+
+        public static void PrepareForConnection()
+        {
+            _localPlayerConnectionReady = CreateLocalPlayerConnectionReady();
+        }
+
+        public static void CancelLocalPlayerConnectionWaiters()
+        {
+            _localPlayerConnectionReady.TrySetCanceled();
+        }
+
         public static bool TryGetLocalPlayerID(out ushort localId)
         {
             localId = 0;
@@ -42,6 +58,7 @@ namespace Basis.Scripts.Networking
         public static void Connect(ushort port, string ipString, string primitivePassword, bool isHostMode,
             string networkStackId = "", byte[] connectionAuthenticationPayload = null)
         {
+            PrepareForConnection();
             BNL.LogOutput -= LogOutput;
             BNL.LogOutput += LogOutput;
             BNL.LogWarningOutput -= LogWarningOutput;
@@ -231,6 +248,7 @@ namespace Basis.Scripts.Networking
                     transmitter.Initialize();
 
                     LocalPlayerIsConnected = true;
+                    _localPlayerConnectionReady.TrySetResult(true);
 
                     BasisNetworkPlayer.OnLocalPlayerJoined?.Invoke(transmitter, BasisLocalPlayer.Instance);
                     BasisNetworkPlayer.OnPlayerJoined?.Invoke(transmitter);
@@ -258,6 +276,7 @@ namespace Basis.Scripts.Networking
                 BasisNetworkAvatarCompressor.Dispose();
                 BasisP2PManager.Shutdown();
                 BasisAvatarRateRegistry.Reset();
+                CancelLocalPlayerConnectionWaiters();
                 await BasisNetworkLifeCycle.RebootManagement(true, peer, disconnectInfo);
 #if UNITY_SERVER
                 if (!HeadlessReconnectSuppressed)

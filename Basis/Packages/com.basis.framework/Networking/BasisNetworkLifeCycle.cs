@@ -109,6 +109,7 @@ public static class BasisNetworkLifeCycle
     public static async Task Destroy()
     {
         BasisDebug.Log($"Shutting Down Network Connection", BasisDebug.LogTag.Networking);
+        BasisNetworkConnection.CancelLocalPlayerConnectionWaiters();
         BasisNetworkConnectionWatchdog.Reset();
         if (BasisNetworkConnection.LocalPlayerPeer != null && BasisNetworkPlayers.Players.TryGetValue((ushort)BasisNetworkConnection.LocalPlayerPeer.RemoteId, out var networkedPlayer))
         {
