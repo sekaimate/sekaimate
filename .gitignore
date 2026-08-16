@@ -10,6 +10,9 @@
 /.env.local
 /local/
 
+# Unity Performance Test runner output
+/Basis/Assets/Resources/PerformanceTestRun*.json*
+
 # Nix stuff
 .direnv/
 .envrc
