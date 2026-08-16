@@ -71,14 +71,18 @@ public class Configuration
     /// <summary>Loopback URL used by the colocated broker. Put a TLS reverse proxy in front of it for public client access.</summary>
     public string SsoBrokerBindUrl = "http://127.0.0.1:5080";
     public string NetworkStackId = "";
-    public bool WebSocketEnabled = false;
+    public bool WebSocketEnabled = true;
     public ushort WebSocketPort = 4297;
     public string WebSocketPath = "/basis";
     public string WebSocketServerInfoPath = "/server-info";
     public int WebSocketMaximumPayloadLength = 1024 * 1024;
     public int WebSocketPendingSendCapacity = 64;
-    public string[] WebSocketAllowedOrigins = Array.Empty<string>();
-    public bool WebSocketUseTls = true;
+    public string[] WebSocketAllowedOrigins = new[]
+    {
+        "http://127.0.0.1:4173",
+        "http://localhost:4173",
+    };
+    public bool WebSocketUseTls = false;
     public string WebSocketCertificatePath = "";
     public string WebSocketCertificateKeyPath = "";
     public BasisUserRestrictionMode BasisUserRestrictionMode;

@@ -61,7 +61,8 @@ namespace Basis.Scripts.Networking
             string webSocketUri = ReadQueryParameter(uri.Query, WebSocketParameter);
             userName = ReadQueryParameter(uri.Query, UserNameParameter);
             if (string.IsNullOrWhiteSpace(webSocketUri) || string.IsNullOrWhiteSpace(userName)
-                || !Uri.TryCreate(webSocketUri, UriKind.Absolute, out Uri parsedWebSocketUri))
+                || !Uri.TryCreate(webSocketUri, UriKind.Absolute, out Uri parsedWebSocketUri)
+                || !BasisWebServerInfoClient.IsWebSocketUri(parsedWebSocketUri))
             {
                 return false;
             }
@@ -77,7 +78,7 @@ namespace Basis.Scripts.Networking
                 DisplayName = "Web meeting",
                 Target = target,
                 WebSocketUri = webSocketUri,
-                ServerInfoUri = $"https://{parsedWebSocketUri.Authority}/server-info",
+                ServerInfoUri = BasisWebServerInfoClient.BuildServerInfoUri(parsedWebSocketUri),
                 HasPassword = !string.IsNullOrEmpty(password),
                 Password = password,
                 CanEdit = false,

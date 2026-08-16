@@ -144,7 +144,7 @@ namespace Basis.Network.Server
 
                 if (NetworkServer.Configuration.EnableStatistics && NetworkServer.Server != null)
                 {
-                    int visitors = NetworkServer.Server.ConnectedPeersCount;
+                    int visitors = NetworkServer.ConnectedPeerCount;
                     long sent = NetworkServer.Server.Statistics.BytesSent;
                     long recv = NetworkServer.Server.Statistics.BytesReceived;
                     int capacity = NetworkServer.Configuration.PeerLimit;

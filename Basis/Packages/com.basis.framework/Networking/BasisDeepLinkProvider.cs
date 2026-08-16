@@ -244,6 +244,7 @@ namespace Basis.Scripts.Networking
             string connectionPart = rest;
             string password = string.Empty;
             string webSocketUri = string.Empty;
+            string serverInfoUri = string.Empty;
 
             int queryIdx = rest.IndexOf('?');
             if (queryIdx >= 0)
@@ -252,6 +253,16 @@ namespace Basis.Scripts.Networking
                 string query = rest.Substring(queryIdx + 1);
                 password = ParseQueryValue(query, "password");
                 webSocketUri = ParseQueryValue(query, "websocketUri");
+                if (!string.IsNullOrEmpty(webSocketUri))
+                {
+                    if (!Uri.TryCreate(webSocketUri, UriKind.Absolute, out Uri parsedWebSocketUri)
+                        || !BasisWebServerInfoClient.IsWebSocketUri(parsedWebSocketUri))
+                    {
+                        return false;
+                    }
+
+                    serverInfoUri = BasisWebServerInfoClient.BuildServerInfoUri(parsedWebSocketUri);
+                }
             }
 
             if (!LNLConnectionTargetParser.TryParseConnectionString(
@@ -269,6 +280,7 @@ namespace Basis.Scripts.Networking
                 DisplayName = string.Empty,
                 Target = target,
                 WebSocketUri = webSocketUri,
+                ServerInfoUri = serverInfoUri,
                 HasPassword = !string.IsNullOrEmpty(password),
                 Password = password,
                 CanEdit = false,

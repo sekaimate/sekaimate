@@ -583,7 +583,7 @@ namespace BasisNetworkServer.BasisNetworkingReductionSystem
             {
                 _lastPoolLoadLogTick = nowTick;
                 int peerWorkers = lnl?.PeerUpdateWorkers ?? 0;
-                int pop = NetworkServer.Server?.ConnectedPeersCount ?? 0;
+                int pop = NetworkServer.ConnectedPeerCount;
                 BNL.Log(
                     $"[CPU/POP] {pop} peers | send {parallelOptions.MaxDegreeOfParallelism}/{BasisCpuBudget.ReductionSendCap} wkr, " +
                     $"peer-upd {peerWorkers}/{BasisCpuBudget.PeerUpdateCap} wkr " +
@@ -839,7 +839,7 @@ namespace BasisNetworkServer.BasisNetworkingReductionSystem
         private static int MaxSliceCount() =>
             BasisPopulationScale.SliceCap(
                 NetworkServer.Configuration?.BSRMaxSliceCount ?? 0,
-                NetworkServer.Server?.ConnectedPeersCount ?? 0);
+                NetworkServer.ConnectedPeerCount);
 
         // Distance-ordered load shedding. 0 = send everything. 1 = drop VeryLow pairs (the furthest),
         // 2 = also drop Low, 3 = High only. Raised before slicing because slicing degrades everyone

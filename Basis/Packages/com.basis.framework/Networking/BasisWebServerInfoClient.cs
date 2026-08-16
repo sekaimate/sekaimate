@@ -10,6 +10,26 @@ namespace Basis.Scripts.Networking
 {
     public static class BasisWebServerInfoClient
     {
+        public static bool IsWebSocketUri(Uri uri)
+        {
+            return uri != null
+                && (string.Equals(uri.Scheme, "ws", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(uri.Scheme, "wss", StringComparison.OrdinalIgnoreCase));
+        }
+
+        public static string BuildServerInfoUri(Uri webSocketUri)
+        {
+            if (!IsWebSocketUri(webSocketUri))
+            {
+                throw new ArgumentException("A ws:// or wss:// URI is required.", nameof(webSocketUri));
+            }
+
+            string scheme = string.Equals(webSocketUri.Scheme, "ws", StringComparison.OrdinalIgnoreCase)
+                ? Uri.UriSchemeHttp
+                : Uri.UriSchemeHttps;
+            return $"{scheme}://{webSocketUri.Authority}/server-info";
+        }
+
         [Serializable]
         private sealed class Response
         {

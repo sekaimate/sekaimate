@@ -25,6 +25,8 @@ public static class NetworkServer
     public static readonly object AuthenticatedPeerTag = new object();
     public static Configuration Configuration;
     public static Func<int> AdditionalConnectedPeersCountProvider;
+    public static int ConnectedPeerCount =>
+        (Server?.ConnectedPeersCount ?? 0) + (AdditionalConnectedPeersCountProvider?.Invoke() ?? 0);
     /// <summary>
     /// Allow-list consulted at <see cref="BasisServerHandle.BasisServerHandleEvents.OnNetworkAccepted"/>
     /// when <see cref="Configuration.BasisUserRestrictionMode"/> is set to <c>AllowList</c>.

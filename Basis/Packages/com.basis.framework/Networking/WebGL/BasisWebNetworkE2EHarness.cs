@@ -410,7 +410,8 @@ namespace Basis.Scripts.Networking
         private static void SaveServerDirectoryEntry(ServerDirectoryEntry entry)
         {
             if (entry == null || string.IsNullOrWhiteSpace(entry.WebSocketUri)
-                || !Uri.TryCreate(entry.WebSocketUri, UriKind.Absolute, out Uri webSocketUri))
+                || !Uri.TryCreate(entry.WebSocketUri, UriKind.Absolute, out Uri webSocketUri)
+                || !BasisWebServerInfoClient.IsWebSocketUri(webSocketUri))
             {
                 return;
             }
@@ -431,7 +432,7 @@ namespace Basis.Scripts.Networking
             saved.HasPassword = entry.HasPassword;
             saved.NetworkStackId = BasisNetworkStackRegistry.WebSocketId;
             saved.WebSocketUri = entry.WebSocketUri;
-            saved.ServerInfoUri = $"https://{webSocketUri.Authority}/server-info";
+            saved.ServerInfoUri = BasisWebServerInfoClient.BuildServerInfoUri(webSocketUri);
             SavedServerStore.Save(savedEntries);
             SavedServersDirectorySource.Instance?.NotifyChanged();
         }
@@ -673,7 +674,8 @@ namespace Basis.Scripts.Networking
 
             string password = ReadQueryParameter(uri.Query, PasswordParameter);
             ConnectionTarget target = new ConnectionTarget(BasisNetworkStackRegistry.DefaultId, "localhost:4296");
-            if (!Uri.TryCreate(webSocketUri, UriKind.Absolute, out Uri parsedWebSocketUri))
+            if (!Uri.TryCreate(webSocketUri, UriKind.Absolute, out Uri parsedWebSocketUri)
+                || !BasisWebServerInfoClient.IsWebSocketUri(parsedWebSocketUri))
             {
                 return false;
             }
@@ -690,7 +692,7 @@ namespace Basis.Scripts.Networking
                 WebSocketUri = webSocketUri,
                 HasPassword = !string.IsNullOrEmpty(password),
                 Password = password,
-                ServerInfoUri = $"https://{parsedWebSocketUri.Authority}/server-info",
+                ServerInfoUri = BasisWebServerInfoClient.BuildServerInfoUri(parsedWebSocketUri),
                 CanEdit = false,
                 CanRemove = false,
             };

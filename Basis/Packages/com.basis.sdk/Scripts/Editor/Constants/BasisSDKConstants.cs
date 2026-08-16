@@ -96,6 +96,11 @@ public class BasisSDKConstants
         BuildTarget.WebGL,
     };
 
+    public static List<BuildTarget> GetAllPlatformBuildTargets()
+    {
+        return new List<BuildTarget>(allowedTargets);
+    }
+
     public static Dictionary<BuildTarget, string> targetDisplayNames = new Dictionary<BuildTarget, string>
     {
         { BuildTarget.StandaloneWindows64, "Windows" },

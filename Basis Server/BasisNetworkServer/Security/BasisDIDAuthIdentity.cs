@@ -222,7 +222,7 @@ namespace BasisDidLink
         {
             try
             {
-                await Task.Delay(GetAuthTimeoutMs(NetworkServer.Server?.ConnectedPeersCount ?? 0), cts.Token);
+                await Task.Delay(GetAuthTimeoutMs(NetworkServer.ConnectedPeerCount), cts.Token);
                 if (!RemoveConnection(newPeer.Id, newPeer))
                 {
                     return;

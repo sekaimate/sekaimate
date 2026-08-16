@@ -15,13 +15,13 @@ namespace Sekaimate.Editor
     {
         public const string ScenePath = "Assets/Sekaimate/World/MinimalWalkable.unity";
 
-        private const string BuildMenuPath = "Sekaimate/UPoC/Mac用BEEを生成";
+        private const string BuildMenuPath = "Sekaimate/UPoC/全OS対応BEEを生成";
         private static bool isBuilding;
 
         [MenuItem(BuildMenuPath)]
-        public static async void BuildMacBee()
+        public static async void BuildMultiPlatformBee()
         {
-            if (!CanBuildMacBee())
+            if (!CanBuildMultiPlatformBee())
             {
                 return;
             }
@@ -58,6 +58,17 @@ namespace Sekaimate.Editor
                 return;
             }
 
+            List<BuildTarget> buildTargets = BasisSDKConstants.GetAllPlatformBuildTargets();
+            string[] unavailableTargets = buildTargets
+                .Where(target => !BasisBundleBuild.CheckTarget(target))
+                .Select(target => target.ToString())
+                .ToArray();
+            if (unavailableTargets.Length > 0)
+            {
+                ShowError($"次のBuild Support Moduleをインストールしてください。\n{string.Join("\n", unavailableTargets)}");
+                return;
+            }
+
             BuildTarget originalTarget = EditorUserBuildSettings.activeBuildTarget;
             NamedBuildTarget standaloneTarget = NamedBuildTarget.FromBuildTargetGroup(BuildTargetGroup.Standalone);
             ScriptingImplementation originalBackend = PlayerSettings.GetScriptingBackend(standaloneTarget);
@@ -84,7 +95,7 @@ namespace Sekaimate.Editor
                 (bool success, string message) = await BasisBundleBuild.SceneBundleBuild(
                     null,
                     basisScene,
-                    new List<BuildTarget> { BuildTarget.StandaloneOSX },
+                    buildTargets,
                     false,
                     string.Empty);
                 if (!success)
@@ -119,16 +130,16 @@ namespace Sekaimate.Editor
             }
 
             EditorGUIUtility.systemCopyBuffer = beePath;
-            Debug.Log($"[Sekaimate] Mac BEE generated: {beePath}");
+            Debug.Log($"[Sekaimate] Multi-platform BEE generated: {beePath}");
             Debug.Log($"[Sekaimate] Password sidecar: {passwordPath}");
             EditorUtility.DisplayDialog(
-                "Mac用BEEを生成しました",
+                "全OS対応BEEを生成しました",
                 $"BEEのパスをクリップボードへコピーしました。\n\nBEE:\n{beePath}\n\nPassword:\n{passwordPath}",
                 "OK");
         }
 
         [MenuItem(BuildMenuPath, true)]
-        private static bool CanBuildMacBee()
+        private static bool CanBuildMultiPlatformBee()
         {
             return !isBuilding &&
                 !EditorApplication.isCompiling &&
@@ -244,7 +255,7 @@ namespace Sekaimate.Editor
 
         private static void ShowError(string message)
         {
-            EditorUtility.DisplayDialog("Mac用BEEを生成できません", message, "OK");
+            EditorUtility.DisplayDialog("全OS対応BEEを生成できません", message, "OK");
         }
     }
 }

@@ -529,8 +529,7 @@ namespace BasisServerHandle
                     return;
                 }
               //  BNL.Log("Processing Connection Request");
-                int ServerCount = NetworkServer.Server.ConnectedPeersCount
-                    + (NetworkServer.AdditionalConnectedPeersCountProvider?.Invoke() ?? 0);
+                int ServerCount = NetworkServer.ConnectedPeerCount;
 
                 if (ServerCount >= NetworkServer.Configuration.PeerLimit)
                 {
