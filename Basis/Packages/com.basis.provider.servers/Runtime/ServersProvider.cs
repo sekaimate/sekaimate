@@ -1011,23 +1011,37 @@ namespace Basis.BasisUI
             BasisDataStore.SaveString(normalizedUserName, BasisConnectionService.UsernameFileName);
             _usernameField?.SetValueWithoutNotify(normalizedUserName);
             _pendingWebMeetingEntry = entry;
+            BasisNetworkManagement.OnIstanceCreated -= TryStartPendingWebMeetingConnection;
+            BasisNetworkManagement.OnIstanceCreated += TryStartPendingWebMeetingConnection;
             BasisConnectionService.ConnectionPermissionChanged -= TryStartPendingWebMeetingConnection;
             BasisConnectionService.ConnectionPermissionChanged += TryStartPendingWebMeetingConnection;
+            BasisLocalPlayerData.OnLocalPlayerInitialized -= TryStartPendingWebMeetingConnection;
+            BasisLocalPlayerData.OnLocalPlayerInitialized += TryStartPendingWebMeetingConnection;
             TryStartPendingWebMeetingConnection();
         }
 
         private void TryStartPendingWebMeetingConnection()
         {
-            if (_pendingWebMeetingEntry == null || !string.IsNullOrWhiteSpace(
-                    BasisConnectionService.ConnectionBlockedReason?.Invoke()))
+            bool connectionPermitted = string.IsNullOrWhiteSpace(
+                BasisConnectionService.ConnectionBlockedReason?.Invoke());
+            bool localPlayerInitialized = BasisLocalPlayer.PlayerReady && BasisLocalPlayer.Instance != null;
+            bool localPlayerSetupCompleted = BasisLocalPlayerData.PlayerReady;
+            if (!WebMeetingConnectionReadiness.IsReady(
+                    _pendingWebMeetingEntry != null,
+                    BasisNetworkManagement.IsInitialized,
+                    connectionPermitted,
+                    localPlayerInitialized,
+                    localPlayerSetupCompleted))
             {
                 return;
             }
 
+            BasisNetworkManagement.OnIstanceCreated -= TryStartPendingWebMeetingConnection;
             BasisConnectionService.ConnectionPermissionChanged -= TryStartPendingWebMeetingConnection;
+            BasisLocalPlayerData.OnLocalPlayerInitialized -= TryStartPendingWebMeetingConnection;
             ServerDirectoryEntry entry = _pendingWebMeetingEntry;
             _pendingWebMeetingEntry = null;
-            StartManualConnection(entry);
+            BasisLocalPlayer.Instance.ExecuteNextFrame(() => StartManualConnection(entry));
         }
 
         private void StartManualConnection(ServerDirectoryEntry entry)
