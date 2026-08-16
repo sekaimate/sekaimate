@@ -117,6 +117,11 @@ public static class BasisBeeManagement
         if (shouldUseOnDiskMeta)
         {
             output = await BasisBundleManagement.LocalLoadBundleConnector(wrapper, MetaInfo.StoredLocal, report, cancellationToken);
+            if (output.Item1 == null || output.Item2 == null || output.Item2.Length == 0 || !string.IsNullOrEmpty(output.Item3))
+            {
+                shouldUseOnDiskMeta = false;
+                output = await DownloadAndReadCachedBundle(wrapper, report, cancellationToken, MaxDownloadSizeInBytes);
+            }
         }
         else
         {
@@ -141,13 +146,13 @@ public static class BasisBeeManagement
                     BasisDebug.Log($"Connector prefetch failed ({prefetchException.Message}) — continuing with the full download.", BasisDebug.LogTag.Event);
                 }
             }
-            output = await BasisBundleManagement.DownloadLoadBundleConnector(wrapper, report, cancellationToken, MaxDownloadSizeInBytes);
+            output = await DownloadAndReadCachedBundle(wrapper, report, cancellationToken, MaxDownloadSizeInBytes);
         }
         if(output.Item2 == null || output.Item2.Length == 0)
         {
             //lets force download it again. this guards against partial file, corrupt file or reattempt at downloading if it fails.
             BasisDebug.Log("Local load returned null section data, forcing re-download", BasisDebug.LogTag.Event);
-            output = await BasisBundleManagement.DownloadLoadBundleConnector(wrapper, report, cancellationToken, MaxDownloadSizeInBytes);
+            output = await DownloadAndReadCachedBundle(wrapper, report, cancellationToken, MaxDownloadSizeInBytes);
             didForceRedownload = true;
         }
 
@@ -168,7 +173,7 @@ public static class BasisBeeManagement
             if (!gltfLoaded && shouldUseOnDiskMeta && !didForceRedownload)
             {
                 BasisDebug.Log("Cached generic (glTF) bytes failed to load; forcing re-download.", BasisDebug.LogTag.Event);
-                output = await BasisBundleManagement.DownloadLoadBundleConnector(wrapper, report, cancellationToken, MaxDownloadSizeInBytes);
+                output = await DownloadAndReadCachedBundle(wrapper, report, cancellationToken, MaxDownloadSizeInBytes);
                 didForceRedownload = true;
 
                 if (output.Item1 == null || output.Item2 == null || output.Item2.Length == 0 || !string.IsNullOrEmpty(output.Item3))
@@ -218,7 +223,7 @@ public static class BasisBeeManagement
                 if (shouldUseOnDiskMeta && !didForceRedownload)
                 {
                     BasisDebug.Log("Cached bundle bytes failed to load; forcing re-download.", BasisDebug.LogTag.Event);
-                    output = await BasisBundleManagement.DownloadLoadBundleConnector(wrapper, report, cancellationToken, MaxDownloadSizeInBytes);
+                    output = await DownloadAndReadCachedBundle(wrapper, report, cancellationToken, MaxDownloadSizeInBytes);
                     didForceRedownload = true;
 
                     if (output.Item1 == null || output.Item2 == null || output.Item2.Length == 0 || !string.IsNullOrEmpty(output.Item3))
@@ -248,6 +253,24 @@ public static class BasisBeeManagement
             throw;
         }
     }
+
+    private static async Task<(BasisBundleGenerated Generated, byte[] BundleBytes, string ErrorMessage)> DownloadAndReadCachedBundle(BasisTrackedBundleWrapper wrapper, BasisProgressReport report, CancellationToken cancellationToken, long maxDownloadSizeInBytes)
+    {
+        var downloaded = await BasisBundleManagement.DownloadLoadBundleConnector(wrapper, report, cancellationToken, maxDownloadSizeInBytes);
+        if (downloaded.Item1 == null || downloaded.Item2 == null || !string.IsNullOrEmpty(downloaded.Item3))
+        {
+            return downloaded;
+        }
+
+        string localPath = wrapper.LoadableBundle.BasisLocalEncryptedBundle?.DownloadedBeeFileLocation;
+        if (string.IsNullOrWhiteSpace(localPath))
+        {
+            return (null, null, "Downloaded bundle path is empty.");
+        }
+
+        return await BasisBundleManagement.LocalLoadBundleConnector(wrapper, wrapper.LoadableBundle.BasisLocalEncryptedBundle, report, cancellationToken);
+    }
+
     /// <summary>
     /// Loads a BEE that lives on the local filesystem (no download, no on-disc cache copy).
     /// Reads connector + platform section directly and generates the asset bundle.
