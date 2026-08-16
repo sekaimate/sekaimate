@@ -40,4 +40,4 @@ fi
 
 echo "Serving ${WEB_DIR} at http://127.0.0.1:${PORT}/"
 echo "World BEE: http://127.0.0.1:${PORT}/BEE/world.BEE"
-exec pnpm dlx serve -l "${PORT}" "${WEB_DIR}"
+exec node "${ROOT_DIR}/tools/serve-web.mjs" "${WEB_DIR}" "${PORT}"

@@ -112,3 +112,8 @@ if [[ -f "$bee_backup_dir/BEE/world.BEE" ]]; then
   cp -- "$bee_backup_dir/BEE/world.BEE" "$build_path/BEE/world.BEE"
   echo "Preserved world BEE at $build_path/BEE/world.BEE"
 fi
+
+if [[ "$development_build" == true && "$build_path" == "$repository_root/Build/WebDev" ]]; then
+  mkdir -p "$repository_root/.cache"
+  touch "$repository_root/.cache/web-dev-build.stamp"
+fi

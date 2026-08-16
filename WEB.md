@@ -56,9 +56,11 @@ mise run admin:down
 
 UIだけを開発サーバーで起動する場合は`mise run admin:ui`を使い、`http://localhost:5173/`を開きます。Broker APIが別途起動している必要があります。
 
-全部を順番に起動する場合は`mise run dev`を使用します。配信中はそのターミナルを終了せず、ブラウザーで`http://127.0.0.1:4173/`を開いてください。
+全部を順番に起動する場合は`mise run dev`を使用します。WebGL成果物が最新ならビルドをスキップし、変更がある場合だけ再ビルドします。配信中はそのターミナルを終了せず、ブラウザーで`http://127.0.0.1:4173/`を開いてください。
 
 開発用の出力先は`Build/WebDev`です。既存の出力を削除せずに再利用し、ワールドBEEはGit管理外の`local/BEE/world.BEE`から自動的に配置します。BEEをビルド出力の外に置くため、通常のリリース用ビルドでも失われません。通常のリリース用ビルドは従来どおり`./tools/build-web.sh`を使用します。
+
+`mise run server:up` はこのBEEをBasis Serverの`initialresources`へ登録します。これはBasis Serverが起動時にアクティブワールドとしてロードし、後から参加するクライアントにも通知する標準経路です。BEEにパスワードがある場合は`.env.local`に`BASIS_WORLD_BEE_PASSWORD=...`を設定してください。URLを変更する場合は`BASIS_WORLD_BEE_URL`で上書きできます。
 
 ## ブラウザでの実行
 
@@ -97,3 +99,41 @@ return await verifyPropBee(page, {
 ```
 
 この検証は1280×720のブラウザー内に表示された960×600のCanvasでLibraryを開き、BEEを追加し、Propカードの`Spawn`を実行して配置を確定します。その後ページを再読込し、永続化されたLibraryエントリから同じPropをもう一度Spawnします。成功条件はBEEのHTTP Range応答が`206`であること、復号後の`Attempting Asset Bundle Load`、instantiate後の`Library provider successfully created item`、再読込後の`Process On Disc Meta Data Async`が出力されること、ブラウザーのコンソールエラーが0件であることです。UIレイアウトを変更した場合は`coordinates`で座標を明示的に上書きします。
+
+## BEEのURL参加とキャッシュ
+
+URL参加では、サーバーがアクティブな`world.BEE`をクライアントへ送信し、WebGLクライアントが次の順番で処理します。
+
+```text
+サーバーからリソース受信
+→ BEEをHTTP Rangeで取得
+→ コネクタとWebGL用セクションを復号
+→ AssetBundleを生成
+→ キャッシュメタデータを保存
+→ シーンを追加ロード・アクティブ化
+```
+
+### 今回の不具合
+
+BEEファイル自体やHTTP`206 Partial Content`が原因ではありませんでした。WebGLのキャッシュ処理に、次の2つの問題がありました。
+
+- 初回取得後のメタデータ保存で`File.WriteAllBytesAsync`を使っていた。WebGLのIDBFS上ではこの非同期書き込みが完了せず、シーンロードへ進まないことがある。
+- キャッシュ済みBEEを読む経路で`ConfigureAwait(false)`を使っていた。WebGLのUnity同期コンテキストへ戻れず、コネクタ処理後の継続が止まることがある。
+
+対策として、WebGLのメタデータ保存は同期`File.WriteAllBytes`を使用し、キャッシュBEEのコネクタ復号後はUnityの同期コンテキストを維持します。デスクトップ版の非同期ファイル処理は変更していません。
+
+### 再発時の確認ログ
+
+URL参加または手動Connect後、Development Consoleで次のログを確認します。
+
+```text
+Received server resource
+BEE cache decision
+Processing on-disk meta
+Successfully processed the Connector and related files.
+AssetBundle generation returned
+Preparing AssetBundle scene load
+Scene Load From Server Complete
+```
+
+`Processing on-disk meta`で止まる場合は、キャッシュBEEの読み込み・復号経路を確認します。`Scene Load From Server Complete`まで出れば、BEEのロードは完了しています。

@@ -99,7 +99,11 @@ export function browserSsoCallbackResponse(): Response {
     const value = params.get(key);
     if (value !== null) result[key] = value;
   }
-  const returnUrl = sessionStorage.getItem('basis.sso.returnUrl') || '/';
+  const storedReturnUrl = sessionStorage.getItem('basis.sso.returnUrl') || '/';
+  const returnUrlObject = new URL(storedReturnUrl, window.location.origin);
+  returnUrlObject.searchParams.delete('basisEnrollment');
+  returnUrlObject.searchParams.delete('configUrl');
+  const returnUrl = returnUrlObject.toString();
   sessionStorage.removeItem('basis.sso.returnUrl');
   sessionStorage.setItem('basis.sso.callback', JSON.stringify(result));
   window.location.replace(returnUrl);

@@ -16,7 +16,7 @@ run = "./tools/serve-web.sh --dev"
 
 [tasks."server:up"]
 description = "Build and start the local Basis Server with WebSocket support"
-run = 'docker compose -f "Basis Server/Docker/docker-compose.yml" -f "Basis Server/Docker/docker-compose.local-web.yml" up -d --build'
+run = "bash ./tools/server-up.sh"
 
 [tasks."server:down"]
 description = "Stop the local Basis Server"
@@ -43,5 +43,5 @@ description = "Run the SSO Admin UI development server"
 run = "cd 'Basis/Tools/BasisSsoBroker/AdminUi' && vp run dev"
 
 [tasks.dev]
-description = "Build WebGL, start Basis Server, and serve the Web client"
-run = "mise run build:web:dev && mise run server:up && exec ./tools/serve-web.sh --dev"
+description = "Reuse or build WebGL, start SSO, Basis Server, and the Web client"
+run = "bash ./tools/ensure-web-dev-build.sh && mise run admin:up && mise run server:up && exec ./tools/serve-web.sh --dev"

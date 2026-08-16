@@ -3,6 +3,8 @@ services:
     environment:
       Password: ${BASIS_SERVER_PASSWORD:-default_password}
       BasisFirstAdmin: ${BASIS_FIRST_ADMIN:-did:key:basis-local-web-admin}
+      RequireSso: "true"
+      AutoStartSsoBroker: "false"
       WebSocketEnabled: "true"
       WebSocketPort: 4297
       WebSocketPath: /basis

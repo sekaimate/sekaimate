@@ -16,6 +16,7 @@
 # Nix stuff
 .direnv/
 .envrc
+.cache/
 
 # Jetbrains Rider
 .idea/
