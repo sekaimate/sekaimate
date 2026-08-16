@@ -119,7 +119,15 @@ namespace Basis.Integration.Sso.FrameworkGate
                     yield break;
                 }
 
-                if (!BasisSsoAuthController.ApplyRuntimeConfiguration(request.downloadHandler.text, out string error))
+                string json = request.downloadHandler.text;
+                if (BasisOidcConfig.IsEmptyPlaceholder(json))
+                {
+                    Destroy(gameObject);
+                    DisableConnectionHooks();
+                    yield break;
+                }
+
+                if (!BasisSsoAuthController.ApplyRuntimeConfiguration(json, out string error))
                 {
                     BasisDebug.LogError($"[SSO] Failed to load streaming config: {error}");
                     DisableConnectionHooks();

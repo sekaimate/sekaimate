@@ -7,6 +7,13 @@ namespace Basis.Integration.Sso.Tests
     public sealed class BasisOidcConfigTests
     {
         [Test]
+        public void EmptyStreamingPlaceholder_IsRecognizedWithoutIssuer()
+        {
+            Assert.That(BasisOidcConfig.IsEmptyPlaceholder(
+                "{\"_comment\":\"runtime broker configuration\"}"), Is.True);
+        }
+
+        [Test]
         public void BrowserRedirectAcceptsProviderHttpsTokenEndpoint()
         {
             BasisOidcConfig config = BrowserConfig("https://broker.example/web-oidc/google/token");

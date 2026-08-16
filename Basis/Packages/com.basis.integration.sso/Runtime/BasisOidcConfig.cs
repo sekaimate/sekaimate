@@ -355,6 +355,25 @@ namespace Basis.Integration.Sso
             }
         }
 
+        /// <summary>
+        /// Returns true for the intentionally empty placeholder shipped in builds that receive
+        /// organization SSO settings from a broker at runtime.
+        /// </summary>
+        public static bool IsEmptyPlaceholder(string json)
+        {
+            try
+            {
+                BasisOidcConfig config = JsonConvert.DeserializeObject<BasisOidcConfig>(json);
+                return config != null
+                    && string.IsNullOrWhiteSpace(config.Issuer)
+                    && (config.Providers == null || config.Providers.Count == 0);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private static BasisOidcConfig ReadFrom(string path)
         {
             try
