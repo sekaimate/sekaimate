@@ -1,5 +1,4 @@
 using Basis.BasisUI;
-using Basis.BasisUI;
 using Basis.Network.Core;
 using System;
 using System.Collections.Generic;
@@ -73,8 +72,8 @@ namespace Basis.Scripts.Networking
                 SourceId = Id,
                 DisplayName = BasisLocalization.Get("menu.servers.list.default"),
                 Target = target,
-                WebSocketUri = BrowserServerEndpoints.WebSocketUri(DefaultServerAddress),
-                ServerInfoUri = BrowserServerEndpoints.ServerInfoUri(DefaultServerAddress),
+                WebSocketUri = $"wss://{DefaultServerAddress}/basis",
+                ServerInfoUri = $"https://{DefaultServerAddress}/server-info",
                 Password = DefaultServerPassword,
                 HasPassword = true,
                 CanEdit = false,
