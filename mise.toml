@@ -1,3 +1,6 @@
+[tools]
+pnpm = "11"
+
 [tasks.web-dev]
 description = "Build the reusable Development WebGL build"
 run = "./tools/build-web.sh --dev"
