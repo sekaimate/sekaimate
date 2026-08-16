@@ -1,10 +1,9 @@
 #if UNITY_WEBGL && !UNITY_EDITOR
 using System;
-using Basis.Integration.Sso;
 using UnityEngine;
 using UnityEngine.Networking;
 
-namespace Basis.Scripts.Networking
+namespace Basis.Integration.Sso
 {
     internal static class BasisWebEnrollmentBootstrap
     {
