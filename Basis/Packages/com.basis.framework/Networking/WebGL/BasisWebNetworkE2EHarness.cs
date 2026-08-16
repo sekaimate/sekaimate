@@ -31,6 +31,7 @@ namespace Basis.Scripts.Networking
         private bool _authenticatedReported;
         private bool _observeConnectionState = true;
         private bool _connectStarted;
+        private bool _ownsAutoConnection;
         private bool _connectionPermissionChanged;
         private int _remotePlayerCount = -1;
 
@@ -44,16 +45,21 @@ namespace Basis.Scripts.Networking
             {
                 return;
             }
+            bool ownsAutoConnection = BasisWebMeetingAutoConnectClaim.TryClaim();
 
             GameObject gameObject = new GameObject(GameObjectName);
             DontDestroyOnLoad(gameObject);
             BasisWebNetworkE2EHarness harness = gameObject.AddComponent<BasisWebNetworkE2EHarness>();
             harness._entry = entry;
             harness._userName = userName;
+            harness._ownsAutoConnection = ownsAutoConnection;
             SaveServerDirectoryEntry(entry);
             harness.Subscribe();
             harness.Report("harness-ready");
-            harness.StartCoroutine(harness.ConnectWhenReady());
+            if (ownsAutoConnection)
+            {
+                harness.StartCoroutine(harness.ConnectWhenReady());
+            }
         }
 
         private void Update()
@@ -427,7 +433,7 @@ namespace Basis.Scripts.Networking
 
         private void RequestConnection()
         {
-            if (_connectStarted || BasisNetworkConnection.LocalPlayerIsConnected)
+            if (!_ownsAutoConnection || _connectStarted || BasisNetworkConnection.LocalPlayerIsConnected)
             {
                 return;
             }

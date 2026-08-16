@@ -2,11 +2,22 @@
 using System;
 using System.Collections;
 using System.Globalization;
+using System.Threading;
 using Basis.Network.Core;
 using UnityEngine;
 
 namespace Basis.Scripts.Networking
 {
+    internal static class BasisWebMeetingAutoConnectClaim
+    {
+        private static int _claimed;
+
+        internal static bool TryClaim()
+        {
+            return Interlocked.CompareExchange(ref _claimed, 1, 0) == 0;
+        }
+    }
+
     internal sealed class BasisWebMeetingBootstrap : MonoBehaviour
     {
         private const string MeetingParameter = "basisMeeting";
@@ -24,6 +35,10 @@ namespace Basis.Scripts.Networking
         private static void Initialize()
         {
             if (!TryReadConfiguration(Application.absoluteURL, out ServerDirectoryEntry entry, out string userName))
+            {
+                return;
+            }
+            if (!BasisWebMeetingAutoConnectClaim.TryClaim())
             {
                 return;
             }
