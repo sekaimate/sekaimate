@@ -8,7 +8,6 @@ using Microsoft.Extensions.Options;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<BrokerOptions>(builder.Configuration.GetSection("Broker"));
 builder.Services.AddSingleton<TokenValidator>();
-builder.Services.AddSingleton<EnrollmentStore>();
 builder.Services.AddSingleton<MeetingStore>();
 builder.Services.AddHttpClient<WebOidcTokenExchange>();
 var app = builder.Build();
@@ -238,69 +237,6 @@ app.MapPut("/admin/client-config/{serverId}", async (string serverId, HttpContex
     File.Move(temporaryPath, path, overwrite: true);
     return Results.NoContent();
 });
-app.MapPost("/admin/enrollment/{serverId}", (string serverId, HttpContext http, IOptions<BrokerOptions> options, EnrollmentStore enrollments) =>
-{
-    BrokerOptions broker = options.Value;
-    if (!AdminAuthorized(http, broker)) return Results.Unauthorized();
-    if (broker.FindServer(serverId) == null) return Results.NotFound();
-    string token = enrollments.Issue(serverId);
-    string baseUrl = $"{RequestOrigin(http, broker)}/enroll/{token}";
-    return Results.Ok(new { url = baseUrl, webUrl = baseUrl + "/web", expiresInSeconds = 600 });
-});
-app.MapGet("/enroll/{token}", (string token, HttpContext http, IOptions<BrokerOptions> options, EnrollmentStore enrollments) =>
-{
-    if (!enrollments.Exists(token)) return Results.Content("This Basis SSO setup link has expired.", "text/plain; charset=utf-8", statusCode: 410);
-    string configUrl = $"{RequestOrigin(http, options.Value)}/enroll/{Uri.EscapeDataString(token)}/config";
-    string callback = "http://127.0.0.1:56831/basis-sso-config?url=" + Uri.EscapeDataString(configUrl);
-    string callbackHtml = System.Net.WebUtility.HtmlEncode(callback);
-    string page = $$"""
-<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>SekaiMate — Basis 設定</title>
-<style>body{margin:0;background:#f5f7fa;color:#202332;font:16px system-ui,-apple-system,sans-serif}.page{max-width:44rem;margin:0 auto;padding:4rem 1.25rem}.card{background:#fff;border:1px solid #d5dbdb;border-radius:16px;padding:2rem;box-shadow:0 4px 16px #172b4d12}.eyebrow{color:#553bc0;font-size:.8rem;font-weight:800;letter-spacing:.12em}h1{margin:.5rem 0 1rem;font-size:2rem}p{line-height:1.65}.button{display:inline-block;margin:1rem 0;padding:.8rem 1.2rem;border-radius:8px;background:#553bc0;color:#fff;text-decoration:none;font-weight:700}.hint{color:#5f6b7a;font-size:.9rem}</style>
-<main class="page"><section class="card"><div class="eyebrow">SEKAIMATE</div><h1>組織設定を Basis に適用</h1><p>Basis を起動した状態で、下のボタンを押してください。ログインに必要な組織設定をこの端末の Basis に送ります。</p>
-<p><a class="button" href="{{callbackHtml}}">Basis に設定を送る</a></p>
-<p class="hint">設定 URL は 10 分間・一回限りです。送信後は Basis に戻ってログインしてください。</p></section></main>
-""";
-    return Results.Content(page, "text/html; charset=utf-8");
-});
-app.MapGet("/enroll/{token}/web", (string token, HttpContext http, IOptions<BrokerOptions> options, EnrollmentStore enrollments) =>
-{
-    if (!enrollments.Exists(token)) return Results.Content("This Basis SSO setup link has expired.", "text/plain; charset=utf-8", statusCode: 410);
-    string? webOrigin = options.Value.AllowedWebOrigins?.Select(origin => origin?.Trim().TrimEnd('/'))
-        .FirstOrDefault(origin => Uri.TryCreate(origin, UriKind.Absolute, out Uri? uri)
-            && (uri.Scheme == Uri.UriSchemeHttps || (uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback))
-            && !string.IsNullOrWhiteSpace(uri.Host));
-    if (string.IsNullOrWhiteSpace(webOrigin)) return Results.Problem("No WebGL origin is configured.", statusCode: 503);
-    string configUrl = $"{RequestOrigin(http, options.Value)}/enroll/{Uri.EscapeDataString(token)}/web-config";
-    return Results.Redirect($"{webOrigin}/?basisEnrollment=1&configUrl={Uri.EscapeDataString(configUrl)}");
-});
-app.MapGet("/enroll/{token}/web-config", (string token, HttpContext http, IOptions<BrokerOptions> options, EnrollmentStore enrollments, MeetingStore meetings) =>
-{
-    BrokerOptions broker = options.Value;
-    if (!TryApplyWebCors(http, broker)) return Results.StatusCode(StatusCodes.Status403Forbidden);
-    string? serverId = enrollments.Take(token);
-    if (serverId == null) return Results.Content("This Basis SSO setup link has expired or was already used.", "text/plain; charset=utf-8", statusCode: 410);
-    BrokerServerOptions? server = broker.FindServer(serverId);
-    if (server == null) return Results.Problem("Broker server is not configured.", statusCode: 503);
-    IReadOnlyList<ProviderOptions> providers = broker.GetOrganization().Providers is { Count: > 0 }
-        ? broker.GetOrganization().Providers : server.Providers ?? [];
-    return Results.Json(CreateWebClientConfiguration(http, broker, server, providers, enrollmentOnly: true));
-});
-app.MapGet("/enroll/{token}/config", (string token, HttpContext http, IOptions<BrokerOptions> options, EnrollmentStore enrollments, MeetingStore meetings) =>
-{
-    string? serverId = enrollments.Take(token);
-    if (serverId == null) return Results.Content("This Basis SSO setup link has expired or was already used.", "text/plain; charset=utf-8", statusCode: 410);
-    BrokerOptions broker = options.Value;
-    BrokerServerOptions? server = broker.FindServer(serverId);
-    MeetingRecord? meeting = meetings.Find(serverId);
-    OrganizationOptions organization = broker.GetOrganization();
-    IReadOnlyList<ProviderOptions> providers = organization.Providers is { Count: > 0 }
-        ? organization.Providers : server?.Providers ?? [];
-    string publicKey = meeting?.TransportPublicKey ?? server?.EffectiveTransportPublicKey ?? string.Empty;
-    if (server == null || providers.Count == 0 || string.IsNullOrWhiteSpace(publicKey)) return Results.NotFound();
-    return Results.Json(CreateClientConfiguration(http, broker, serverId, publicKey, providers, organization.DefaultProviderId));
-});
-
 // A join invitation carries the organization configuration for this one meeting. This means a
 // fresh client can start from the participant URL; no organization-specific OIDC values need to
 // be embedded in a Unity build. The endpoint intentionally exposes only native-client values,
@@ -370,29 +306,28 @@ app.MapGet("/join/{token}/web-manifest", (string token, HttpContext http, IOptio
     }, new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = null });
 });
 
-// A participant-facing URL. It never contains OAuth secrets, the admission signing key, or the
-// meeting password. Native clients receive the opaque manifest through the loopback listener;
-// Web clients follow the separate WebGL manifest URL below.
-app.MapGet("/join/{token}", (string token, HttpContext http, IOptions<BrokerOptions> options, MeetingStore meetings) =>
+// The participant page is a static Admin UI asset. Keep meeting validation and all connection
+// details in JSON endpoints; never put the password or generated username in the page URL.
+app.MapGet("/join/{token}/details", (string token, HttpContext http, IOptions<BrokerOptions> options, MeetingStore meetings) =>
 {
     MeetingRecord? meeting = meetings.FindInvite(token);
     if (meeting == null) return Results.Content("This meeting invitation is invalid or has been revoked.", "text/plain; charset=utf-8", statusCode: 404);
     if (!string.Equals(meeting.Status, "ready", StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(meeting.Host))
         return Results.Content("This meeting is not ready yet.", "text/plain; charset=utf-8", statusCode: 409);
-
     string manifestUrl = $"{RequestOrigin(http, options.Value)}/join/{Uri.EscapeDataString(token)}/manifest";
-    string loopbackUrl = "http://127.0.0.1:56831/basis-join?url=" + Uri.EscapeDataString(manifestUrl);
-    string webJoinUrl = BuildWebJoinUrl(meeting, token, options.Value, http);
-    string encodedWebJoinUrl = System.Net.WebUtility.HtmlEncode(webJoinUrl);
-    string loopbackScriptUrl = System.Text.Json.JsonSerializer.Serialize(loopbackUrl);
-    string title = System.Net.WebUtility.HtmlEncode(meeting.Title);
-    string page = $$"""
-<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{{title}} — SekaiMate</title><style>body{margin:0;background:#f5f7fa;color:#202332;font:16px system-ui,-apple-system,sans-serif}.page{max-width:44rem;margin:0 auto;padding:4rem 1.25rem}.card{background:#fff;border:1px solid #d5dbdb;border-radius:16px;padding:2rem;box-shadow:0 4px 16px #172b4d12}.eyebrow{color:#553bc0;font-size:.8rem;font-weight:800;letter-spacing:.12em}h1{margin:.5rem 0 1rem;font-size:2rem}p{line-height:1.65}.actions{display:flex;flex-wrap:wrap;gap:.75rem;margin:1.25rem 0}.button{display:inline-block;padding:.8rem 1.2rem;border:0;border-radius:8px;background:#553bc0;color:#fff;text-decoration:none;font:inherit;font-weight:700;cursor:pointer}.button.secondary{background:#364152}.hint{color:#5f6b7a;font-size:.9rem}iframe{display:none}</style>
-<main class="page"><section class="card"><div class="eyebrow">SEKAIMATE</div><h1>{{title}}</h1><p id="status">参加方法を選択してください。</p><p class="actions"><a class="button" href="{{encodedWebJoinUrl}}">Webで参加</a><button class="button secondary" id="native-join" type="button">ネイティブで参加</button></p><p class="hint">Web版はブラウザで開きます。ネイティブ版はBasisアプリが起動している端末で選択してください。</p><iframe id="basis-join" title="Basis join bridge"></iframe></section></main>
-<script>const bridgeUrl={{loopbackScriptUrl}},status=document.querySelector('#status'),frame=document.querySelector('#basis-join');addEventListener('message',e=>e.data==='basis-join-received'&&(status.textContent='Basisに会議への参加を渡しました。Basisに戻ってください。'));document.querySelector('#native-join').addEventListener('click',()=>{status.textContent='Basisに会議情報を渡しています…';frame.src=bridgeUrl;setTimeout(()=>status.textContent='Basisが起動していることを確認してください。',2500)});</script>
-""";
-    return Results.Content(page, "text/html; charset=utf-8");
+    return Results.Json(new
+    {
+        title = meeting.Title,
+        webJoinUrl = BuildWebJoinUrl(meeting, token, options.Value, http),
+        nativeBridgeUrl = "http://127.0.0.1:56831/basis-join?url=" + Uri.EscapeDataString(manifestUrl),
+    });
+});
+
+app.MapGet("/join/{token}", (string token, MeetingStore meetings) =>
+{
+    MeetingRecord? meeting = meetings.FindInvite(token);
+    if (meeting == null) return Results.Content("This meeting invitation is invalid or has been revoked.", "text/plain; charset=utf-8", statusCode: 404);
+    return Results.Redirect($"/join/{Uri.EscapeDataString(token)}/");
 });
 app.MapGet("/join/{token}/open", (string token, HttpContext http, MeetingStore meetings) =>
 {
@@ -630,17 +565,14 @@ static object CreateClientConfiguration(HttpContext http, BrokerOptions broker, 
 }
 
 static object CreateWebClientConfiguration(HttpContext http, BrokerOptions broker, BrokerServerOptions server,
-    IReadOnlyList<ProviderOptions> providers, string? publicKeyOverride = null, bool enrollmentOnly = false)
+    IReadOnlyList<ProviderOptions> providers, string? publicKeyOverride = null)
 {
     OrganizationOptions organization = broker.GetOrganization();
     return new
     {
         defaultProviderId = providers.Any(provider => string.Equals(provider.Id, organization.DefaultProviderId, StringComparison.Ordinal))
             ? organization.DefaultProviderId : providers[0].Id,
-        organizationEnrollment = enrollmentOnly,
-        serverTransport = enrollmentOnly
-            ? new { serverPublicKey = "", admissionEndpoint = "" }
-            : TransportConfig(http, broker, publicKeyOverride ?? server.EffectiveTransportPublicKey, server.Id!),
+        serverTransport = TransportConfig(http, broker, publicKeyOverride ?? server.EffectiveTransportPublicKey, server.Id!),
         providers = providers.Select(provider => new
         {
             id = provider.Id,
@@ -816,51 +748,6 @@ sealed class ProviderOptions
             && !string.IsNullOrWhiteSpace(clientSecret);
         return valid;
     }
-}
-
-sealed class EnrollmentStore
-{
-    private readonly Dictionary<string, Enrollment> _entries = new(StringComparer.Ordinal);
-    private readonly object _gate = new();
-
-    public string Issue(string serverId)
-    {
-        byte[] bytes = RandomNumberGenerator.GetBytes(32);
-        string token = Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-        lock (_gate)
-        {
-            RemoveExpired();
-            _entries[token] = new Enrollment(serverId, DateTimeOffset.UtcNow.AddMinutes(10));
-        }
-        return token;
-    }
-
-    public bool Exists(string token)
-    {
-        lock (_gate)
-        {
-            RemoveExpired();
-            return _entries.ContainsKey(token);
-        }
-    }
-
-    public string? Take(string token)
-    {
-        lock (_gate)
-        {
-            RemoveExpired();
-            if (!_entries.Remove(token, out Enrollment? entry)) return null;
-            return entry.ServerId;
-        }
-    }
-
-    private void RemoveExpired()
-    {
-        DateTimeOffset now = DateTimeOffset.UtcNow;
-        foreach (string token in _entries.Where(pair => pair.Value.ExpiresAt <= now).Select(pair => pair.Key).ToArray()) _entries.Remove(token);
-    }
-
-    private sealed record Enrollment(string ServerId, DateTimeOffset ExpiresAt);
 }
 
 static class ClientConfig

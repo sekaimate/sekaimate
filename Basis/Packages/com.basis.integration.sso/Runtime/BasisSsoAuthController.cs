@@ -46,13 +46,6 @@ namespace Basis.Integration.Sso
         /// <summary>Raised after a broker-issued configuration has been accepted for this process.</summary>
         public static event Action RuntimeConfigurationApplied;
 
-        /// <summary>
-        /// One-shot OIDC <c>prompt</c> consumed by the next <see cref="SignInAsync"/>. Setting this
-        /// to "login" before <see cref="SignOut"/> makes the gate's re-login force the account
-        /// chooser — how the settings "Switch account" action works without a second parallel flow.
-        /// </summary>
-        public static string PendingPrompt;
-
         /// <summary>Loads and validates config. Safe to call repeatedly; returns cached result.</summary>
         public static bool EnsureConfigLoaded()
         {
@@ -151,9 +144,7 @@ namespace Basis.Integration.Sso
             if (!EnsureConfigLoaded())
                 return SsoAuthResult.Fail("SSO is not configured.");
 
-            string effectivePrompt = prompt ?? PendingPrompt;
-            PendingPrompt = null;
-            SsoAuthResult result = await _service.SignInInteractiveAsync(ct, effectivePrompt);
+            SsoAuthResult result = await _service.SignInInteractiveAsync(ct, prompt);
             return await FinalizeAsync(result, persist: true);
         }
 
@@ -166,14 +157,6 @@ namespace Basis.Integration.Sso
             BasisSsoSessionStore.Clear();
             BasisSsoIdentityBinding.Unbind();
             StateChanged?.Invoke();
-        }
-
-        /// <summary>Sign out then immediately prompt for a different account.</summary>
-        public static async Task<SsoAuthResult> SwitchAccountAsync(CancellationToken ct = default)
-        {
-            SignOut();
-            // prompt=login forces the IdP to re-authenticate rather than silently reusing its session.
-            return await SignInAsync(ct, prompt: "login");
         }
 
         public static async Task<string> GetEndSessionEndpointAsync(CancellationToken ct = default)

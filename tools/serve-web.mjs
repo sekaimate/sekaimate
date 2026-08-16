@@ -33,8 +33,6 @@ const callbackHtml = `<!doctype html>
   sessionStorage.setItem(${JSON.stringify(callbackKey)}, JSON.stringify(result));
   const storedReturnUrl = sessionStorage.getItem(${JSON.stringify(returnUrlKey)}) || "/";
   const returnUrlObject = new URL(storedReturnUrl, window.location.origin);
-  returnUrlObject.searchParams.delete("basisEnrollment");
-  returnUrlObject.searchParams.delete("configUrl");
   const returnUrl = returnUrlObject.toString();
   sessionStorage.removeItem(${JSON.stringify(returnUrlKey)});
   window.location.replace(returnUrl);

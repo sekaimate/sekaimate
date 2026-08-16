@@ -10,9 +10,9 @@ server's pinned X25519 public key using an ephemeral X25519 key and ChaCha20-Pol
 
 The normal deployment does not embed organization OAuth values in
 `Assets/StreamingAssets/basis-sso.json`. Configure Google / Okta in the organization control
-plane, then either use **Basis に組織設定を送る** or open a meeting invitation while Basis is
-running. The broker applies the current organization configuration only to the running client;
-it is not written back into the build. Create public/native applications in both identity
+plane, then open a meeting invitation. The invitation carries the current organization
+configuration to the client only when it is needed; it is not written back into the build.
+Create public/native applications in both identity
 providers and use Authorization Code with PKCE. If a provider requires a native-client
 `clientSecret`, it is used only during the HTTPS token exchange with that provider; it is never
 sent to the Basis server or broker.

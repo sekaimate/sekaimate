@@ -19,10 +19,8 @@ namespace Basis.Integration.Sso
     internal sealed class BasisSsoConfigEnrollment : MonoBehaviour
     {
         private const int Port = 56831;
-        private const string CallbackPath = "/basis-sso-config";
         private const string JoinCallbackPath = "/basis-join";
         private const int MaxConfigBytes = 256 * 1024;
-        private static readonly ConcurrentQueue<string> PendingUrls = new ConcurrentQueue<string>();
         private static readonly ConcurrentQueue<string> PendingJoinLinks = new ConcurrentQueue<string>();
         private static readonly ConcurrentQueue<string> PendingJoinManifestUrls = new ConcurrentQueue<string>();
         private static readonly ConcurrentQueue<ConfiguredJoinRequest> PendingConfiguredJoinRequests = new ConcurrentQueue<ConfiguredJoinRequest>();
@@ -115,18 +113,6 @@ namespace Basis.Integration.Sso
                     RespondJoinAccepted(response);
                     return;
                 }
-                if (request.Url?.AbsolutePath == CallbackPath)
-                {
-                    string url = request.QueryString["url"];
-                    if (!IsSecureBrokerUrl(url, out Uri brokerUri))
-                    {
-                        Respond(response, 400, "Invalid secure Basis SSO setup URL.");
-                        return;
-                    }
-                    PendingUrls.Enqueue(brokerUri.AbsoluteUri);
-                    Respond(response, 200, "Basis received the SSO configuration. You can return to the app.");
-                    return;
-                }
                 Respond(response, 404, "Not found.");
             }
             catch
@@ -183,7 +169,6 @@ namespace Basis.Integration.Sso
 
         private void Update()
         {
-            while (PendingUrls.TryDequeue(out string url)) StartCoroutine(DownloadAndApply(url));
             while (PendingJoinLinks.TryDequeue(out string link))
             {
                 BasisDebug.Log("[SSO] Opening meeting invitation received from the local browser bridge.");
@@ -193,32 +178,6 @@ namespace Basis.Integration.Sso
             while (PendingConfiguredJoinRequests.TryDequeue(out ConfiguredJoinRequest request))
                 StartCoroutine(DownloadConfigureAndJoin(request));
             while (PendingJoinManifestUrls.TryDequeue(out string url)) StartCoroutine(DownloadAndJoin(url));
-        }
-
-        private static System.Collections.IEnumerator DownloadAndApply(string url)
-        {
-            using (var request = CreateBrokerGetRequest(url))
-            {
-                yield return request.SendWebRequest();
-                if (request.result != UnityWebRequest.Result.Success)
-                {
-                    BasisDebug.LogError("[SSO] Setup-link download failed: " + request.error);
-                    yield break;
-                }
-                byte[] data = request.downloadHandler.data;
-                if (data == null || data.Length > MaxConfigBytes)
-                {
-                    BasisDebug.LogError("[SSO] Setup-link configuration is missing or too large.");
-                    yield break;
-                }
-                string json = Encoding.UTF8.GetString(data);
-                if (!BasisSsoAuthController.ApplyRuntimeConfiguration(json, out string error))
-                {
-                    BasisDebug.LogError("[SSO] Setup-link configuration was rejected: " + error);
-                    yield break;
-                }
-                BasisDebug.Log("[SSO] Broker-issued configuration applied for this session.");
-            }
         }
 
         private static System.Collections.IEnumerator DownloadAndJoin(string manifestUrl)

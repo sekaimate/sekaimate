@@ -64,7 +64,7 @@ broker の HTTP ポートはホストへ公開しない。詳しい設定・ロ�
 
 The broker can configure a running client without embedding `basis-sso.json` into its build. Start
 the SSO Compose stack and open `https://localhost/admin/`; the local-only development gateway does
-not require an admin token. Configure the organization settings and use **Basis に組織設定を送る**.
+not require an admin token. Configure the organization settings, then use a meeting invitation.
 Opening that URL on the same machine while Basis is running applies the configuration only to that
 process; it is not written to disk.
 

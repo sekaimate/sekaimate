@@ -101,8 +101,6 @@ export function browserSsoCallbackResponse(): Response {
   }
   const storedReturnUrl = sessionStorage.getItem('basis.sso.returnUrl') || '/';
   const returnUrlObject = new URL(storedReturnUrl, window.location.origin);
-  returnUrlObject.searchParams.delete('basisEnrollment');
-  returnUrlObject.searchParams.delete('configUrl');
   const returnUrl = returnUrlObject.toString();
   sessionStorage.removeItem('basis.sso.returnUrl');
   sessionStorage.setItem('basis.sso.callback', JSON.stringify(result));

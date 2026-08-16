@@ -12,8 +12,6 @@ namespace Basis.Integration.Sso
 {
     internal static class BasisWebEnrollmentBootstrap
     {
-        private const string EnrollmentParameter = "basisEnrollment";
-        private const string ConfigParameter = "configUrl";
         private const string MeetingParameter = "basisMeeting";
         private const string MeetingUrlParameter = "meetingUrl";
 
@@ -29,17 +27,8 @@ namespace Basis.Integration.Sso
                 meetingHost.AddComponent<Runner>().StartMeetingDownload(meetingUrl);
                 return;
             }
-            if (!string.Equals(Read(page.Query, EnrollmentParameter), "1", StringComparison.Ordinal))
-            {
-                string stored = ReadStoredConfiguration();
-                if (!string.IsNullOrWhiteSpace(stored)) ApplyConfiguration(stored);
-                return;
-            }
-            string configUrl = Read(page.Query, ConfigParameter);
-            if (!IsAllowedConfigUrl(configUrl)) return;
-            var host = new GameObject(nameof(BasisWebEnrollmentBootstrap));
-            UnityEngine.Object.DontDestroyOnLoad(host);
-            host.AddComponent<Runner>().StartDownload(configUrl);
+            string stored = ReadStoredConfiguration();
+            if (!string.IsNullOrWhiteSpace(stored)) ApplyConfiguration(stored);
         }
 
         private static void ApplyConfiguration(string json)
@@ -88,24 +77,7 @@ namespace Basis.Integration.Sso
 
         private sealed class Runner : MonoBehaviour
         {
-            internal void StartDownload(string url) => StartCoroutine(Download(url));
             internal void StartMeetingDownload(string url) => StartCoroutine(DownloadMeeting(url));
-
-            private System.Collections.IEnumerator Download(string url)
-            {
-                using UnityWebRequest request = UnityWebRequest.Get(url);
-                yield return request.SendWebRequest();
-                if (request.result != UnityWebRequest.Result.Success)
-                {
-                    BasisDebug.LogError("[SSO] Web enrollment download failed: " + request.error);
-                    Destroy(gameObject);
-                    yield break;
-                }
-                string json = request.downloadHandler.text;
-                BasisWebEnrollmentStoreConfig(json);
-                ApplyConfiguration(json);
-                Destroy(gameObject);
-            }
 
             private IEnumerator DownloadMeeting(string url)
             {

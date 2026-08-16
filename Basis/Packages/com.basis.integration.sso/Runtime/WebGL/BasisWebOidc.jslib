@@ -161,12 +161,7 @@ mergeInto(LibraryManager.library, {
         redirectUri: redirectUri,
       };
       sessionStorage.setItem(BasisWebOidc.pendingKey, JSON.stringify(pending));
-      // Web enrollment URLs carry a one-shot configUrl. Do not restore that URL
-      // after OAuth, otherwise the WebGL bootstrap downloads the same enrollment
-      // token a second time and the broker correctly returns 410 Gone.
       var returnUrl = new URL(window.location.href);
-      returnUrl.searchParams.delete('basisEnrollment');
-      returnUrl.searchParams.delete('configUrl');
       sessionStorage.setItem(BasisWebOidc.returnUrlKey, returnUrl.toString());
       window.location.assign(discovery.authorization_endpoint + (discovery.authorization_endpoint.indexOf('?') >= 0 ? '&' : '?') + params.toString());
     },

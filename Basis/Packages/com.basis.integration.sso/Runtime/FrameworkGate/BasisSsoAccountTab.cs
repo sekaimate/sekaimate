@@ -7,8 +7,7 @@ using UnityEngine;
 namespace Basis.Integration.Sso.FrameworkGate
 {
     /// <summary>
-    /// Adds an "Account" tab to Settings showing the signed-in identity with Sign out / Switch
-    /// account actions. Registered through <see cref="SettingsProvider.ExternalTabs"/> so no edit to
+    /// Adds an "Account" tab to Settings showing the signed-in identity with a Sign out action. Registered through <see cref="SettingsProvider.ExternalTabs"/> so no edit to
     /// the framework's SettingsProvider is required. Sign-out defers re-login to <see cref="BasisSsoGate"/>
     /// (which re-arms the connection block and re-presents the prompt), avoiding a second parallel flow.
     /// </summary>
@@ -55,18 +54,6 @@ namespace Basis.Integration.Sso.FrameworkGate
                 string provider = ActiveProviderLabel();
                 group.SetTitle("Signed in");
                 group.SetDescription($"Provider: {provider}\n{BasisSsoAuthController.ActiveDisplayName}\n<size=85%>{sub}</size>");
-
-                PanelButton switchButton = PanelButton.CreateNew(container);
-                switchButton.Descriptor.SetTitle("Switch account");
-                switchButton.OnClicked += () => Confirm(
-                    "Switch account",
-                    "Sign out and sign in with a different account?",
-                    () =>
-                    {
-                        BasisSsoAuthController.PendingPrompt = "login";
-                        BasisSsoAuthController.SignOut();
-                        CloseMenu();
-                    });
 
                 PanelButton signOutButton = PanelButton.CreateNew(container);
                 signOutButton.Descriptor.SetTitle("Sign out");
