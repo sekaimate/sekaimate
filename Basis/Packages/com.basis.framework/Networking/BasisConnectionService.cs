@@ -120,6 +120,8 @@ namespace Basis.Scripts.Networking
             BasisMainMenu.Close();
             BasisCursorManagement.OnReset();
 
+            await WaitForLocalPlayerReadyAsync();
+
             if (_connectInProgress)
             {
                 BasisDebug.LogWarning("Connect requested while a connection attempt is already in progress; ignoring.");
@@ -242,6 +244,14 @@ namespace Basis.Scripts.Networking
                 BasisDebug.LogError(ex.ToString());
             }
             finally { _connectInProgress = false; }
+        }
+
+        private static async Task WaitForLocalPlayerReadyAsync()
+        {
+            while (!BasisLocalPlayer.PlayerReady || BasisLocalPlayer.Instance == null)
+            {
+                await Task.Yield();
+            }
         }
 
         private static bool IsWebGlPlayer()
