@@ -48,7 +48,27 @@ namespace Basis.Scripts.Networking
             BasisWebMeetingBootstrap bootstrap = gameObject.AddComponent<BasisWebMeetingBootstrap>();
             bootstrap._entry = entry;
             bootstrap._userName = userName;
+            bootstrap.Subscribe();
             bootstrap.StartCoroutine(bootstrap.ConnectWhenReady());
+        }
+
+        private void Subscribe()
+        {
+            BasisConnectionService.ConnectionPermissionChanged -= OnConnectionPermissionChanged;
+            BasisConnectionService.ConnectionPermissionChanged += OnConnectionPermissionChanged;
+        }
+
+        private void OnDestroy()
+        {
+            BasisConnectionService.ConnectionPermissionChanged -= OnConnectionPermissionChanged;
+        }
+
+        private void OnConnectionPermissionChanged()
+        {
+            if (BasisNetworkManagement.IsInitialized && IsConnectionAllowed())
+            {
+                StartConnection();
+            }
         }
 
         private IEnumerator ConnectWhenReady()
