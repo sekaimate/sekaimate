@@ -160,7 +160,8 @@ namespace Basis.Integration.Sso
         private static bool IsSecureBrokerUrl(string url, out Uri brokerUri)
         {
             return Uri.TryCreate(url, UriKind.Absolute, out brokerUri)
-                && brokerUri.Scheme == Uri.UriSchemeHttps
+                && (brokerUri.Scheme == Uri.UriSchemeHttps
+                    || (brokerUri.Scheme == Uri.UriSchemeHttp && BasisOidcConfig.IsLoopbackHost(brokerUri.Host)))
                 && string.IsNullOrEmpty(brokerUri.UserInfo);
         }
 
@@ -245,6 +246,24 @@ namespace Basis.Integration.Sso
                     BasisDebug.LogError("[SSO] Meeting invitation is invalid.");
                     yield break;
                 }
+                if (!string.IsNullOrWhiteSpace(manifest.configUrl))
+                {
+                    using (var configRequest = CreateBrokerGetRequest(manifest.configUrl))
+                    {
+                        yield return configRequest.SendWebRequest();
+                        if (configRequest.result != UnityWebRequest.Result.Success)
+                        {
+                            BasisDebug.LogError("[SSO] Meeting configuration download failed: " + configRequest.error);
+                            yield break;
+                        }
+                        if (!BasisSsoAuthController.ApplyRuntimeConfiguration(configRequest.downloadHandler.text, out string configError))
+                        {
+                            BasisDebug.LogError("[SSO] Meeting configuration was rejected: " + configError);
+                            yield break;
+                        }
+                    }
+                    while (!BasisSsoAuthController.IsSignedIn) yield return null;
+                }
                 string link = BasisDeepLinkProvider.FormatDeepLink(
                     manifest.connection.host, (ushort)manifest.connection.port, manifest.connection.password);
                 if (!BasisDeepLinkProvider.TryActivateInvite(link))
@@ -296,6 +315,7 @@ namespace Basis.Integration.Sso
         [Serializable]
         private sealed class JoinManifest
         {
+            public string configUrl;
             public JoinManifestConnection connection;
         }
 

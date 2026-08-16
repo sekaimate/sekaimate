@@ -310,6 +310,8 @@ app.MapGet("/join/{token}/config", (string token, HttpContext http, IOptions<Bro
     MeetingRecord? meeting = meetings.FindInvite(token);
     if (meeting == null) return Results.NotFound();
     BrokerOptions broker = options.Value;
+    if (!TryApplyWebCors(http, broker)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+    http.Response.Headers.CacheControl = "no-store";
     BrokerServerOptions? server = broker.FindServer(meeting.Id);
     OrganizationOptions organization = broker.GetOrganization();
     IReadOnlyList<ProviderOptions> providers = organization.Providers is { Count: > 0 }
@@ -321,10 +323,56 @@ app.MapGet("/join/{token}/config", (string token, HttpContext http, IOptions<Bro
         organization.DefaultProviderId));
 });
 
-// A participant-facing URL. It never contains OAuth secrets or the admission signing key. The
-// page first hands its connection link to the loopback listener that exists while Basis is running
-// in the Unity Editor or as a player. It falls back to the OS URL protocol only when no listener
-// replies, keeping a single HTTPS invitation usable in both development and released clients.
+app.MapGet("/join/{token}/web-config", (string token, HttpContext http, IOptions<BrokerOptions> options, MeetingStore meetings) =>
+{
+    MeetingRecord? meeting = meetings.FindInvite(token);
+    if (meeting == null) return Results.NotFound();
+    BrokerOptions broker = options.Value;
+    if (!TryApplyWebCors(http, broker)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+    BrokerServerOptions? server = broker.FindServer(meeting.Id);
+    OrganizationOptions organization = broker.GetOrganization();
+    IReadOnlyList<ProviderOptions> providers = organization.Providers is { Count: > 0 }
+        ? organization.Providers
+        : server?.Providers ?? [];
+    if (server == null || providers.Count == 0 || string.IsNullOrWhiteSpace(meeting.TransportPublicKey))
+        return Results.Problem("Meeting Web SSO configuration is incomplete.", statusCode: 503);
+    http.Response.Headers.CacheControl = "no-store";
+    return Results.Json(CreateWebClientConfiguration(http, broker, server, providers,
+        publicKeyOverride: meeting.TransportPublicKey));
+});
+
+// Web clients receive meeting details over HTTPS instead of carrying the server password
+// and generated username in the participant URL. The invitation token remains the only
+// participant-facing capability, and the response is deliberately not cacheable.
+app.MapGet("/join/{token}/web-manifest", (string token, HttpContext http, IOptions<BrokerOptions> options, MeetingStore meetings) =>
+{
+    MeetingRecord? meeting = meetings.FindInvite(token);
+    if (meeting == null) return Results.NotFound();
+    if (!TryApplyWebCors(http, options.Value)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+    if (!string.Equals(meeting.Status, "ready", StringComparison.OrdinalIgnoreCase)
+        || string.IsNullOrWhiteSpace(meeting.Host))
+        return Results.Content("This meeting is not ready yet.", "text/plain; charset=utf-8", statusCode: 409);
+
+    if (!Uri.TryCreate(RequestOrigin(http, options.Value), UriKind.Absolute, out Uri? brokerOrigin))
+        return Results.Problem("Broker origin is invalid.", statusCode: 503);
+    http.Response.Headers.CacheControl = "no-store";
+    string? configuredWebSocketUri = Environment.GetEnvironmentVariable("BASIS_WEB_SOCKET_URI");
+    string websocketUri = !string.IsNullOrWhiteSpace(configuredWebSocketUri)
+        ? configuredWebSocketUri.Trim()
+        : $"{(brokerOrigin.Scheme == Uri.UriSchemeHttps ? "wss" : "ws")}://{brokerOrigin.Authority}/basis";
+    string configUrl = $"{RequestOrigin(http, options.Value)}/join/{Uri.EscapeDataString(token)}/web-config";
+    return Results.Json(new
+    {
+        configUrl,
+        websocketUri,
+        userName = "web-guest-" + token[..Math.Min(token.Length, 8)],
+        password = meeting.Password,
+    }, new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = null });
+});
+
+// A participant-facing URL. It never contains OAuth secrets, the admission signing key, or the
+// meeting password. Native clients receive the opaque manifest through the loopback listener;
+// Web clients follow the separate WebGL manifest URL below.
 app.MapGet("/join/{token}", (string token, HttpContext http, IOptions<BrokerOptions> options, MeetingStore meetings) =>
 {
     MeetingRecord? meeting = meetings.FindInvite(token);
@@ -332,21 +380,17 @@ app.MapGet("/join/{token}", (string token, HttpContext http, IOptions<BrokerOpti
     if (!string.Equals(meeting.Status, "ready", StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(meeting.Host))
         return Results.Content("This meeting is not ready yet.", "text/plain; charset=utf-8", statusCode: 409);
 
-    string host = meeting.Host.Contains(':') && !meeting.Host.StartsWith('[') ? $"[{meeting.Host}]" : meeting.Host;
-    string deepLink = $"basisdemo://{host}:{meeting.Port}?password={Uri.EscapeDataString(meeting.Password)}&meeting={Uri.EscapeDataString(meeting.Id)}";
-    string configurationUrl = $"{RequestOrigin(http, options.Value)}/join/{Uri.EscapeDataString(token)}/config";
-    string loopbackUrl = "http://127.0.0.1:56831/basis-join?config=" + Uri.EscapeDataString(configurationUrl)
-        + "&link=" + Uri.EscapeDataString(deepLink);
+    string manifestUrl = $"{RequestOrigin(http, options.Value)}/join/{Uri.EscapeDataString(token)}/manifest";
+    string loopbackUrl = "http://127.0.0.1:56831/basis-join?url=" + Uri.EscapeDataString(manifestUrl);
     string webJoinUrl = BuildWebJoinUrl(meeting, token, options.Value, http);
     string encodedWebJoinUrl = System.Net.WebUtility.HtmlEncode(webJoinUrl);
-    string redirectScriptUrl = System.Text.Json.JsonSerializer.Serialize(deepLink);
     string loopbackScriptUrl = System.Text.Json.JsonSerializer.Serialize(loopbackUrl);
     string title = System.Net.WebUtility.HtmlEncode(meeting.Title);
     string page = $$"""
 <!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{{title}} — SekaiMate</title><style>body{margin:0;background:#f5f7fa;color:#202332;font:16px system-ui,-apple-system,sans-serif}.page{max-width:44rem;margin:0 auto;padding:4rem 1.25rem}.card{background:#fff;border:1px solid #d5dbdb;border-radius:16px;padding:2rem;box-shadow:0 4px 16px #172b4d12}.eyebrow{color:#553bc0;font-size:.8rem;font-weight:800;letter-spacing:.12em}h1{margin:.5rem 0 1rem;font-size:2rem}p{line-height:1.65}.actions{display:flex;flex-wrap:wrap;gap:.75rem;margin:1.25rem 0}.button{display:inline-block;padding:.8rem 1.2rem;border:0;border-radius:8px;background:#553bc0;color:#fff;text-decoration:none;font:inherit;font-weight:700;cursor:pointer}.button.secondary{background:#364152}.hint{color:#5f6b7a;font-size:.9rem}iframe{display:none}</style>
 <main class="page"><section class="card"><div class="eyebrow">SEKAIMATE</div><h1>{{title}}</h1><p id="status">参加方法を選択してください。</p><p class="actions"><a class="button" href="{{encodedWebJoinUrl}}">Webで参加</a><button class="button secondary" id="native-join" type="button">ネイティブで参加</button></p><p class="hint">Web版はブラウザで開きます。ネイティブ版はBasisアプリが起動している端末で選択してください。</p><iframe id="basis-join" title="Basis join bridge"></iframe></section></main>
-<script>const bridgeUrl={{loopbackScriptUrl}},deepLink={{redirectScriptUrl}},status=document.querySelector('#status'),frame=document.querySelector('#basis-join');let received=false;addEventListener('message',e=>e.data==='basis-join-received'&&(received=true,status.textContent='Basisに会議への参加を渡しました。Basisに戻ってください。'));document.querySelector('#native-join').addEventListener('click',()=>{status.textContent='Basisを起動しています…';frame.src=bridgeUrl;setTimeout(()=>!received&&(location.href=deepLink),2000)});</script>
+<script>const bridgeUrl={{loopbackScriptUrl}},status=document.querySelector('#status'),frame=document.querySelector('#basis-join');addEventListener('message',e=>e.data==='basis-join-received'&&(status.textContent='Basisに会議への参加を渡しました。Basisに戻ってください。'));document.querySelector('#native-join').addEventListener('click',()=>{status.textContent='Basisに会議情報を渡しています…';frame.src=bridgeUrl;setTimeout(()=>status.textContent='Basisが起動していることを確認してください。',2500)});</script>
 """;
     return Results.Content(page, "text/html; charset=utf-8");
 });
@@ -356,25 +400,17 @@ app.MapGet("/join/{token}/open", (string token, HttpContext http, MeetingStore m
     if (meeting == null) return Results.Content("This meeting invitation is invalid or has been revoked.", "text/plain; charset=utf-8", statusCode: 404);
     if (!string.Equals(meeting.Status, "ready", StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(meeting.Host))
         return Results.Content("This meeting is not ready yet.", "text/plain; charset=utf-8", statusCode: 409);
-
-    string host = meeting.Host.Contains(':') && !meeting.Host.StartsWith('[') ? $"[{meeting.Host}]" : meeting.Host;
-    string deepLink = $"basisdemo://{host}:{meeting.Port}?password={Uri.EscapeDataString(meeting.Password)}&meeting={Uri.EscapeDataString(meeting.Id)}";
-    string encodedLink = System.Net.WebUtility.HtmlEncode(deepLink);
-    string title = System.Net.WebUtility.HtmlEncode(meeting.Title);
-    string page = $$"""
-<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{{title}} — SekaiMate</title><style>body{margin:0;background:#f5f7fa;color:#202332;font:16px system-ui,-apple-system,sans-serif}.page{max-width:44rem;margin:0 auto;padding:4rem 1.25rem}.card{background:#fff;border:1px solid #d5dbdb;border-radius:16px;padding:2rem;box-shadow:0 4px 16px #172b4d12}.eyebrow{color:#553bc0;font-size:.8rem;font-weight:800;letter-spacing:.12em}h1{margin:.5rem 0 1rem;font-size:2rem}p{line-height:1.65}.button{display:inline-block;margin:1rem 0;padding:.8rem 1.2rem;border-radius:8px;background:#553bc0;color:#fff;text-decoration:none;font-weight:700}.hint{color:#5f6b7a;font-size:.9rem}</style>
-<main class="page"><section class="card"><div class="eyebrow">SEKAIMATE</div><h1>{{title}}</h1><p>Basis を起動済みなら、下のボタンを押すとこの会議室へ接続します。</p><p><a class="button" href="{{encodedLink}}">Basis で参加する</a></p><p class="hint">通常の招待 URL は自動的にこの操作を行います。この画面はブラウザのフォールバック用です。</p></section></main>
-""";
-    return Results.Content(page, "text/html; charset=utf-8");
+    return Results.Redirect($"/join/{Uri.EscapeDataString(token)}");
 });
 app.MapGet("/join/{token}/manifest", (string token, HttpContext http, IOptions<BrokerOptions> options, MeetingStore meetings) =>
 {
     MeetingRecord? meeting = meetings.FindInvite(token);
     if (meeting == null) return Results.NotFound();
+    http.Response.Headers.CacheControl = "no-store";
     return Results.Json(new
     {
         meeting = new { id = meeting.Id, title = meeting.Title },
+        configUrl = $"{RequestOrigin(http, options.Value)}/join/{Uri.EscapeDataString(token)}/config",
         connection = new { host = meeting.Host, port = meeting.Port, password = meeting.Password },
         serverTransport = TransportConfig(http, options.Value, meeting.TransportPublicKey, meeting.Id),
     });
@@ -543,17 +579,8 @@ static string BuildWebJoinUrl(MeetingRecord meeting, string token, BrokerOptions
             && (uri.Scheme == Uri.UriSchemeHttps || (uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback))
             && !string.IsNullOrWhiteSpace(uri.Host));
     if (string.IsNullOrWhiteSpace(webOrigin)) return string.Empty;
-    if (!Uri.TryCreate(RequestOrigin(http, broker), UriKind.Absolute, out Uri? brokerOrigin)) return string.Empty;
-
-    string? configuredWebSocketUri = Environment.GetEnvironmentVariable("BASIS_WEB_SOCKET_URI");
-    string websocketUri = !string.IsNullOrWhiteSpace(configuredWebSocketUri)
-        ? configuredWebSocketUri.Trim()
-        : $"{(brokerOrigin.Scheme == Uri.UriSchemeHttps ? "wss" : "ws")}://{brokerOrigin.Authority}/basis";
-    string userName = "web-guest-" + token[..Math.Min(token.Length, 8)];
-    return $"{webOrigin}/?basisMeeting=1"
-        + $"&websocketUri={Uri.EscapeDataString(websocketUri)}"
-        + $"&password={Uri.EscapeDataString(meeting.Password)}"
-        + $"&userName={Uri.EscapeDataString(userName)}";
+    string manifestUrl = $"{RequestOrigin(http, broker)}/join/{Uri.EscapeDataString(token)}/web-manifest";
+    return $"{webOrigin}/?basisMeeting=1&meetingUrl={Uri.EscapeDataString(manifestUrl)}";
 }
 
 static object TransportConfig(HttpContext http, BrokerOptions broker, string publicKey, string serverId)
