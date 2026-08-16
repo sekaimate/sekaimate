@@ -492,7 +492,8 @@ static bool AdminAuthorized(HttpContext http, BrokerOptions broker)
 
 static string RequestOrigin(HttpContext http, BrokerOptions broker)
 {
-    if (Uri.TryCreate(broker.PublicBaseUrl, UriKind.Absolute, out Uri? configured) && configured.Scheme == Uri.UriSchemeHttps)
+    if (Uri.TryCreate(broker.PublicBaseUrl, UriKind.Absolute, out Uri? configured)
+        && (configured.Scheme == Uri.UriSchemeHttps || configured.Scheme == Uri.UriSchemeHttp))
         return configured.GetLeftPart(UriPartial.Authority);
     return $"{http.Request.Scheme}://{http.Request.Host}";
 }
@@ -501,12 +502,15 @@ static string BuildWebJoinUrl(MeetingRecord meeting, string token, BrokerOptions
 {
     string? webOrigin = broker.AllowedWebOrigins?.Select(origin => origin?.Trim().TrimEnd('/'))
         .FirstOrDefault(origin => Uri.TryCreate(origin, UriKind.Absolute, out Uri? uri)
-            && uri.Scheme == Uri.UriSchemeHttps && !string.IsNullOrWhiteSpace(uri.Host));
+            && (uri.Scheme == Uri.UriSchemeHttps || (uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback))
+            && !string.IsNullOrWhiteSpace(uri.Host));
     if (string.IsNullOrWhiteSpace(webOrigin)) return string.Empty;
-    if (!Uri.TryCreate(RequestOrigin(http, broker), UriKind.Absolute, out Uri? brokerOrigin)
-        || brokerOrigin.Scheme != Uri.UriSchemeHttps) return string.Empty;
+    if (!Uri.TryCreate(RequestOrigin(http, broker), UriKind.Absolute, out Uri? brokerOrigin)) return string.Empty;
 
-    string websocketUri = $"wss://{brokerOrigin.Authority}/basis";
+    string? configuredWebSocketUri = Environment.GetEnvironmentVariable("BASIS_WEB_SOCKET_URI");
+    string websocketUri = !string.IsNullOrWhiteSpace(configuredWebSocketUri)
+        ? configuredWebSocketUri.Trim()
+        : $"{(brokerOrigin.Scheme == Uri.UriSchemeHttps ? "wss" : "ws")}://{brokerOrigin.Authority}/basis";
     string userName = "web-guest-" + token[..Math.Min(token.Length, 8)];
     return $"{webOrigin}/?basisMeeting=1"
         + $"&websocketUri={Uri.EscapeDataString(websocketUri)}"
