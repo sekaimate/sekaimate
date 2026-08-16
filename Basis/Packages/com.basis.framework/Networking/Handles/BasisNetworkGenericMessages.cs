@@ -1,4 +1,5 @@
 using Basis.Network.Core;
+using Basis.Scripts.BasisSdk.Players;
 using Basis.Scripts.Networking;
 using Basis.Scripts.Networking.NetworkedAvatar;
 using Basis.Scripts.Networking.Sync;
@@ -430,6 +431,11 @@ public static class BasisNetworkGenericMessages
 
         try
         {
+            if (!await WaitForLocalPlayerConnectionAsync())
+            {
+                return;
+            }
+
             // Check the load strategy before spawning
             switch (LocalLoadResource.LoadStrategy)
             {
@@ -462,6 +468,21 @@ public static class BasisNetworkGenericMessages
         {
             BasisDebug.Log($"Load cancelled for {LocalLoadResource.LoadedNetID} (disconnected)", BasisDebug.LogTag.Networking);
         }
+    }
+
+    private static async Task<bool> WaitForLocalPlayerConnectionAsync()
+    {
+        while (!BasisNetworkConnection.LocalPlayerIsConnected)
+        {
+            if (BasisNetworkConnection.LocalPlayerPeer == null)
+            {
+                return false;
+            }
+
+            await Task.Yield();
+        }
+
+        return true;
     }
 
     /// <summary>
