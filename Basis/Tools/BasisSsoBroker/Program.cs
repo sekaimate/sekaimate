@@ -276,9 +276,10 @@ app.MapGet("/enroll/{token}/web", (string token, HttpContext http, IOptions<Brok
 });
 app.MapGet("/enroll/{token}/web-config", (string token, HttpContext http, IOptions<BrokerOptions> options, EnrollmentStore enrollments, MeetingStore meetings) =>
 {
+    BrokerOptions broker = options.Value;
+    if (!TryApplyWebCors(http, broker)) return Results.StatusCode(StatusCodes.Status403Forbidden);
     string? serverId = enrollments.Take(token);
     if (serverId == null) return Results.Content("This Basis SSO setup link has expired or was already used.", "text/plain; charset=utf-8", statusCode: 410);
-    BrokerOptions broker = options.Value;
     BrokerServerOptions? server = broker.FindServer(serverId);
     MeetingRecord? meeting = meetings.Find(serverId);
     if (server == null) return Results.Problem("Broker server is not configured.", statusCode: 503);
@@ -487,6 +488,20 @@ static bool TryApplyAdmissionCors(HttpContext http, BrokerOptions broker)
     http.Response.Headers.AccessControlAllowMethods = "POST, OPTIONS";
     http.Response.Headers.AccessControlAllowHeaders = "Content-Type";
     http.Response.Headers.AccessControlMaxAge = "600";
+    http.Response.Headers.Vary = "Origin";
+    return true;
+}
+
+static bool TryApplyWebCors(HttpContext http, BrokerOptions broker)
+{
+    string? origin = http.Request.Headers.Origin.FirstOrDefault();
+    if (string.IsNullOrWhiteSpace(origin)) return true;
+    string normalizedOrigin = origin.TrimEnd('/');
+    bool allowed = broker.AllowedWebOrigins?.Any(value => string.Equals(value?.Trim().TrimEnd('/'), normalizedOrigin, StringComparison.OrdinalIgnoreCase)) == true;
+    if (!allowed) return false;
+    http.Response.Headers.AccessControlAllowOrigin = normalizedOrigin;
+    http.Response.Headers.AccessControlAllowMethods = "GET, OPTIONS";
+    http.Response.Headers.AccessControlAllowHeaders = "Content-Type";
     http.Response.Headers.Vary = "Origin";
     return true;
 }
