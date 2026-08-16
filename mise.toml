@@ -2,46 +2,74 @@
 node="latest"
 pnpm = "11"
 
-[tasks."build:web:dev"]
-description = "Build the reusable Development WebGL build"
+[tasks."web:build"]
+description = "再利用可能なWebGL開発ビルドを作成"
 run = "./tools/build-web.sh --dev"
 
-[tasks."build:web"]
-description = "Build the clean Release WebGL build"
+[tasks."web:release"]
+description = "クリーンなWebGLリリースビルドを作成"
 run = "./tools/build-web.sh"
 
-[tasks."serve:web"]
-description = "Serve the Development WebGL build and world BEE"
+[tasks."web:prepare"]
+description = "WebGL開発ビルドを再利用し、古い場合だけ再ビルド"
+run = "bash ./tools/ensure-web-dev-build.sh"
+
+[tasks."web:serve"]
+description = "WebGL開発ビルドとワールドBEEを配信"
 run = "./tools/serve-web.sh --dev"
 
 [tasks."server:up"]
-description = "Build and start the local Basis Server with WebSocket support"
+description = "WebSocket対応のローカルBasis Serverをビルドして起動"
 run = "bash ./tools/server-up.sh"
 
 [tasks."server:down"]
-description = "Stop the local Basis Server"
+description = "ローカルBasis Serverを停止"
 run = 'docker compose -f "Basis Server/Docker/docker-compose.yml" -f "Basis Server/Docker/docker-compose.local-web.yml" down'
 
 [tasks."server:logs"]
-description = "Follow local Basis Server logs"
+description = "ローカルBasis Serverのログを表示"
 run = 'docker compose -f "Basis Server/Docker/docker-compose.yml" -f "Basis Server/Docker/docker-compose.local-web.yml" logs -f basis-server'
 
-[tasks."admin:up"]
-description = "Build and start the SSO Broker and Admin UI"
-run = 'docker compose -f "Basis Server/Docker/sso/docker-compose.yml" up -d --build'
+[tasks."sso:up"]
+description = "ローカルHTTPSのSSO gatewayをビルド・起動し、readyまで待機"
+run = "bash ./tools/sso-local-up.sh"
 
-[tasks."admin:down"]
-description = "Stop the SSO Broker and Admin UI"
+[tasks."sso:health"]
+description = "ローカルSSO gatewayの状態を確認"
+run = "bash ./tools/sso-health.sh"
+
+[tasks."sso:ca"]
+description = "ローカルSSO用CA証明書のパスを表示"
+run = "bash ./tools/sso-ca.sh"
+
+[tasks."sso:trust-ca"]
+description = "ローカルSSO用CAをmacOSのログインキーチェーンで信頼"
+run = "bash ./tools/sso-trust-ca.sh"
+
+[tasks."sso:down"]
+description = "SSO BrokerとAdmin gatewayを停止"
 run = 'docker compose -f "Basis Server/Docker/sso/docker-compose.yml" down'
 
-[tasks."admin:logs"]
-description = "Follow SSO Broker and Admin UI logs"
+[tasks."sso:logs"]
+description = "SSO BrokerとAdmin gatewayのログを表示"
 run = 'docker compose -f "Basis Server/Docker/sso/docker-compose.yml" logs -f'
 
-[tasks."admin:ui"]
-description = "Run the SSO Admin UI development server"
-run = "cd 'Basis/Tools/BasisSsoBroker/AdminUi' && vp run dev"
+[tasks."sso:install"]
+description = "Admin Consoleの依存関係をインストール"
+dir = "Basis/Tools/BasisSsoBroker/AdminUi"
+run = "pnpm install --frozen-lockfile"
 
-[tasks.dev]
-description = "Reuse or build WebGL, start SSO, Basis Server, and the Web client"
-run = "bash ./tools/ensure-web-dev-build.sh && mise run admin:up && mise run server:up && exec ./tools/serve-web.sh --dev"
+[tasks."sso:dev"]
+description = "SSO gatewayを起動し、Admin Consoleの開発サーバーを実行"
+depends = ["sso:up", "sso:install"]
+dir = "Basis/Tools/BasisSsoBroker/AdminUi"
+run = "pnpm run dev"
+
+[tasks."local:up"]
+description = "WebGL・SSO・Basis Server・Web配信をまとめて起動"
+depends = ["web:prepare", "sso:up", "server:up"]
+run = "exec ./tools/serve-web.sh --dev"
+
+[tasks."local:down"]
+description = "ローカルSSO gatewayとBasis Serverを停止"
+run = "mise run sso:down && mise run server:down"

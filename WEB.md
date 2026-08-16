@@ -23,40 +23,42 @@ Unity Hub以外へUnityを導入している場合は、実行ファイルを`BA
 初回だけ通常ビルドを実行してAddressablesの成果物を作成します。
 
 ```sh
-mise run build:web
+mise run web:release
 ```
 
 ```sh
-mise run build:web:dev
-mise run serve:web
+mise run web:build
+mise run web:serve
 ```
 
 `mise`を使う場合は、次のタスクも利用できます。
 
 ```sh
-mise run build:web:dev # 高速開発ビルド
+mise run web:build # 高速開発ビルド
 mise run server:up     # WebSocket対応Basis Serverを起動
-mise run serve:web     # Web版とBEEを配信
+mise run web:serve     # Web版とBEEを配信
 mise run server:logs   # Serverログを表示
 mise run server:down   # Serverを停止
 ```
 
-SSOのAdmin UIをDockerで起動する場合は、先に`Basis Server/Docker/sso/.env`とBroker設定を用意してから次を実行します。
+SSOのBrokerとAdmin gatewayをDockerで起動する場合は、先に`Basis Server/Docker/sso/.env`とBroker設定を用意してから次を実行します。
 
 ```sh
-mise run admin:up
+mise run sso:up
 ```
 
-管理画面は`http://127.0.0.1:5081/admin/`です。停止・ログ確認は次のタスクを使います。
+管理画面は`https://127.0.0.1:5081/admin/`です。停止・ログ確認は次のタスクを使います。
 
 ```sh
-mise run admin:logs
-mise run admin:down
+mise run sso:logs
+mise run sso:down
 ```
 
-UIだけを開発サーバーで起動する場合は`mise run admin:ui`を使い、`http://localhost:5173/`を開きます。Broker APIが別途起動している必要があります。
+Admin Consoleだけを開発サーバーで起動する場合は`mise run sso:dev`を使い、`http://localhost:5173/`を開きます。必要なpnpm依存関係とBroker/HTTPS gatewayはタスクが先に起動します。
 
-全部を順番に起動する場合は`mise run dev`を使用します。WebGL成果物が最新ならビルドをスキップし、変更がある場合だけ再ビルドします。配信中はそのターミナルを終了せず、ブラウザーで`http://127.0.0.1:4173/`を開いてください。
+全部を起動する場合は`mise run local:up`を使用します。WebGL成果物が最新ならビルドをスキップし、変更がある場合だけ再ビルドします。配信中はそのターミナルを終了せず、ブラウザーで`http://127.0.0.1:4173/`を開いてください。
+
+`sso:dev` はBrokerとHTTPS Admin gatewayも自動起動します。終了時は`mise run local:down`でSSOとBasis Serverを停止できます。Web配信のターミナルは`Ctrl-C`で終了してください。
 
 開発用の出力先は`Build/WebDev`です。既存の出力を削除せずに再利用し、ワールドBEEはGit管理外の`local/BEE/world.BEE`から自動的に配置します。BEEをビルド出力の外に置くため、通常のリリース用ビルドでも失われません。通常のリリース用ビルドは従来どおり`./tools/build-web.sh`を使用します。
 
