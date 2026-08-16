@@ -8,10 +8,10 @@ import {
   webSsoConfigurationResponse,
 } from './worker.ts';
 
-test('fixed build artifacts revalidate in browsers and remain cached at the edge', () => {
+test('versioned build artifacts remain cached in browsers and at the edge', () => {
   assert.equal(
     cacheControlFor('Build/basis.wasm.gz'),
-    'public, max-age=0, s-maxage=31536000, must-revalidate, no-transform',
+    'public, max-age=31536000, s-maxage=31536000, immutable, no-transform',
   );
 });
 

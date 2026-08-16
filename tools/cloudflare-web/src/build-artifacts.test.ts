@@ -10,7 +10,7 @@ test('uses fixed names for Unity build artifacts', () => {
   assert.equal(fixedBuildArtifactKey('StreamingAssets/catalog.json'), 'StreamingAssets/catalog.json');
 });
 
-test('rewrites Unity entry point references to fixed versioned artifact URLs', () => {
+test('rewrites Unity entry point references with each artifact version', async () => {
   const html = `
     <script src="Build/release.loader.js"></script>
     <script>
@@ -19,7 +19,10 @@ test('rewrites Unity entry point references to fixed versioned artifact URLs', (
     </script>
   `;
 
-  const rewritten = rewriteBuildArtifactReferences(html, 'build-42');
-  assert.match(rewritten, /Build\/basis\.loader\.js\?v=build-42/u);
-  assert.match(rewritten, /buildUrl \+ "\/basis\.wasm\.gz\?v=build-42"/u);
+  const rewritten = await rewriteBuildArtifactReferences(
+    html,
+    async key => key === 'Build/basis.loader.js' ? 'loader-42' : 'wasm-84',
+  );
+  assert.match(rewritten, /Build\/basis\.loader\.js\?v=loader-42/u);
+  assert.match(rewritten, /buildUrl \+ "\/basis\.wasm\.gz\?v=wasm-84"/u);
 });

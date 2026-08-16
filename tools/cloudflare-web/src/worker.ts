@@ -48,7 +48,7 @@ function keyFromRequest(request: Request): string | null {
 export function cacheControlFor(key: string): string {
   if (key === 'index.html') return 'no-store';
   if (key.startsWith('Build/')) {
-    return 'public, max-age=0, s-maxage=31536000, must-revalidate, no-transform';
+    return 'public, max-age=31536000, s-maxage=31536000, immutable, no-transform';
   }
   if (key.endsWith('/catalog.bin') || key.endsWith('/catalog.hash') || key.endsWith('/settings.json')) {
     return 'public, max-age=300, s-maxage=300, must-revalidate';
@@ -167,8 +167,13 @@ export default {
     if (key === 'index.html') {
       headers.delete('content-length');
       const html = await new Response(object.body).text();
+      const versionedHtml = await rewriteBuildArtifactReferences(html, async artifactKey => {
+        const artifact = await environment.WEB_BUILD.head(artifactKey);
+        if (artifact === null) throw new Error(`Build artifact not found: ${artifactKey}`);
+        return artifact.httpEtag;
+      });
       return new Response(
-        injectBrowserCacheControls(rewriteBuildArtifactReferences(html, object.httpEtag)),
+        injectBrowserCacheControls(versionedHtml),
         { headers },
       );
     }

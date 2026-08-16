@@ -508,7 +508,7 @@ static string BuildWebJoinUrl(MeetingRecord meeting, string token, BrokerOptions
 
     string websocketUri = $"wss://{brokerOrigin.Authority}/basis";
     string userName = "web-guest-" + token[..Math.Min(token.Length, 8)];
-    return $"{webOrigin}/?basisNetworkE2E=1"
+    return $"{webOrigin}/?basisMeeting=1"
         + $"&websocketUri={Uri.EscapeDataString(websocketUri)}"
         + $"&password={Uri.EscapeDataString(meeting.Password)}"
         + $"&userName={Uri.EscapeDataString(userName)}";

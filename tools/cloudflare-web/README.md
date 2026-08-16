@@ -14,4 +14,4 @@ Worker名とR2バケット名はドメインから生成されます。明示す
 
 WebGL SSOのredirect URIには、同じドメインの`/sso-callback`を登録します。WorkerがこのパスだけをOAuth callbackとして処理し、それ以外の静的ファイルはR2から配信します。
 
-Workerだけを更新するときは`--worker-only`を追加します。WASM、データ、バンドルはブラウザーで1日、Cloudflareエッジで1年キャッシュされます。HTMLとAddressablesカタログには短いキャッシュ期間を適用します。
+Workerだけを更新するときは`--worker-only`を追加します。WASM、データ、バンドルには各ファイルのETagをURLへ付け、ブラウザーとCloudflareエッジで1年キャッシュします。HTMLはキャッシュせず、Addressablesカタログには短いキャッシュ期間を適用します。
