@@ -20,9 +20,9 @@ RenderSettings:
   m_FogDensity: 0.01
   m_LinearFogStart: 0
   m_LinearFogEnd: 300
-  m_AmbientSkyColor: {r: 0.55, g: 0.62, b: 0.7, a: 1}
-  m_AmbientEquatorColor: {r: 0.32, g: 0.36, b: 0.4, a: 1}
-  m_AmbientGroundColor: {r: 0.14, g: 0.16, b: 0.18, a: 1}
+  m_AmbientSkyColor: {r: 0.7231, g: 0.7758, b: 0.8388, a: 1}
+  m_AmbientEquatorColor: {r: 0.624, g: 0.6654, b: 0.7157, a: 1}
+  m_AmbientGroundColor: {r: 0.5457, g: 0.5841, b: 0.6308, a: 1}
   m_AmbientIntensity: 1
   m_AmbientMode: 1
   m_SubtractiveShadowColor: {r: 0.42, g: 0.478, b: 0.627, a: 1}
@@ -4262,7 +4262,7 @@ PrefabInstance:
     - target: {fileID: 2300432515264583738, guid: 3b1b0ef5a216546039dc1418fe4883aa, type: 3}
       propertyPath: 'm_Materials.Array.data[0]'
       value:
-      objectReference: {fileID: 2100000, guid: dd34824325b1a46ed8bf4fc930f5aba0, type: 2}
+      objectReference: {fileID: 2100000, guid: 1a7bb4f8185d34184b400c6029171fd9, type: 2}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []

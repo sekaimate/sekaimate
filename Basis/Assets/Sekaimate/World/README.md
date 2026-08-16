@@ -8,6 +8,7 @@
 - The empty first seating terrace is the lowest floor at `y=0`; the stage top and first occupied terrace are at `y=0.5`. Each later terrace rises by another `0.5` metre.
 - Furniture packages are centred front-to-back in their terrace cells with roughly `0.30` metre of visible margin on each side. The closest occupied furniture is about `3.16` metres from the stage.
 - The stage includes a large presentation screen, an ASCII `U-PoC` placeholder, two speakers, two spotlights, and four replaceable poster surfaces on the entrance wall. Displayed content is temporary.
+- The room shell uses a light neutral palette. Red stair treads and the dark stage and desk surfaces remain as wayfinding and presentation accents; furniture modelling is intentionally deferred.
 - Kenney furniture and space-station props are stored under `Assets/Sekaimate/ThirdParty/Kenney/`; their source and CC0 license records live beside the imported files.
 - The rejected A/B/C concepts remain recoverable from Git history and the existing comparison evidence; they are not part of the active world.
 - The `.BEE` output remains derived local data and is never committed.
