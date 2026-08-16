@@ -248,11 +248,10 @@ namespace Basis.Scripts.Networking
                     transmitter.Initialize();
 
                     LocalPlayerIsConnected = true;
-                    _localPlayerConnectionReady.TrySetResult(true);
-
                     BasisNetworkPlayer.OnLocalPlayerJoined?.Invoke(transmitter, BasisLocalPlayer.Instance);
                     BasisNetworkPlayer.OnPlayerJoined?.Invoke(transmitter);
                     BasisConnectionService.NotifyConnectionStateChanged();
+                    _localPlayerConnectionReady.TrySetResult(true);
                 }
                 catch (Exception ex)
                 {
