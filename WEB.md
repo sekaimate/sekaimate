@@ -23,22 +23,22 @@ Unity Hub以外へUnityを導入している場合は、実行ファイルを`BA
 初回だけ通常ビルドを実行してAddressablesの成果物を作成します。
 
 ```sh
-mise run web
+mise run build:web
 ```
 
 ```sh
-mise run web-dev
-mise run web-serve
+mise run build:web:dev
+mise run serve:web
 ```
 
 `mise`を使う場合は、次のタスクも利用できます。
 
 ```sh
-mise run web-dev       # 高速開発ビルド
-mise run server-up     # WebSocket対応Basis Serverを起動
-mise run web-serve     # Web版とBEEを配信
-mise run server-logs   # Serverログを表示
-mise run server-down   # Serverを停止
+mise run build:web:dev # 高速開発ビルド
+mise run server:up     # WebSocket対応Basis Serverを起動
+mise run serve:web     # Web版とBEEを配信
+mise run server:logs   # Serverログを表示
+mise run server:down   # Serverを停止
 ```
 
 全部を順番に起動する場合は`mise run dev`を使用します。配信中はそのターミナルを終了せず、ブラウザーで`http://127.0.0.1:4173/`を開いてください。

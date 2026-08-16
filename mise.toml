@@ -1,30 +1,30 @@
 [tools]
 pnpm = "11"
 
-[tasks.web-dev]
+[tasks."build:web:dev"]
 description = "Build the reusable Development WebGL build"
 run = "./tools/build-web.sh --dev"
 
-[tasks.web]
+[tasks."build:web"]
 description = "Build the clean Release WebGL build"
 run = "./tools/build-web.sh"
 
-[tasks.web-serve]
+[tasks."serve:web"]
 description = "Serve the Development WebGL build and world BEE"
 run = "./tools/serve-web.sh --dev"
 
-[tasks.server-up]
+[tasks."server:up"]
 description = "Build and start the local Basis Server with WebSocket support"
 run = 'docker compose -f "Basis Server/Docker/docker-compose.yml" -f "Basis Server/Docker/docker-compose.local-web.yml" up -d --build'
 
-[tasks.server-down]
+[tasks."server:down"]
 description = "Stop the local Basis Server"
 run = 'docker compose -f "Basis Server/Docker/docker-compose.yml" -f "Basis Server/Docker/docker-compose.local-web.yml" down'
 
-[tasks.server-logs]
+[tasks."server:logs"]
 description = "Follow local Basis Server logs"
 run = 'docker compose -f "Basis Server/Docker/docker-compose.yml" -f "Basis Server/Docker/docker-compose.local-web.yml" logs -f basis-server'
 
 [tasks.dev]
 description = "Build WebGL, start Basis Server, and serve the Web client"
-run = "mise run web-dev && mise run server-up && exec ./tools/serve-web.sh --dev"
+run = "mise run build:web:dev && mise run server:up && exec ./tools/serve-web.sh --dev"
