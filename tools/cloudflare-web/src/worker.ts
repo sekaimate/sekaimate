@@ -68,6 +68,12 @@ export function responseInitFor(key: string, headers: Headers): CloudflareRespon
     : { headers, encodeBody: 'manual' };
 }
 
+export function enableUnityBuildBrowserCache(loader: string): string {
+  const defaultCacheControl = 'return (url == Module.dataUrl || url.match(/\\.bundle/)) ? "must-revalidate" : "no-store";';
+  const cachedBuildCacheControl = 'return url.indexOf("/Build/") >= 0 ? "immutable" : (url == Module.dataUrl || url.match(/\\.bundle/)) ? "must-revalidate" : "no-store";';
+  return loader.replace(defaultCacheControl, cachedBuildCacheControl);
+}
+
 function responseHeaders(object: R2ObjectMetadata, key: string): Headers {
   const headers = new Headers();
   object.writeHttpMetadata(headers);
@@ -164,6 +170,11 @@ export default {
     if (object === null) return new Response('Not Found', { status: 404 });
 
     const headers = responseHeaders(object, key);
+    if (key === 'Build/basis.loader.js') {
+      headers.delete('content-length');
+      headers.delete('etag');
+      return new Response(enableUnityBuildBrowserCache(await new Response(object.body).text()), { headers });
+    }
     if (key === 'index.html') {
       headers.delete('content-length');
       const html = await new Response(object.body).text();

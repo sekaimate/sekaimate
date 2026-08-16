@@ -4,9 +4,15 @@ import {
   browserSsoCallbackResponse,
   cacheControlFor,
   contentEncodingFor,
+  enableUnityBuildBrowserCache,
   responseInitFor,
   webSsoConfigurationResponse,
 } from './worker.ts';
+
+test('Unity loader uses its IndexedDB cache for versioned build artifacts', () => {
+  const loader = 'cacheControl: function (url) { return (url == Module.dataUrl || url.match(/\\.bundle/)) ? "must-revalidate" : "no-store"; }';
+  assert.ok(enableUnityBuildBrowserCache(loader).includes('url.indexOf("/Build/") >= 0 ? "immutable"'));
+});
 
 test('versioned build artifacts remain cached in browsers and at the edge', () => {
   assert.equal(
