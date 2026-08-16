@@ -39,6 +39,49 @@ namespace Basis.Scripts.Networking
         public static event Action ConnectionPermissionChanged;
         public static event Action ConnectionStateChanged;
 
+        private static Action<ServerDirectoryEntry, string> _webMeetingConnectionHandler;
+        private static ServerDirectoryEntry _pendingWebMeetingEntry;
+        private static string _pendingWebMeetingUserName;
+        private static int _webMeetingRequestClaimed;
+
+        public static void RegisterWebMeetingConnectionHandler(Action<ServerDirectoryEntry, string> handler)
+        {
+            _webMeetingConnectionHandler = handler ?? throw new ArgumentNullException(nameof(handler));
+            if (_pendingWebMeetingEntry == null)
+            {
+                return;
+            }
+
+            ServerDirectoryEntry entry = _pendingWebMeetingEntry;
+            string userName = _pendingWebMeetingUserName;
+            _pendingWebMeetingEntry = null;
+            _pendingWebMeetingUserName = null;
+            handler(entry, userName);
+        }
+
+        public static bool RequestWebMeetingConnection(ServerDirectoryEntry entry, string userName)
+        {
+            if (entry == null || string.IsNullOrWhiteSpace(userName))
+            {
+                return false;
+            }
+            if (Interlocked.CompareExchange(ref _webMeetingRequestClaimed, 1, 0) != 0)
+            {
+                return false;
+            }
+
+            if (_webMeetingConnectionHandler != null)
+            {
+                _webMeetingConnectionHandler(entry, userName);
+            }
+            else
+            {
+                _pendingWebMeetingEntry = entry;
+                _pendingWebMeetingUserName = userName;
+            }
+            return true;
+        }
+
         public static void NotifyConnectionPermissionChanged() =>
             ConnectionPermissionChanged?.Invoke();
 

@@ -23,8 +23,6 @@ namespace Basis.Scripts.Networking
         private const string WebSocketParameter = "websocketUri";
         private const string PasswordParameter = "password";
         private const string UserNameParameter = "userName";
-        private const float ConnectionGateWaitSeconds = 120f;
-
         private ServerDirectoryEntry _entry;
         private string _userName;
         private bool _acceptedReported;
@@ -32,7 +30,6 @@ namespace Basis.Scripts.Networking
         private bool _observeConnectionState = true;
         private bool _connectStarted;
         private bool _ownsAutoConnection;
-        private bool _connectionPermissionChanged;
         private int _remotePlayerCount = -1;
 
         [DllImport("__Internal")]
@@ -57,20 +54,11 @@ namespace Basis.Scripts.Networking
             SaveServerDirectoryEntry(entry);
             harness.Subscribe();
             harness.Report("harness-ready");
-            if (ownsAutoConnection)
-            {
-                harness.StartCoroutine(harness.ConnectWhenReady());
-            }
+            if (ownsAutoConnection) harness.RequestConnection();
         }
 
         private void Update()
         {
-            if (_connectionPermissionChanged)
-            {
-                _connectionPermissionChanged = false;
-                RequestConnection();
-            }
-
             if (_observeConnectionState && !_acceptedReported && BasisNetworkConnection.LocalPlayerPeer != null)
             {
                 _acceptedReported = true;
@@ -407,31 +395,6 @@ namespace Basis.Scripts.Networking
             Report("reconnect-requested");
         }
 
-        private IEnumerator ConnectWhenReady()
-        {
-            while (!BasisNetworkManagement.IsInitialized)
-            {
-                yield return null;
-            }
-
-            float deadline = Time.realtimeSinceStartup + ConnectionGateWaitSeconds;
-            while (Time.realtimeSinceStartup < deadline)
-            {
-                string blockedReason = BasisConnectionService.ConnectionBlockedReason?.Invoke();
-                if (string.IsNullOrWhiteSpace(blockedReason)) break;
-                yield return null;
-            }
-
-            string remainingBlockedReason = BasisConnectionService.ConnectionBlockedReason?.Invoke();
-            if (!string.IsNullOrWhiteSpace(remainingBlockedReason))
-            {
-                Report("connect-blocked", remainingBlockedReason);
-                yield break;
-            }
-
-            RequestConnection();
-        }
-
         private void RequestConnection()
         {
             if (!_ownsAutoConnection || _connectStarted || BasisNetworkConnection.LocalPlayerIsConnected)
@@ -439,21 +402,9 @@ namespace Basis.Scripts.Networking
                 return;
             }
 
-            string blockedReason = BasisConnectionService.ConnectionBlockedReason?.Invoke();
-            if (!string.IsNullOrWhiteSpace(blockedReason))
-            {
-                return;
-            }
-
             _connectStarted = true;
             Report("connect-requested");
-            _ = BasisConnectionService.ConnectAsync(_entry, _userName);
-        }
-
-        private void OnConnectionPermissionChanged()
-        {
-            BasisConnectionService.AutoConnectAttempted = true;
-            _connectionPermissionChanged = true;
+            BasisConnectionService.RequestWebMeetingConnection(_entry, _userName);
         }
 
         private static void SaveServerDirectoryEntry(ServerDirectoryEntry entry)
@@ -583,8 +534,6 @@ namespace Basis.Scripts.Networking
             BasisContentShareManager.OnSphereCreated += OnContentSphereCreated;
             BasisContentShareManager.OnSphereRemoved -= OnContentSphereRemoved;
             BasisContentShareManager.OnSphereRemoved += OnContentSphereRemoved;
-            BasisConnectionService.ConnectionPermissionChanged -= OnConnectionPermissionChanged;
-            BasisConnectionService.ConnectionPermissionChanged += OnConnectionPermissionChanged;
         }
 
         private void OnDestroy()
@@ -592,7 +541,6 @@ namespace Basis.Scripts.Networking
             BasisNetworkHandleChat.OnChatMessageReceived -= OnChatMessageReceived;
             BasisContentShareManager.OnSphereCreated -= OnContentSphereCreated;
             BasisContentShareManager.OnSphereRemoved -= OnContentSphereRemoved;
-            BasisConnectionService.ConnectionPermissionChanged -= OnConnectionPermissionChanged;
         }
 
         private void OnChatMessageReceived(ushort senderPlayerId, string message)

@@ -21,7 +21,9 @@ namespace Basis.BasisUI
         [RuntimeInitializeOnLoadMethod]
         public static void AddToMenu()
         {
-            BasisMenuBase<BasisMainMenu>.AddProvider(new ServersProvider());
+            ServersProvider provider = new ServersProvider();
+            BasisMenuBase<BasisMainMenu>.AddProvider(provider);
+            BasisConnectionService.RegisterWebMeetingConnectionHandler(provider.QueueWebMeetingConnection);
         }
 
         public const string TitleKey = "menu.provider.servers";
@@ -55,6 +57,8 @@ namespace Basis.BasisUI
         private string _editingId;
         private readonly List<IServerDirectorySource> _subscribedSources = new List<IServerDirectorySource>();
         private bool _pendingDefaultHighlight;
+        private ServerDirectoryEntry _pendingWebMeetingEntry;
+        private string _pendingWebMeetingUserName;
 
         private static bool IsDefault(ServerDirectoryEntry entry) =>
             entry != null && SavedServersDirectorySource.IsDefaultEntryId(entry.Id);
@@ -1002,14 +1006,45 @@ namespace Basis.BasisUI
             && !string.IsNullOrWhiteSpace(entry.ServerInfoUri);
 #endif
 
-        private async Task ConnectToAsync(ServerDirectoryEntry entry, bool isHostMode = false)
+        private void QueueWebMeetingConnection(ServerDirectoryEntry entry, string userName)
+        {
+            _pendingWebMeetingEntry = entry;
+            _pendingWebMeetingUserName = userName;
+            BasisNetworkManagement.OnIstanceCreated -= TryStartWebMeetingConnection;
+            BasisNetworkManagement.OnIstanceCreated += TryStartWebMeetingConnection;
+            BasisConnectionService.ConnectionPermissionChanged -= TryStartWebMeetingConnection;
+            BasisConnectionService.ConnectionPermissionChanged += TryStartWebMeetingConnection;
+            TryStartWebMeetingConnection();
+        }
+
+        private void TryStartWebMeetingConnection()
+        {
+            if (_pendingWebMeetingEntry == null || !BasisNetworkManagement.IsInitialized)
+            {
+                return;
+            }
+            if (!string.IsNullOrWhiteSpace(BasisConnectionService.ConnectionBlockedReason?.Invoke()))
+            {
+                return;
+            }
+
+            BasisNetworkManagement.OnIstanceCreated -= TryStartWebMeetingConnection;
+            BasisConnectionService.ConnectionPermissionChanged -= TryStartWebMeetingConnection;
+            ServerDirectoryEntry entry = _pendingWebMeetingEntry;
+            string userName = _pendingWebMeetingUserName;
+            _pendingWebMeetingEntry = null;
+            _pendingWebMeetingUserName = null;
+            _ = ConnectToAsync(entry, isHostMode: false, userNameOverride: userName);
+        }
+
+        private async Task ConnectToAsync(ServerDirectoryEntry entry, bool isHostMode = false, string userNameOverride = null)
         {
             // Validate sync inputs first so the user can correct without losing the
             // panel — only commit to the loading-bar takeover once we have something
             // worth attempting.
-            string userName = _usernameField != null
+            string userName = userNameOverride ?? (_usernameField != null
                 ? _usernameField._inputField.text
-                : BasisDataStore.LoadString(BasisConnectionService.UsernameFileName, string.Empty);
+                : BasisDataStore.LoadString(BasisConnectionService.UsernameFileName, string.Empty));
             if (string.IsNullOrWhiteSpace(userName))
             {
                 PromptForUsername(entry, isHostMode);
@@ -1023,7 +1058,7 @@ namespace Basis.BasisUI
             if (!isHostMode
                 && _probeResults.TryGetValue(entry.Id, out ServerProbeResult probe)
                 && BasisHighPlayerCapPerformanceMode.TryOfferBeforeConnect(
-                    probe.Online + 1, () => _ = ConnectToAsync(entry, isHostMode)))
+                    probe.Online + 1, () => _ = ConnectToAsync(entry, isHostMode, userName)))
             {
                 return;
             }

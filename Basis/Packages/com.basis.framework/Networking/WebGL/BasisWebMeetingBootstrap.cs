@@ -1,6 +1,5 @@
 #if UNITY_WEBGL && !UNITY_EDITOR
 using System;
-using System.Collections;
 using System.Globalization;
 using System.Threading;
 using Basis.Network.Core;
@@ -18,19 +17,13 @@ namespace Basis.Scripts.Networking
         }
     }
 
-    internal sealed class BasisWebMeetingBootstrap : MonoBehaviour
+    internal static class BasisWebMeetingBootstrap
     {
         private const string MeetingParameter = "basisMeeting";
         private const string LegacyMeetingParameter = "basisNetworkE2E";
         private const string WebSocketParameter = "websocketUri";
         private const string PasswordParameter = "password";
         private const string UserNameParameter = "userName";
-        private const float ConnectionGateWaitSeconds = 120f;
-
-        private ServerDirectoryEntry _entry;
-        private string _userName;
-        private bool _connectStarted;
-
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Initialize()
         {
@@ -43,71 +36,7 @@ namespace Basis.Scripts.Networking
                 return;
             }
             BasisConnectionService.AutoConnectAttempted = true;
-
-            GameObject gameObject = new GameObject(nameof(BasisWebMeetingBootstrap));
-            DontDestroyOnLoad(gameObject);
-            BasisWebMeetingBootstrap bootstrap = gameObject.AddComponent<BasisWebMeetingBootstrap>();
-            bootstrap._entry = entry;
-            bootstrap._userName = userName;
-            bootstrap.Subscribe();
-            bootstrap.StartCoroutine(bootstrap.ConnectWhenReady());
-        }
-
-        private void Subscribe()
-        {
-            BasisConnectionService.ConnectionPermissionChanged -= OnConnectionPermissionChanged;
-            BasisConnectionService.ConnectionPermissionChanged += OnConnectionPermissionChanged;
-        }
-
-        private void OnDestroy()
-        {
-            BasisConnectionService.ConnectionPermissionChanged -= OnConnectionPermissionChanged;
-        }
-
-        private void OnConnectionPermissionChanged()
-        {
-            if (BasisNetworkManagement.IsInitialized && IsConnectionAllowed())
-            {
-                StartConnection();
-            }
-        }
-
-        private IEnumerator ConnectWhenReady()
-        {
-            while (!BasisNetworkManagement.IsInitialized)
-            {
-                yield return null;
-            }
-
-            float deadline = Time.realtimeSinceStartup + ConnectionGateWaitSeconds;
-            while (Time.realtimeSinceStartup < deadline)
-            {
-                if (IsConnectionAllowed())
-                {
-                    StartConnection();
-                    yield break;
-                }
-
-                yield return null;
-            }
-
-            BasisDebug.LogError("Web meeting connection was blocked until the sign-in gate timed out.");
-        }
-
-        private bool IsConnectionAllowed()
-        {
-            return string.IsNullOrWhiteSpace(BasisConnectionService.ConnectionBlockedReason?.Invoke());
-        }
-
-        private void StartConnection()
-        {
-            if (_connectStarted || BasisNetworkConnection.LocalPlayerIsConnected)
-            {
-                return;
-            }
-
-            _connectStarted = true;
-            _ = BasisConnectionService.ConnectAsync(_entry, _userName);
+            BasisConnectionService.RequestWebMeetingConnection(entry, userName);
         }
 
         private static bool TryReadConfiguration(
