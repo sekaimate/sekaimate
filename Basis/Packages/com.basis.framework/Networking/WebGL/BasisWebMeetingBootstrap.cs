@@ -2,6 +2,7 @@
 using System;
 using System.Globalization;
 using System.Threading;
+using Basis.BasisUI;
 using Basis.Network.Core;
 using UnityEngine;
 
@@ -35,6 +36,7 @@ namespace Basis.Scripts.Networking
             {
                 return;
             }
+            BasisMainMenu.Close();
             BasisConnectionService.RequestWebMeetingConnection(entry, userName);
         }
 

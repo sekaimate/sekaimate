@@ -3,6 +3,7 @@ using System;
 using System.Collections;
 using System.Globalization;
 using System.Runtime.InteropServices;
+using Basis.BasisUI;
 using Basis.Network.Core;
 using Basis.Scripts.Networking;
 using UnityEngine;
@@ -22,6 +23,7 @@ namespace Basis.Integration.Sso
             string meetingUrl = Read(page.Query, MeetingUrlParameter);
             if (Read(page.Query, MeetingParameter) == "1" && IsAllowedConfigUrl(meetingUrl))
             {
+                BasisMainMenu.Close();
                 var meetingHost = new GameObject(nameof(BasisWebEnrollmentBootstrap));
                 UnityEngine.Object.DontDestroyOnLoad(meetingHost);
                 meetingHost.AddComponent<Runner>().StartMeetingDownload(meetingUrl);

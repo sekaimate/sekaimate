@@ -1007,6 +1007,11 @@ namespace Basis.BasisUI
 
         private void QueueWebMeetingConnection(ServerDirectoryEntry entry, string userName)
         {
+            // URL-based meetings may arrive while the Servers panel is still visible during
+            // framework/player initialization. Close it before readiness waits so the panel
+            // never flashes in front of the connection loading bar.
+            BasisMainMenu.Close();
+            BasisCursorManagement.OnReset();
             QueueConnection(entry, userName);
         }
 
