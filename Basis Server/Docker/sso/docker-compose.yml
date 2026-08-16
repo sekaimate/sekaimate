@@ -15,6 +15,7 @@ services:
       Password: ${Password}
       BASIS_SSO_ADMIN_TOKEN: ${BASIS_SSO_ADMIN_TOKEN}
       BASIS_SSO_ALLOW_MISSING_SERVER_KEYS: ${BASIS_SSO_ALLOW_MISSING_SERVER_KEYS:-false}
+      Broker__PublicBaseUrl: ${BASIS_SSO_PUBLIC_BASE_URL:-https://127.0.0.1:5081}
       BASIS_WEB_SOCKET_URI: ${BASIS_WEB_SOCKET_URI:-}
     volumes:
       - ../config:/basis-server-config:ro
@@ -29,7 +30,9 @@ services:
     restart: unless-stopped
     depends_on: [basis-sso-broker]
     ports:
-      - "127.0.0.1:${BASIS_SSO_GATEWAY_PORT:-5081}:8080"
+      - "127.0.0.1:${BASIS_SSO_GATEWAY_PORT:-5081}:443"
+    volumes:
+      - ./certs:/etc/nginx/certs
     networks: [sso]
 
 networks:
