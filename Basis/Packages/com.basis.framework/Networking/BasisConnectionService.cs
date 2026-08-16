@@ -116,6 +116,10 @@ namespace Basis.Scripts.Networking
                 return;
             }
 
+            AutoConnectAttempted = true;
+            BasisMainMenu.Close();
+            BasisCursorManagement.OnReset();
+
             if (_connectInProgress)
             {
                 BasisDebug.LogWarning("Connect requested while a connection attempt is already in progress; ignoring.");

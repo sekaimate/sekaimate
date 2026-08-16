@@ -42,6 +42,7 @@ namespace Basis.Scripts.Networking
             {
                 return;
             }
+            BasisConnectionService.AutoConnectAttempted = true;
 
             GameObject gameObject = new GameObject(nameof(BasisWebMeetingBootstrap));
             DontDestroyOnLoad(gameObject);

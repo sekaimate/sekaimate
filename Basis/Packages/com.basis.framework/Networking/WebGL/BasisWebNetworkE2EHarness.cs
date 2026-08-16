@@ -46,6 +46,7 @@ namespace Basis.Scripts.Networking
                 return;
             }
             bool ownsAutoConnection = BasisWebMeetingAutoConnectClaim.TryClaim();
+            BasisConnectionService.AutoConnectAttempted = true;
 
             GameObject gameObject = new GameObject(GameObjectName);
             DontDestroyOnLoad(gameObject);
@@ -451,6 +452,7 @@ namespace Basis.Scripts.Networking
 
         private void OnConnectionPermissionChanged()
         {
+            BasisConnectionService.AutoConnectAttempted = true;
             _connectionPermissionChanged = true;
         }
 
