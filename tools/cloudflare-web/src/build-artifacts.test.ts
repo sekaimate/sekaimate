@@ -23,6 +23,6 @@ test('rewrites Unity entry point references with each artifact version', async (
     html,
     async key => key === 'Build/basis.loader.js' ? 'loader-42' : 'wasm-84',
   );
-  assert.match(rewritten, /Build\/basis\.loader\.js\?v=loader-42/u);
+  assert.match(rewritten, /Build\/basis\.loader\.js\?v=loader-42&cache=2/u);
   assert.match(rewritten, /buildUrl \+ "\/basis\.wasm\.gz\?v=wasm-84"/u);
 });

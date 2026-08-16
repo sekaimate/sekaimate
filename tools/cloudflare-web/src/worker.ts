@@ -70,7 +70,7 @@ export function responseInitFor(key: string, headers: Headers): CloudflareRespon
 
 export function enableUnityBuildBrowserCache(loader: string): string {
   const defaultCacheControl = 'return (url == Module.dataUrl || url.match(/\\.bundle/)) ? "must-revalidate" : "no-store";';
-  const cachedBuildCacheControl = 'return url.indexOf("/Build/") >= 0 ? "immutable" : (url == Module.dataUrl || url.match(/\\.bundle/)) ? "must-revalidate" : "no-store";';
+  const cachedBuildCacheControl = 'return /(^|\\/)Build\\//.test(url) ? "immutable" : (url == Module.dataUrl || url.match(/\\.bundle/)) ? "must-revalidate" : "no-store";';
   return loader.replace(defaultCacheControl, cachedBuildCacheControl);
 }
 

@@ -1,5 +1,6 @@
 const UNITY_BUILD_ARTIFACT = /^Build\/[^/]+(\.loader\.js|\.data(?:\.gz|\.br)?|\.framework\.js(?:\.gz|\.br)?|\.wasm(?:\.gz|\.br)?|\.symbols\.json(?:\.gz|\.br)?)$/u;
 const UNITY_BUILD_ARTIFACT_REFERENCE = /[^/"']+(\.loader\.js|\.data(?:\.gz|\.br)?|\.framework\.js(?:\.gz|\.br)?|\.wasm(?:\.gz|\.br)?|\.symbols\.json(?:\.gz|\.br)?)/gu;
+const UNITY_LOADER_CACHE_VERSION = '2';
 
 export function fixedBuildArtifactKey(key: string): string {
   const match = UNITY_BUILD_ARTIFACT.exec(key);
@@ -20,6 +21,6 @@ export async function rewriteBuildArtifactReferences(
 
   return html.replace(
     UNITY_BUILD_ARTIFACT_REFERENCE,
-    (_artifact, suffix: string) => `basis${suffix}?v=${versions.get(suffix)}`,
+    (_artifact, suffix: string) => `basis${suffix}?v=${versions.get(suffix)}${suffix === '.loader.js' ? `&cache=${UNITY_LOADER_CACHE_VERSION}` : ''}`,
   );
 }

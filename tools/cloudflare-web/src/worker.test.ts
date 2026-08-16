@@ -11,7 +11,7 @@ import {
 
 test('Unity loader uses its IndexedDB cache for versioned build artifacts', () => {
   const loader = 'cacheControl: function (url) { return (url == Module.dataUrl || url.match(/\\.bundle/)) ? "must-revalidate" : "no-store"; }';
-  assert.ok(enableUnityBuildBrowserCache(loader).includes('url.indexOf("/Build/") >= 0 ? "immutable"'));
+  assert.ok(enableUnityBuildBrowserCache(loader).includes('/(^|\\/)Build\\//.test(url) ? "immutable"'));
 });
 
 test('versioned build artifacts remain cached in browsers and at the edge', () => {
