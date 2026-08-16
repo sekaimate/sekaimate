@@ -5,7 +5,7 @@ export type Provider = {
   audience?: string;
   clientSecret?: string;
   webClientId?: string;
-  webClientSecretEnvironmentVariable?: string;
+  webClientSecret?: string;
   tokenEndpoint?: string;
   jwksUri: string;
   allowedHostedDomains?: string[];

@@ -709,13 +709,13 @@ sealed class ProviderOptions
     public string? Audience { get; set; }
     public string? ClientSecret { get; set; }
     public string? WebClientId { get; set; }
-    public string? WebClientSecretEnvironmentVariable { get; set; }
+    public string? WebClientSecret { get; set; }
     public string? TokenEndpoint { get; set; }
     public string? JwksUri { get; set; }
     public List<string>? AllowedHostedDomains { get; set; }
     public List<string>? AllowedGroups { get; set; }
     public bool IsWebConfigured => !string.IsNullOrWhiteSpace(WebClientId)
-        && !string.IsNullOrWhiteSpace(WebClientSecretEnvironmentVariable)
+        && !string.IsNullOrWhiteSpace(WebClientSecret)
         && Uri.TryCreate(TokenEndpoint, UriKind.Absolute, out Uri? endpoint)
         && endpoint.Scheme == Uri.UriSchemeHttps;
     public ProviderOptions Copy() => new()
@@ -726,7 +726,7 @@ sealed class ProviderOptions
         Audience = Audience,
         ClientSecret = ClientSecret,
         WebClientId = WebClientId,
-        WebClientSecretEnvironmentVariable = WebClientSecretEnvironmentVariable,
+        WebClientSecret = WebClientSecret,
         TokenEndpoint = TokenEndpoint,
         JwksUri = JwksUri,
         AllowedHostedDomains = AllowedHostedDomains?.ToList() ?? [],
@@ -741,7 +741,7 @@ sealed class ProviderOptions
     public bool TryGetWebCredential(out Uri? tokenEndpoint, out string clientId, out string clientSecret)
     {
         clientId = WebClientId ?? string.Empty;
-        clientSecret = Environment.GetEnvironmentVariable(WebClientSecretEnvironmentVariable ?? string.Empty) ?? string.Empty;
+        clientSecret = WebClientSecret ?? string.Empty;
         bool valid = Uri.TryCreate(TokenEndpoint, UriKind.Absolute, out tokenEndpoint)
             && tokenEndpoint?.Scheme == Uri.UriSchemeHttps
             && !string.IsNullOrWhiteSpace(clientId)

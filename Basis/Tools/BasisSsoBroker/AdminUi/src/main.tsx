@@ -27,6 +27,7 @@ type OrganizationForm = {
   displayName: string;
   googleEnabled: boolean;
   googleWebClientId: string;
+  googleWebClientSecret: string;
   googleNativeClientId: string;
   googleNativeClientSecret: string;
   googleDomains: string;
@@ -49,6 +50,7 @@ const blankForm = (): OrganizationForm => ({
   displayName: "",
   googleEnabled: true,
   googleWebClientId: "",
+  googleWebClientSecret: "",
   googleNativeClientId: "",
   googleNativeClientSecret: "",
   googleDomains: "",
@@ -67,6 +69,7 @@ const formFromOrganization = (organization: Organization): OrganizationForm => {
     displayName: organization.displayName ?? "",
     googleEnabled: Boolean(google?.webClientId),
     googleWebClientId: google?.webClientId ?? "",
+    googleWebClientSecret: google?.webClientSecret ?? "",
     googleNativeClientId: google?.audience ?? "",
     googleNativeClientSecret: google?.clientSecret ?? "",
     googleDomains: (google?.allowedHostedDomains ?? []).join(", "),
@@ -89,7 +92,7 @@ const organizationFromForm = (form: OrganizationForm): Organization => {
       audience: form.googleNativeClientId.trim() || undefined,
       clientSecret: form.googleNativeClientSecret || undefined,
       webClientId: form.googleWebClientId.trim(),
-      webClientSecretEnvironmentVariable: "BASIS_SSO_GOOGLE_CLIENT_SECRET",
+      webClientSecret: form.googleWebClientSecret || undefined,
       tokenEndpoint: "https://oauth2.googleapis.com/token",
       jwksUri: "https://www.googleapis.com/oauth2/v3/certs",
       allowedHostedDomains: csv(form.googleDomains),
@@ -422,9 +425,16 @@ function OrganizationSettings({
                   </FormField>
                   <FormField
                     label="Web OAuth Client secret"
-                    description="サーバー環境変数BASIS_SSO_GOOGLE_CLIENT_SECRETから読み込みます。この画面や設定JSONには保存しません。"
+                    description="Brokerのサーバー側設定に保存します。WebGLや参加者向け設定には返しません。空欄にすると既存の環境変数を使います。"
                   >
-                    <Input value="サーバー環境変数で設定" readOnly />
+                    <Input
+                      type="password"
+                      value={form.googleWebClientSecret}
+                      onChange={({ detail }) =>
+                        update("googleWebClientSecret", detail.value)
+                      }
+                      placeholder="Google OAuth Client secret"
+                    />
                   </FormField>
                 </ColumnLayout>
               </SpaceBetween>
