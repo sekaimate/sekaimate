@@ -14,7 +14,8 @@ services:
       SetPort: ${SetPort:-4296}
       Password: ${Password}
       BASIS_SSO_ADMIN_TOKEN: ${BASIS_SSO_ADMIN_TOKEN}
-      BASIS_SSO_GOOGLE_CLIENT_SECRET: ${BASIS_SSO_GOOGLE_CLIENT_SECRET}
+      BASIS_SSO_GOOGLE_CLIENT_SECRET: ${BASIS_SSO_GOOGLE_CLIENT_SECRET:-}
+      BASIS_SSO_ALLOW_MISSING_SERVER_KEYS: ${BASIS_SSO_ALLOW_MISSING_SERVER_KEYS:-false}
     volumes:
       - ../config:/basis-server-config:ro
       - ./broker:/state
