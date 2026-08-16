@@ -34,6 +34,7 @@ fi
 
 if [[ ! -f "${WEB_DIR}/BEE/world.BEE" ]]; then
   echo "World BEE is missing: ${WEB_DIR}/BEE/world.BEE" >&2
+  echo "Place the source BEE at ${ROOT_DIR}/local/BEE/world.BEE and run the Web build again." >&2
   exit 1
 fi
 

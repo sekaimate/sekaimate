@@ -49,14 +49,26 @@ cleanup_bee_backup() {
 trap cleanup_bee_backup EXIT
 
 bee_path="$build_path/BEE/world.BEE"
-canonical_bee_path="$repository_root/Build/Web/BEE/world.BEE"
+local_bee_path="$repository_root/local/BEE/world.BEE"
+legacy_bee_path="$repository_root/Build/Web/BEE/world.BEE"
 canonical_addressables_path="$repository_root/Build/Web/StreamingAssets/aa"
-if [[ -f "$bee_path" ]]; then
+bee_source_path=""
+if [[ -f "$local_bee_path" ]]; then
+  bee_source_path="$local_bee_path"
+elif [[ -f "$bee_path" ]]; then
+  bee_source_path="$bee_path"
+elif [[ -f "$legacy_bee_path" ]]; then
+  bee_source_path="$legacy_bee_path"
+fi
+
+if [[ -n "$bee_source_path" ]]; then
   mkdir -p "$bee_backup_dir/BEE"
-  cp -- "$bee_path" "$bee_backup_dir/BEE/world.BEE"
-elif [[ "$bee_path" != "$canonical_bee_path" && -f "$canonical_bee_path" ]]; then
-  mkdir -p "$bee_backup_dir/BEE"
-  cp -- "$canonical_bee_path" "$bee_backup_dir/BEE/world.BEE"
+  cp -- "$bee_source_path" "$bee_backup_dir/BEE/world.BEE"
+  if [[ "$bee_source_path" == "$legacy_bee_path" && ! -f "$local_bee_path" ]]; then
+    mkdir -p "$repository_root/local/BEE"
+    cp -- "$legacy_bee_path" "$local_bee_path"
+    echo "Migrated world BEE to $local_bee_path"
+  fi
 fi
 
 if [[ ! -x "$unity_executable" ]]; then

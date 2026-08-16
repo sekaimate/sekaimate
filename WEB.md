@@ -43,7 +43,7 @@ mise run server:down   # Serverを停止
 
 全部を順番に起動する場合は`mise run dev`を使用します。配信中はそのターミナルを終了せず、ブラウザーで`http://127.0.0.1:4173/`を開いてください。
 
-開発用の出力先は`Build/WebDev`です。既存の出力を削除せずに再利用し、ワールドBEEは`Build/Web/BEE/world.BEE`から自動的に配置します。通常のリリース用ビルドは従来どおり`./tools/build-web.sh`を使用します。
+開発用の出力先は`Build/WebDev`です。既存の出力を削除せずに再利用し、ワールドBEEはGit管理外の`local/BEE/world.BEE`から自動的に配置します。BEEをビルド出力の外に置くため、通常のリリース用ビルドでも失われません。通常のリリース用ビルドは従来どおり`./tools/build-web.sh`を使用します。
 
 ## ブラウザでの実行
 
