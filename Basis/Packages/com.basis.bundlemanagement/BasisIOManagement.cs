@@ -1064,7 +1064,13 @@ public static class BasisIOManagement
     /// Returns null when the host is allowed, otherwise the reason it was refused.
     /// </summary>
     private static Task<string> ValidateUrlHostResolvesGlobalAsync(string url)
-        => Basis.Scripts.Common.BasisUrlSecurity.ValidateResolvedHostAsync(url);
+    {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        return Task.FromResult<string>(null);
+#else
+        return Basis.Scripts.Common.BasisUrlSecurity.ValidateResolvedHostAsync(url);
+#endif
+    }
 
     /// <summary>Hop budget for hand-followed redirects.</summary>
     private const int MaxValidatedRedirects = 5;
