@@ -548,6 +548,7 @@ static object CreateClientConfiguration(HttpContext http, BrokerOptions broker, 
             clientId = provider.Audience,
             clientSecret = provider.ClientSecret,
             scopes = new[] { "openid", "email", "profile" },
+            extraAuthParams = HostedDomainPolicy.AuthorizationParameters(provider.Id == "google" ? provider.AllowedHostedDomains : null),
             displayNameClaims = new[] { "name", "preferred_username", "email" },
             access = new
             {

@@ -316,11 +316,16 @@ namespace Basis.Integration.Sso.FrameworkGate
 
         private async void BeginInteractiveSignIn()
         {
+#if !UNITY_WEBGL || UNITY_EDITOR
+            // Desktop opens an external browser, so keep a small status dialog while the
+            // user completes the round trip. WebGL meeting links stay unobstructed; the
+            // browser is already the visible authentication surface there.
             ShowDialog(
                 "Signing in…",
                 "Complete the sign-in in your web browser, then return here.",
                 "Cancel",
                 _ => _cts?.Cancel());
+#endif
 
             SsoAuthResult result;
             try
