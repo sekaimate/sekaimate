@@ -130,6 +130,22 @@ design.md §10.3 の手順(a〜h)に対応させた。すべて実際の minikub
 `ErrImagePull` のままでも GameServer は `Ready` になってしまい、タイムアウト経路を再現できなかった。
 代わりに `GAMESERVER_READY_TIMEOUT_SECONDS=1` を用いる方法に切り替えて再現した(§6 に詳細)。
 
+### 4.1 remote 親への rebase 後の smoke check
+
+`feat/concierge-go` を `origin/feature/web-support` (`de834dec5`) に rebase した後、同じ minikube プロファイルへ
+現行ソースから `concierge:rebase5ac24` をビルドして再デプロイした。既存の phase 3 検証で確認済みの Agones
+ライフサイクルを再度全項目実行するのではなく、rebase の影響範囲である管理 API と URI 伝播を確認した。
+
+- `/health`: `503` (`servers` 未設定のため `not_ready`)。
+- 一時的な静的 server に `wss://room.example/basis` と
+  `https://room.example/server-info` を `PUT /api/admin/servers/{id}` で設定。
+- `GET /api/admin/servers` が両 URI と `ready: true` を返すことを確認。
+- その server を `DELETE /api/admin/servers/{id}` で削除し、検証用データを残していない。
+
+この smoke check は browser UI の build/test と組み合わせて、remote 側の Web OAuth/join/Admin 認証を保持した
+まま Concierge の WebGL endpoint 管理が動作することを確認するもの。実 Basis Server の WebSocket handshake、
+server-info payload、TLS/CORS は引き続き §8 の未検証項目である。
+
 ## 5. 検証中に見つかった不具合と修正
 
 いずれもコードまたは `deploy/` マニフェストを修正し、コミットして再デプロイ・再検証した。

@@ -474,3 +474,21 @@ listen を必要としない `internal/config`/`internal/kube`/`internal/api` �
 
 実際に minikube + Agones 環境へデプロイして上記を確認した記録(環境情報・実行コマンド・検証項目ごとの結果・
 検証中に見つかった不具合とその修正)は `docs/concierge/verification.md`(phase 3)にまとめてある。
+
+### 9.11 stacked PR の親ブランチと Admin UI の保全
+
+`feat/concierge-go` は 2026-08-22 に remote の `origin/feature/web-support` (`de834dec5`) を親として
+rebase した。`origin/feature/web-sso` (`c0dfadc0e`) はこの親の祖先であり、`feature/web-support` には
+その後の CI workflow 削除コミットだけが追加されている。rebase の境界は旧ローカル親
+`feature/web-support` で、旧親以降の Concierge 28 コミットだけを再適用した。
+
+Admin UI の競合では remote 側の Web OAuth 設定、参加者向け `join.html`、join API、管理者 Authorization
+ヘッダーを保持し、Concierge 側の WebGL `WebSocket URI` / `Server Info URI` の型、編集画面、検証、保存 API
+だけを統合した。これにより remote の SSO/join 機能を落とさず、`/admin/servers` の endpoint 管理を追加している。
+
+rebase 後の確認結果:
+
+- `go generate ./...`、`go build ./...`、`go test ./...`、`go vet ./...`、`gofmt -l .`: 成功。
+- Admin UI の `pnpm run typecheck`、`pnpm run test`(4 tests)、`pnpm run build`: 成功。
+- minikube 上で rebase 後の Concierge イメージをビルド・再デプロイし、temporary server に対する
+  `PUT/GET/DELETE /api/admin/servers/{id}` と WebSocket/Server Info URI の永続化を確認した。
