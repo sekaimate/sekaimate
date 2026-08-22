@@ -173,6 +173,15 @@ Podman の minikube ネットワークではホストから `192.168.49.2:7612` 
 `BASIS_SERVER_WEBSOCKET_CERTIFICATE_PATH`/`..._KEY_PATH` を追加し、Basis の .NET 10 Kestrel が設定由来の HTTPS endpoint を
 読み込むため `UseKestrelHttpsConfiguration()` を呼ぶようにした。これらの変更を含む実イメージで再デプロイ・再検証した。
 
+同じ経路を現 HEAD (`359dbe3c5`) の Concierge image と既存の `basis-server:real-e2e-tls2` で追加再確認した
+(meeting `real-basis-e2e-rerun-xaez_cs`, GameServer `basis-real-basis-e2e-rerun-xaez-cs`)。GameServer は
+`Ready`、`Status.Address=192.168.49.2`、`game=7343`、`websocket=7918` となった。実 Pod の環境変数・起動ログで
+`WebSocketEnabled=true`、TLS 証明書パス、許可 Origin、UDP `4296` と HTTPS listener `4297` の起動を確認した。
+証明書を `--cacert`/`-CAfile` に明示して、server-info は許可 Origin が `200` + `Access-Control-Allow-Origin`、拒否 Origin が
+`403`、WebSocket は許可 Origin が `101 Switching Protocols`、拒否 Origin が `403` となることを再現した。管理 API、
+client-config、join manifest/config、join deep-link の全てに同一の `wss://192.168.49.2:7918/basis` /
+`https://192.168.49.2:7918/server-info` が伝播した。検証会議と GameServer は削除し、Deployment は元の stub 構成へ復元した。
+
 ## 5. 検証中に見つかった不具合と修正
 
 いずれもコードまたは `deploy/` マニフェストを修正し、コミットして再デプロイ・再検証した。
