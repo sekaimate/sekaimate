@@ -80,6 +80,35 @@ go run ./cmd/server
 
 生成モードは basis-k8s と異なり **`std-http-server` + `models` のみ**(`strict-server` は使わない)。理由は §2 参照。
 
+### 2.1 mise によるツールチェーン管理
+
+`concierge/mise.toml` は、上記のビルド・検証で実際に使用した go/kubectl/minikube のバージョンを固定する
+[mise](https://mise.jdx.dev)(mise-en-place)の設定ファイル。モノレポ全体には適用せず `concierge/` 配下のみに
+スコープしている(リポジトリルートには mise 設定を置かない)。
+
+```sh
+cd concierge
+mise install        # [tools] に固定したバージョンを取得
+mise run check       # build + test + vet + fmt をまとめて実行
+mise run generate    # api/openapi.yaml 変更時のみ
+mise run image        # minikube image build -t concierge:dev .
+mise run minikube-start   # ローカル minikube クラスタ起動
+mise run agones-install   # Agones v1.60.0 のインストール(§9.8 参照)
+```
+
+固定しているバージョンと理由。
+
+| ツール | バージョン | 根拠 |
+|---|---|---|
+| go | 1.26.5 | `go.mod` の `go` ディレクティブ(agones.dev/agones の要求により引き上げ)。 |
+| kubectl | 1.36.4 | `docs/concierge/verification.md` §1 の検証環境(client バージョン)。 |
+| minikube | 1.38.1 | `docs/concierge/verification.md` §1 の検証環境。 |
+
+podman は mise では管理していない。Podman Desktop(`/opt/podman/bin`)経由でシステムにインストールし、
+minikube の `--driver=podman` が使う VM(`podman machine`)を起動する前提のツールであるため、mise の
+バージョン管理対象には含めていない。podman 自体のインストール・`podman machine start` は
+`docs/concierge/verification.md` §2 の手順に従う。
+
 ## 3. oapi-codegen の生成モードについて(basis-k8s との差分)
 
 `design.md` §7.1 は basis-k8s と同じ `std-http-server + strict-server + models` を踏襲する方針を示しているが、
