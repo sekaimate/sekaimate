@@ -199,6 +199,10 @@ kubectl delete -f concierge/deploy/00-namespace.yaml   # 上と同義
 ## 8. 未検証の項目
 
 - 実際の Basis Server イメージによる SSO 事前認証ハンドシェイク・UDP ゲームプロトコルの疎通(§6)。
+- `feature/web-support` の WebGL 実機疎通(WebSocket と server-info HTTP)。今回の concierge 実装では、WebGL を
+  `BASIS_SERVER_WEBSOCKET_ENABLED=true` で明示的に有効化した場合のみ Agones の `websocket` TCP named port と
+  `WebSocket*` 環境変数を追加し、外部 URI は templates または meeting の `WebSocketUri`/`ServerInfoUri` からのみ
+  決定する。TLS 終端、Ingress、証明書、Origin 許可は運用環境の明示構成が必要で、minikube の既存検証では未確認である。
 - 実際の OIDC プロバイダ(Google/Auth0 等)に対する `POST /admission/{serverId}` の入場審査
   (`appsettings.json` はダミーの `Issuer`/`JwksUri` を使用しており、JWKS 取得も ID トークン検証も行っていない)。
 - 複数ノードクラスタでの Agones GameServer スケジューリング(minikube は単一ノード)。

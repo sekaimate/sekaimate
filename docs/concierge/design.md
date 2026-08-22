@@ -180,6 +180,26 @@ DELETE /admin/meetings/{meetingId}
 `TicketSigningKeyEnvironmentVariable`/`TransportPublicKeyEnvironmentVariable`(concierge プロセス自身の環境変数名の
 間接参照)または設定ファイル内のリテラル値のいずれかを設定できる互換パスを残す。
 
+### 5.2 WebGL のブラウザ接続契約
+
+`feature/web-support` の Basis Server は UDP ゲームポートとは別に、WebSocket と server-info HTTP のエンドポイントを
+公開する。concierge はこの 2 つを `WebSocketUri`/`ServerInfoUri` として静的 `Servers[]`、会議、client-config、join
+manifest に透過的に運ぶ。2 つは常にペアで扱い、片方だけの設定は拒否する。既存の UDP/native クライアントとの互換性の
+ため、両方とも空の状態は許可する。
+
+Agones 管理下の部屋で WebGL を有効にする場合は、`BASIS_SERVER_WEBSOCKET_ENABLED=true` を明示する。GameServer には
+既存の名前付き UDP `game` ポートに加え、名前付き TCP `websocket` ポート(既定のコンテナポート `4297`)を追加し、
+`WebSocketEnabled`、`WebSocketPort`、`WebSocketPath`、`WebSocketServerInfoPath`、`WebSocketUseTls`、
+`WebSocketAllowedOrigins` をゲームコンテナへ注入する。Ready 通知の `Status.Ports` は名前で解決し、UDP ポートを
+従来どおり meeting の `port` として扱う。
+
+外部 URI は `BASIS_SERVER_WEBSOCKET_URI_TEMPLATE`/`BASIS_SERVER_INFO_URI_TEMPLATE` または `Broker` の
+`ManagedWebSocketUriTemplate`/`ManagedServerInfoUriTemplate` に、`{host}` と `{port}` を含む完全な URI として明示する。
+テンプレートが空の場合、meeting 作成時に 2 つの URI を指定しない限りブラウザ URI は生成されない。concierge は UDP
+アドレスから scheme、TLS、Ingress、host、path を推測しない。リモート接続は `wss://` と `https://`、loopback のみ
+`ws://` と `http://` を許可し、URI に userinfo や fragment は許可しない。TLS 終端と Ingress の責務は deployment の
+明示設定に残る。
+
 ## 6. 互換性要件
 
 `research-sso-broker.md` §3.3・§8 で確認した、無改変の C# Unity クライアントおよび無改変の C# UDP サーバーとの
@@ -227,6 +247,9 @@ DELETE /admin/meetings/{meetingId}
 14. **会議 `Host` のホスト安全性検証**(`IsSafeHost`): `/ ? # ` や空白を含む場合は拒否、長さ 1〜253、`[`/`]` を
     ストリップした上で DNS 名/IPv4/IPv6 のいずれかとして妥当であること。
 15. **`/health` の readiness 定義**: 設定済みの**全**サーバーが個別に ready であることを AND で判定する(OR ではない)。
+16. **WebGL 接続情報**: `WebSocketUri`(`ws://`/`wss://`) と `ServerInfoUri`(`http://`/`https://`) は任意の追加
+    フィールドで、設定する場合は両方必須。静的 server、meeting view、client-config、join manifest の同名 camelCase
+    フィールドへ伝播する。`basisdemo://` deep link には後方互換のため `websocketUri` を値がある場合だけ追加する。
 
 ## 7. API 設計
 
@@ -267,6 +290,8 @@ basis-k8s の `/servers`(`POST`/`GET`/`GET {name}`/`DELETE`)相当の操作は�
 | `appsettings.json` `Broker.AllowUnauthenticatedAdmin` | 同左。 |
 | `appsettings.json` `Broker.Servers[]`(`BrokerServerOptions`) | 「静的サーバー」として §4.1 のレジストリの一方の入力にする。フィールド構成は現行と同じ。 |
 | `appsettings.json` `Broker.Organization` | 同左。 |
+| `Broker.Servers[].WebSocketUri` / `ServerInfoUri` | WebGL 用の完全な接続 URI。2 つはペアで指定し、scheme/TLS/loopback を検証する。空なら既存の UDP/native 接続を維持する。 |
+| `Broker.ManagedWebSocketUriTemplate` / `ManagedServerInfoUriTemplate` | Agones 管理下の会議へ適用する明示的 URI テンプレート。`{host}`/`{port}` のみ置換し、Ingress/TLS は推測しない。環境変数の同名 template 設定が優先される。 |
 | `BASIS_SSO_BROKER_CONFIG_PATH` | 同名の環境変数、または concierge 独自の設定ファイルパス環境変数として維持(名称は既存踏襲を基本とし、変更する場合はユーザーに確認する)。 |
 | `BASIS_CONTROL_PLANE_STORE_PATH` | 同左(`control-plane.json` 相当ファイルの保存先)。 |
 | `BASIS_CONTROL_PLANE_ALLOW_MANUAL_MEETINGS` | 同左。 |
@@ -274,6 +299,10 @@ basis-k8s の `/servers`(`POST`/`GET`/`GET {name}`/`DELETE`)相当の操作は�
 | `BASIS_SERVER_CONFIG` / `BASIS_SSO_CONFIG_WAIT_SECONDS`(Docker サイドカーモード用) | concierge が Agones 経由で会議ごとに独自に鍵を生成・注入する設計(§5)では、この「ゲームサーバーの config.xml から鍵をスクレイプする」モードは Agones 管理下の部屋には不要になる。静的サーバー運用でのみ引き続き有効。 |
 | （新規）`NAMESPACE` | Agones GameServer を作成する Kubernetes 名前空間。basis-k8s の同名環境変数を踏襲(既定 `basis`)。 |
 | （新規)`KUBECONFIG` | basis-k8s と同じ kubeconfig 解決順序(in-cluster 優先、フォールバックで `$KUBECONFIG`→`$HOME/.kube/config`)。 |
+| （新規）`BASIS_SERVER_WEBSOCKET_ENABLED` / `BASIS_SERVER_WEBSOCKET_PORT` | WebGL 用 named TCP port を有効化。既定は無効、コンテナポート既定 `4297`。 |
+| （新規）`BASIS_SERVER_WEBSOCKET_PATH` / `BASIS_SERVER_INFO_PATH` | WebSocket/server-info の Basis Server 内パス。既定は `/basis`/`/server-info`。 |
+| （新規）`BASIS_SERVER_WEBSOCKET_USE_TLS` / `BASIS_SERVER_WEBSOCKET_ALLOWED_ORIGINS` | TLS と CORS 許可 origin を明示設定する。Ingress や証明書の自動推測は行わない。 |
+| （新規）`BASIS_SERVER_WEBSOCKET_URI_TEMPLATE` / `BASIS_SERVER_INFO_URI_TEMPLATE` | Agones Status の address と named TCP port から外部 URI を組み立てるテンプレート。2 つとも明示する。 |
 
 ### 8.2 設定ファイル
 
@@ -318,6 +347,8 @@ concierge が自ら配信する。
 - 管理者認証(`AdminAuthorized` 相当)の定数時間比較・32 文字最小長・大文字小文字を区別しない `Bearer` プレフィックスを
   テストする。
 - `RemoveSecrets`(`clientSecret` の再帰除去)を、ネストしたオブジェクト・配列を含む JSON でテストする。
+- `ValidateBrowserEndpoints` の scheme、loopback、userinfo/fragment、ペア必須ルールをテーブル駆動でテストし、静的
+  server と会議作成の browser endpoint が manifest/client-config/deep link へ伝播することを検証する。
 
 ### 10.2 fake clientset テスト
 
@@ -345,6 +376,9 @@ basis-k8s の手法をそのまま踏襲する。`internal/kube` は Agones の�
    `/join/{token}/manifest` の接続情報を使って接続できることを確認する(SSO 入場審査 → チケット発行 → UDP 接続 →
    サーバー側でのチケット検証、までのエンドツーエンド確認)。
 7. `DELETE /admin/meetings/{meetingId}` で GameServer と Secret が両方削除されることを確認する。
+8. WebGL を有効化した GameServer で `kubectl get gameserver -o yaml` の `game`(UDP)/`websocket`(TCP) named port と
+   `WebSocket*` 環境変数を確認し、`/join/{token}/manifest` と deep link に両方の browser URI が出力されることを確認する。
+   TLS 終端、Ingress、Origin 許可は運用環境の明示設定を使って別途確認する。
 
 ## 11. 非スコープ
 

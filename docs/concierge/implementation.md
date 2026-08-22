@@ -278,6 +278,14 @@ concierge/
 
 GameServer/Secret のラベルは basis-k8s と同じ形(`app=basis-server`, `instance=<meetingId>`)。
 
+WebGL 対応を有効にした場合(`BASIS_SERVER_WEBSOCKET_ENABLED=true`)は、GameServer に `game`(UDP)とは別の
+`websocket`(TCP、既定コンテナポート 4297) named port を追加する。`WebSocketEnabled`、`WebSocketPort`、
+`WebSocketPath`、`WebSocketServerInfoPath`、`WebSocketUseTls`、`WebSocketAllowedOrigins` はゲームコンテナへ
+明示的に注入する。Ready status の named port を使って UDP は従来の meeting `port`、TCP は browser endpoint template
+の `{port}` として解決する。URI の scheme、TLS、Ingress、host は推測せず、`WebSocketUri` と `ServerInfoUri` の両方が
+meeting/static server に明示されるか、両方の managed template が設定されている場合だけ manifest/client-config/deep link
+へ公開する。URI の検証規則は design.md §5.2 に従う。
+
 `RoomKeys`(`internal/kube/provisioner.go` で定義済み)のフィールドと Secret データキーの対応は次のとおり。
 
 | `RoomKeys` フィールド | Secret データキー = コンテナ環境変数名 |
@@ -352,6 +360,12 @@ implementation.md phase 1 の §8 で「未実装」としていた、静的 `Se
 | `NAMESPACE` | `basis` | GameServer/Secret を作成する Kubernetes 名前空間。basis-k8s と同じ既定値。 |
 | `BASIS_SERVER_IMAGE` | `basis-server:latest` | GameServer の `basis-server` コンテナイメージ。 |
 | `BASIS_SERVER_PORT` | `4296` | GameServer が要求する Dynamic UDP ポート(`ContainerPort`)。同じ値が `SetPort` としてコンテナにも注入される。 |
+| `BASIS_SERVER_WEBSOCKET_ENABLED` | `false` | WebGL の named TCP port と Basis web-support 設定を有効化する。既定 false で UDP-only の互換性を維持する。 |
+| `BASIS_SERVER_WEBSOCKET_PORT` | `4297` | WebSocket/server-info のコンテナ TCP ポート。Agones status の `websocket` named port と対応する。 |
+| `BASIS_SERVER_WEBSOCKET_PATH` / `BASIS_SERVER_INFO_PATH` | `/basis` / `/server-info` | Basis Server 内の WebSocket/server-info path。 |
+| `BASIS_SERVER_WEBSOCKET_USE_TLS` | `true` | WebSocket TLS の明示設定。Ingress/証明書は別途構成し、concierge は推測しない。 |
+| `BASIS_SERVER_WEBSOCKET_ALLOWED_ORIGINS` | (空) | カンマ/セミコロン区切りの CORS origin。 |
+| `BASIS_SERVER_WEBSOCKET_URI_TEMPLATE` / `BASIS_SERVER_INFO_URI_TEMPLATE` | (空) | `{host}`/`{port}`だけを置換する完全な外部 URI。appsettings の `Broker.Managed*Template` でも指定可能で、環境変数が優先される。 |
 | `GAMESERVER_READY_TIMEOUT_SECONDS` | `120` | `watchReady` が Ready を待つ上限秒数。超過すると会議は `failed` になり、自動リトライしない(`design.md` §12 決定事項 3)。 |
 
 ### 9.8 `Dockerfile`/`deploy/` の使い方
@@ -399,7 +413,8 @@ kubectl apply -f deploy/
 `internal/kube` は basis-k8s と同じ手法(`agones.dev/agones/pkg/client/clientset/versioned/fake` +
 `k8s.io/client-go/kubernetes/fake`、stdlib `testing` のみ、モックフレームワーク不使用)で次をカバーする。
 
-- `manager_test.go`: Secret/GameServer の作成内容(ラベル・`envFrom`・env・sidecar)、カスタム
+- `manager_test.go`: Secret/GameServer の作成内容(ラベル・`envFrom`・env・sidecar)、WebGL 有効時の UDP/TCP named port と
+  `WebSocket*` 環境変数、カスタム
   image/port、GameServer 作成失敗時の Secret ロールバック、削除(正常系・すでに存在しない場合の許容)、
   Ready 待ちの成功(`Status` を手動で更新して `MeetingRecord` が `ready`+host/port になることを確認)と
   タイムアウト(短い `ReadyTimeout` で `failed` になることを確認)。
@@ -408,7 +423,9 @@ kubectl apply -f deploy/
   なること、`meetings` が nil の `Manager` で `Reconcile` がエラーを返すこと。
 - `cmd/server/main_test.go`: `checkNoStaticMeetingIDCollision` の衝突検出・`"local"` 例外・非衝突ケース。
 
-`go build ./...`・`go test ./...`・`go vet ./...`・`gofmt -l .` はすべてクリーン。
+`go generate ./...`・`go build ./...`・`go vet ./...`・`gofmt -l .` は実行済み。`go test ./...` は sandbox の
+loopback listen 制限により `internal/admission` の httptest が実行できない環境があるため、通常権限で再実行する。
+listen を必要としない `internal/config`/`internal/kube`/`internal/api` の対象テストはクリーン。
 
 ### 9.10 既知の注記・phase 3(minikube 検証)が把握しておくべきこと
 
