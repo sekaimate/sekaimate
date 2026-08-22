@@ -108,6 +108,46 @@ func TestValidateBrowserEndpoints(t *testing.T) {
 	}
 }
 
+func TestValidateBrowserEndpointTemplates(t *testing.T) {
+	cases := []struct {
+		name, websocket, info string
+		wantErr               bool
+	}{
+		{"empty", "", "", false},
+		{"complete", "wss://{host}:{port}/basis", "https://{host}:{port}/server-info", false},
+		{"missing pair", "wss://{host}:{port}/basis", "", true},
+		{"missing placeholder", "wss://{host}/basis", "https://{host}:{port}/server-info", true},
+		{"insecure remote", "ws://{host}:{port}/basis", "http://{host}:{port}/server-info", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := ValidateBrowserEndpointTemplates(tc.websocket, tc.info); (err != nil) != tc.wantErr {
+				t.Fatalf("ValidateBrowserEndpointTemplates() error = %v, wantErr %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestStore_UpdateBrowserEndpoints(t *testing.T) {
+	s, err := Load(filepath.Join(t.TempDir(), "appsettings.json"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if err := s.AddServer(ServerConfig{Id: "managed"}); err != nil {
+		t.Fatalf("AddServer: %v", err)
+	}
+	if !s.UpdateBrowserEndpoints("managed", "wss://room.example/basis", "https://room.example/server-info") {
+		t.Fatal("UpdateBrowserEndpoints() = false, want true")
+	}
+	server, ok := s.FindServer("managed")
+	if !ok || server.WebSocketUri != "wss://room.example/basis" || server.ServerInfoUri != "https://room.example/server-info" {
+		t.Fatalf("server endpoints = %+v, want persisted pair", server)
+	}
+	if s.UpdateBrowserEndpoints("managed", "wss://room.example/basis", "") {
+		t.Fatal("UpdateBrowserEndpoints() accepted an incomplete pair")
+	}
+}
+
 func TestStore_AddServer_DuplicateRejected(t *testing.T) {
 	s, err := Load(filepath.Join(t.TempDir(), "appsettings.json"))
 	if err != nil {

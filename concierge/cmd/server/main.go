@@ -188,6 +188,9 @@ func buildProvisioner(cfg *config.Store, meetings *controlplane.Store) kube.Room
 	if value := os.Getenv("BASIS_SERVER_INFO_URI_TEMPLATE"); value != "" {
 		serverInfoTemplate = value
 	}
+	if err := config.ValidateBrowserEndpointTemplates(webSocketTemplate, serverInfoTemplate); err != nil {
+		log.Fatalf("concierge: invalid managed browser URI templates: %v", err)
+	}
 	manager := kube.NewManager(agonesClientset, coreClientset, meetings, kube.ManagerConfig{
 		Namespace:               namespace,
 		Image:                   envOrDefault("BASIS_SERVER_IMAGE", ""),
@@ -202,6 +205,7 @@ func buildProvisioner(cfg *config.Store, meetings *controlplane.Store) kube.Room
 		ServerInfoUriTemplate:   serverInfoTemplate,
 		ReadyTimeout:            readyTimeout,
 	})
+	manager.SetServerRegistry(cfg)
 
 	if err := manager.Reconcile(context.Background()); err != nil {
 		log.Printf("concierge: startup Kubernetes reconciliation failed (continuing): %v", err)

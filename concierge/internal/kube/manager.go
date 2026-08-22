@@ -22,6 +22,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/sekaimate/sekaimate/concierge/internal/config"
 	"github.com/sekaimate/sekaimate/concierge/internal/controlplane"
 	"k8s.io/client-go/kubernetes"
 )
@@ -128,6 +129,7 @@ type Manager struct {
 	agones   agonesclient.Interface
 	core     kubernetes.Interface
 	meetings *controlplane.Store
+	servers  *config.Store
 	cfg      ManagerConfig
 }
 
@@ -143,6 +145,15 @@ func NewManager(agones agonesclient.Interface, core kubernetes.Interface, meetin
 		panic("kube: NewManager requires a non-empty Namespace")
 	}
 	return &Manager{agones: agones, core: core, meetings: meetings, cfg: cfg.withDefaults()}
+}
+
+// SetServerRegistry attaches the admission registry to the manager. Managed
+// meetings are represented in both the control plane and Servers[] so the
+// admission route can find their keys; when Agones resolves browser URIs,
+// both records must be updated together. Kept as a setter to preserve the
+// small NewManager constructor used by existing callers and tests.
+func (m *Manager) SetServerRegistry(servers *config.Store) {
+	m.servers = servers
 }
 
 func secretName(meetingID string) string     { return "basis-" + meetingID + "-sso" }
@@ -314,6 +325,9 @@ func (m *Manager) watchReady(meetingID string) {
 				}
 				if webSocketURI != "" && serverInfoURI != "" {
 					m.meetings.UpdateBrowserEndpoints(meetingID, webSocketURI, serverInfoURI)
+					if m.servers != nil && !m.servers.UpdateBrowserEndpoints(meetingID, webSocketURI, serverInfoURI) {
+						log.Printf("kube: meeting %s browser endpoints could not be persisted to Servers[]", meetingID)
+					}
 				}
 			}
 			return

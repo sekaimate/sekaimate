@@ -14,6 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 
+	"github.com/sekaimate/sekaimate/concierge/internal/config"
 	"github.com/sekaimate/sekaimate/concierge/internal/controlplane"
 )
 
@@ -327,6 +328,52 @@ func TestCreate_WatchReadyExpandsBrowserEndpoints(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatal("meeting did not become ready")
+}
+
+func TestCreate_WatchReadyPersistsBrowserEndpointsToServerRegistry(t *testing.T) {
+	meetings := newTestStore(t)
+	if err := meetings.Add(controlplane.MeetingRecord{Id: "web-registry", Title: "Web", Status: "provisioning"}); err != nil {
+		t.Fatalf("seed meeting record: %v", err)
+	}
+	servers, err := config.Load(filepath.Join(t.TempDir(), "appsettings.json"))
+	if err != nil {
+		t.Fatalf("load server registry: %v", err)
+	}
+	if err := servers.AddServer(config.ServerConfig{Id: "web-registry"}); err != nil {
+		t.Fatalf("seed server registry: %v", err)
+	}
+	m, agones, _ := newTestManager(t, meetings, ManagerConfig{
+		WebSocketEnabled: true, WebSocketUriTemplate: "wss://{host}:{port}/basis",
+		ServerInfoUriTemplate: "https://{host}:{port}/server-info",
+		PollInterval:          10 * time.Millisecond, ReadyTimeout: 2 * time.Second,
+	})
+	m.SetServerRegistry(servers)
+	if err := m.Create(context.Background(), "web-registry", testKeys()); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	gs, err := agones.AgonesV1().GameServers(testNamespace).Get(context.Background(), "basis-web-registry", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get gameserver: %v", err)
+	}
+	gs.Status = agonesv1.GameServerStatus{
+		State: agonesv1.GameServerStateReady, Address: "10.0.0.9",
+		Ports: []agonesv1.GameServerStatusPort{{Name: "game", Port: 7777}, {Name: "websocket", Port: 8777}},
+	}
+	if _, err := agones.AgonesV1().GameServers(testNamespace).Update(context.Background(), gs, metav1.UpdateOptions{}); err != nil {
+		t.Fatalf("update gameserver status: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		server, _ := servers.FindServer("web-registry")
+		if server.WebSocketUri != "" {
+			if server.WebSocketUri != "wss://10.0.0.9:8777/basis" || server.ServerInfoUri != "https://10.0.0.9:8777/server-info" {
+				t.Fatalf("server browser endpoints = %q / %q", server.WebSocketUri, server.ServerInfoUri)
+			}
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("server registry browser endpoints were not updated")
 }
 
 // TestCreate_WatchReadyTimeout checks that the background watch marks the

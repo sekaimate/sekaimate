@@ -180,6 +180,38 @@ func ValidateBrowserEndpoints(webSocketURI, serverInfoURI string) error {
 	return validateServerInfoURI(serverInfoURI)
 }
 
+// ValidateBrowserEndpointTemplates validates the explicit URI templates used
+// for Agones-managed rooms. Templates are deliberately required to carry both
+// placeholders: the UDP address is not a browser endpoint, and concierge must
+// never guess a scheme, ingress host, or path from it.
+func ValidateBrowserEndpointTemplates(webSocketTemplate, serverInfoTemplate string) error {
+	webSocketTemplate = strings.TrimSpace(webSocketTemplate)
+	serverInfoTemplate = strings.TrimSpace(serverInfoTemplate)
+	if webSocketTemplate == "" && serverInfoTemplate == "" {
+		return nil
+	}
+	if webSocketTemplate == "" || serverInfoTemplate == "" {
+		return errors.New("both managed WebSocket and server-info URI templates are required")
+	}
+	for name, template := range map[string]string{"WebSocket": webSocketTemplate, "server-info": serverInfoTemplate} {
+		if !strings.Contains(template, "{host}") || !strings.Contains(template, "{port}") {
+			return fmt.Errorf("managed %s URI template must contain {host} and {port}", name)
+		}
+	}
+	// Validate the URI shape with safe stand-in values. The placeholders are
+	// not decoded or otherwise interpreted; only their eventual URI position
+	// is checked.
+	webSocketURI := strings.NewReplacer("{host}", "room.example.invalid", "{port}", "4297").Replace(webSocketTemplate)
+	serverInfoURI := strings.NewReplacer("{host}", "room.example.invalid", "{port}", "4297").Replace(serverInfoTemplate)
+	if err := validateWebSocketURI(webSocketURI); err != nil {
+		return fmt.Errorf("managed WebSocket URI template: %w", err)
+	}
+	if err := validateServerInfoURI(serverInfoURI); err != nil {
+		return fmt.Errorf("managed server-info URI template: %w", err)
+	}
+	return nil
+}
+
 func validateWebSocketURI(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil || u.IsAbs() == false || u.Host == "" || u.User != nil || u.Fragment != "" || (u.Scheme != "ws" && u.Scheme != "wss") {
@@ -299,6 +331,9 @@ func Load(path string) (*Store, error) {
 		if err := ValidateBrowserEndpoints(strings.TrimSpace(server.WebSocketUri), strings.TrimSpace(server.ServerInfoUri)); err != nil {
 			return nil, fmt.Errorf("config: server %q browser endpoints: %w", server.Id, err)
 		}
+	}
+	if err := ValidateBrowserEndpointTemplates(wrapper.Broker.ManagedWebSocketUriTemplate, wrapper.Broker.ManagedServerInfoUriTemplate); err != nil {
+		return nil, fmt.Errorf("config: managed browser endpoint templates: %w", err)
 	}
 	s.cfg = wrapper.Broker
 	return s, nil
@@ -476,6 +511,34 @@ func (s *Store) UpsertServer(server ServerConfig) (bool, string) {
 		return false, err.Error()
 	}
 	return true, ""
+}
+
+// UpdateBrowserEndpoints updates only the explicit browser endpoint pair for
+// a registered server. It is used when Agones assigns a managed room's TCP
+// port; the rest of the admission configuration (especially its keys) stays
+// untouched. The pair is validated before persistence.
+func (s *Store) UpdateBrowserEndpoints(id, webSocketURI, serverInfoURI string) bool {
+	webSocketURI = strings.TrimSpace(webSocketURI)
+	serverInfoURI = strings.TrimSpace(serverInfoURI)
+	if ValidateBrowserEndpoints(webSocketURI, serverInfoURI) != nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.cfg.Servers {
+		if s.cfg.Servers[i].Id != id {
+			continue
+		}
+		previous := s.cfg.Servers[i]
+		s.cfg.Servers[i].WebSocketUri = webSocketURI
+		s.cfg.Servers[i].ServerInfoUri = serverInfoURI
+		if err := s.save(); err != nil {
+			s.cfg.Servers[i] = previous
+			return false
+		}
+		return true
+	}
+	return false
 }
 
 // ClientConfigDirectory returns the configured client-config base
