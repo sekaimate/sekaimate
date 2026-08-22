@@ -1,10 +1,14 @@
 // Command server runs concierge: the Go rewrite of the Basis SSO admission
-// broker (docs/concierge/design.md). Phase 1 (this binary, currently) has
-// no Kubernetes/Agones integration — see internal/kube.NoopProvisioner and
-// docs/concierge/design.md §12 "決定事項" for what phase 2 adds.
+// broker (docs/concierge/design.md), including Kubernetes/Agones-backed
+// meeting provisioning when a Kubernetes config is available. See
+// buildProvisioner and internal/kube.Manager for the Agones integration;
+// deployments with no Kubernetes config fall back to
+// internal/kube.NoopProvisioner and behave exactly as in phase 1.
 package main
 
 import (
+	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"net/url"
@@ -12,6 +16,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
+
+	agonesclient "agones.dev/agones/pkg/client/clientset/versioned"
+	"k8s.io/client-go/kubernetes"
 
 	"github.com/sekaimate/sekaimate/concierge/internal/adminui"
 	"github.com/sekaimate/sekaimate/concierge/internal/admission"
@@ -20,6 +28,12 @@ import (
 	"github.com/sekaimate/sekaimate/concierge/internal/controlplane"
 	"github.com/sekaimate/sekaimate/concierge/internal/kube"
 )
+
+// defaultBasisServerPort is the Basis Server UDP game port
+// (Configuration.SetPort's own default), used both as the GameServer's
+// requested container port and injected back into the container as SetPort
+// when Kubernetes provisioning is enabled (see buildProvisioner).
+const defaultBasisServerPort = 4296
 
 // defaultPath resolves name relative to the running binary's directory,
 // matching the C# broker's {AppContext.BaseDirectory}/name default for
@@ -84,6 +98,84 @@ func bootstrapLocalMeeting(cfg *config.Store, meetings *controlplane.Store) {
 	meetings.EnsureSingleComposeMeeting("local", "Local meeting", host, port, password, local.EffectiveTransportPublicKey())
 }
 
+// checkNoStaticMeetingIDCollision implements design.md §4.1's startup
+// requirement: a static Servers[] entry and a control-plane MeetingRecord
+// must never share an id (concierge would not know which one is
+// authoritative for that id's admission routing). The one sanctioned
+// exception is "local": bootstrapLocalMeeting deliberately registers a
+// MeetingRecord with the same id as the "local" static server entry it
+// reads from (design.md §12 decision 1), so that pairing is not a
+// collision.
+func checkNoStaticMeetingIDCollision(cfg *config.Store, meetings *controlplane.Store) error {
+	for _, m := range meetings.List() {
+		if m.Id == "local" {
+			continue
+		}
+		if _, exists := cfg.FindServer(m.Id); exists {
+			return fmt.Errorf("meeting id %q is registered both as a static Servers[] entry and as a control-plane meeting", m.Id)
+		}
+	}
+	return nil
+}
+
+// buildProvisioner wires up the Agones-backed kube.Manager when a
+// Kubernetes config is available (in-cluster, or $KUBECONFIG/
+// $HOME/.kube/config), otherwise falls back to kube.NoopProvisioner so
+// non-Kubernetes deployments keep working exactly as in phase 1
+// (docs/concierge/design.md §12 decision 2/3 only apply once Kubernetes
+// integration is actually enabled).
+func buildProvisioner(meetings *controlplane.Store) kube.RoomProvisioner {
+	restCfg, ok, err := kube.ResolveRESTConfig()
+	if err != nil {
+		log.Fatalf("concierge: resolve kubeconfig: %v", err)
+	}
+	if !ok {
+		log.Printf("concierge: no Kubernetes config found (in-cluster or $KUBECONFIG/$HOME/.kube/config); Kubernetes meeting provisioning is disabled")
+		return kube.NoopProvisioner{}
+	}
+
+	agonesClientset, err := agonesclient.NewForConfig(restCfg)
+	if err != nil {
+		log.Fatalf("concierge: create agones client: %v", err)
+	}
+	coreClientset, err := kubernetes.NewForConfig(restCfg)
+	if err != nil {
+		log.Fatalf("concierge: create kubernetes client: %v", err)
+	}
+
+	namespace := envOrDefault("NAMESPACE", "basis")
+	readyTimeout := 120 * time.Second
+	if raw := os.Getenv("GAMESERVER_READY_TIMEOUT_SECONDS"); raw != "" {
+		if seconds, err := strconv.Atoi(raw); err == nil && seconds > 0 {
+			readyTimeout = time.Duration(seconds) * time.Second
+		} else {
+			log.Printf("concierge: ignoring invalid GAMESERVER_READY_TIMEOUT_SECONDS=%q", raw)
+		}
+	}
+	containerPort := int32(defaultBasisServerPort)
+	if raw := os.Getenv("BASIS_SERVER_PORT"); raw != "" {
+		if parsed, err := strconv.ParseUint(raw, 10, 16); err == nil {
+			containerPort = int32(parsed)
+		} else {
+			log.Printf("concierge: ignoring invalid BASIS_SERVER_PORT=%q", raw)
+		}
+	}
+
+	manager := kube.NewManager(agonesClientset, coreClientset, meetings, kube.ManagerConfig{
+		Namespace:     namespace,
+		Image:         envOrDefault("BASIS_SERVER_IMAGE", ""),
+		ContainerPort: containerPort,
+		ReadyTimeout:  readyTimeout,
+	})
+
+	if err := manager.Reconcile(context.Background()); err != nil {
+		log.Printf("concierge: startup Kubernetes reconciliation failed (continuing): %v", err)
+	}
+
+	log.Printf("concierge: Kubernetes meeting provisioning enabled (namespace=%s)", namespace)
+	return manager
+}
+
 func main() {
 	configPath := envOrDefault("BASIS_SSO_BROKER_CONFIG_PATH", defaultPath("appsettings.json"))
 	cfg, err := config.Load(configPath)
@@ -94,6 +186,10 @@ func main() {
 	controlPlanePath := envOrDefault("BASIS_CONTROL_PLANE_STORE_PATH", defaultPath("control-plane.json"))
 	meetings := controlplane.NewStore(controlPlanePath)
 
+	if err := checkNoStaticMeetingIDCollision(cfg, meetings); err != nil {
+		log.Fatalf("concierge: %v", err)
+	}
+
 	bootstrapLocalMeeting(cfg, meetings)
 
 	deps := api.Deps{
@@ -101,7 +197,7 @@ func main() {
 		Meetings:    meetings,
 		Enrollments: controlplane.NewEnrollmentStore(),
 		Validator:   admission.NewValidator(),
-		Provisioner: kube.NoopProvisioner{},
+		Provisioner: buildProvisioner(meetings),
 	}
 
 	mux := api.NewMux(deps)
