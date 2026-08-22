@@ -66,8 +66,17 @@ func (a *serverAPI) GetClientConfigTemplate(w http.ResponseWriter, r *http.Reque
 	if len(providers) == 0 {
 		providers = server.Providers
 	}
+	webSocketURI, serverInfoURI := server.WebSocketUri, server.ServerInfoUri
+	if meeting, ok := a.deps.Meetings.Find(server.Id); ok {
+		if meeting.WebSocketUri != "" {
+			webSocketURI = meeting.WebSocketUri
+		}
+		if meeting.ServerInfoUri != "" {
+			serverInfoURI = meeting.ServerInfoUri
+		}
+	}
 	origin := a.deps.Config.RequestOrigin(r)
-	writeJSONIndent(w, http.StatusOK, clientConfiguration(origin, server.Id, publicKey, providers, organization.DefaultProviderId))
+	writeJSONIndent(w, http.StatusOK, clientConfiguration(origin, server.Id, publicKey, webSocketURI, serverInfoURI, providers, organization.DefaultProviderId))
 }
 
 // GetAdminClientConfig implements GET /admin/client-config/{serverId}: the

@@ -13,7 +13,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -73,12 +75,17 @@ func isAbsoluteHTTPS(raw string) bool {
 // ServerConfig is one Basis game server's admission configuration, matching
 // BrokerServerOptions.
 type ServerConfig struct {
-	Id                                    string           `json:"Id"`
-	TicketSigningKeyEnvironmentVariable   string           `json:"TicketSigningKeyEnvironmentVariable,omitempty"`
-	TransportPublicKeyEnvironmentVariable string           `json:"TransportPublicKeyEnvironmentVariable,omitempty"`
-	TicketSigningKey                      string           `json:"TicketSigningKey,omitempty"`
-	TransportPublicKey                    string           `json:"TransportPublicKey,omitempty"`
-	Providers                             []ProviderConfig `json:"Providers,omitempty"`
+	Id                                    string `json:"Id"`
+	TicketSigningKeyEnvironmentVariable   string `json:"TicketSigningKeyEnvironmentVariable,omitempty"`
+	TransportPublicKeyEnvironmentVariable string `json:"TransportPublicKeyEnvironmentVariable,omitempty"`
+	TicketSigningKey                      string `json:"TicketSigningKey,omitempty"`
+	TransportPublicKey                    string `json:"TransportPublicKey,omitempty"`
+	// WebSocketUri and ServerInfoUri are explicit browser endpoints. They are
+	// intentionally not inferred from the UDP host/port: TLS termination and
+	// ingress paths are deployment-specific (web-support contract).
+	WebSocketUri  string           `json:"WebSocketUri,omitempty"`
+	ServerInfoUri string           `json:"ServerInfoUri,omitempty"`
+	Providers     []ProviderConfig `json:"Providers,omitempty"`
 	// FromMeeting is true when this entry was created by
 	// internal/api.CreateMeeting (i.e. it exists only because a
 	// controlplane.MeetingRecord with the same id does) rather than
@@ -150,7 +157,57 @@ func (s ServerConfig) IsStructurallyValid() (bool, string) {
 			return false, "Every provider needs an ID, issuer, client ID, and HTTPS JWKS URL."
 		}
 	}
+	if err := ValidateBrowserEndpoints(strings.TrimSpace(s.WebSocketUri), strings.TrimSpace(s.ServerInfoUri)); err != nil {
+		return false, "browser endpoints are invalid: " + err.Error()
+	}
 	return true, ""
+}
+
+// ValidateBrowserEndpoints validates optional browser endpoints without
+// requiring them for native/UDP-only servers. The rules mirror the WebGL
+// client: ws is loopback-only, while remote browser connections require wss;
+// server-info follows the same rule with http/https.
+func ValidateBrowserEndpoints(webSocketURI, serverInfoURI string) error {
+	if webSocketURI == "" && serverInfoURI == "" {
+		return nil
+	}
+	if webSocketURI == "" || serverInfoURI == "" {
+		return errors.New("both WebSocketUri and ServerInfoUri are required")
+	}
+	if err := validateWebSocketURI(webSocketURI); err != nil {
+		return err
+	}
+	return validateServerInfoURI(serverInfoURI)
+}
+
+func validateWebSocketURI(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.IsAbs() == false || u.Host == "" || u.User != nil || u.Fragment != "" || (u.Scheme != "ws" && u.Scheme != "wss") {
+		return errors.New("must be an absolute ws:// or wss:// URI without user info or fragment")
+	}
+	if u.Scheme == "ws" && !isLoopbackHost(u.Hostname()) {
+		return errors.New("ws:// is only allowed for loopback endpoints")
+	}
+	return nil
+}
+
+func validateServerInfoURI(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || !u.IsAbs() || u.Host == "" || u.User != nil || u.Fragment != "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return errors.New("must be an absolute http:// or https:// URI without user info or fragment")
+	}
+	if u.Scheme == "http" && !isLoopbackHost(u.Hostname()) {
+		return errors.New("http:// is only allowed for loopback endpoints")
+	}
+	return nil
+}
+
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func isValidServerID(id string) bool {
@@ -203,6 +260,11 @@ type BrokerConfig struct {
 	AllowUnauthenticatedAdmin     bool                `json:"AllowUnauthenticatedAdmin,omitempty"`
 	Servers                       []ServerConfig      `json:"Servers,omitempty"`
 	Organization                  *OrganizationConfig `json:"Organization,omitempty"`
+	// These templates are used only for concierge-managed rooms when their
+	// Agones TCP port becomes known. Both must be explicit; {host} and {port}
+	// are replaced, and no scheme/ingress path is guessed.
+	ManagedWebSocketUriTemplate  string `json:"ManagedWebSocketUriTemplate,omitempty"`
+	ManagedServerInfoUriTemplate string `json:"ManagedServerInfoUriTemplate,omitempty"`
 }
 
 type fileWrapper struct {
@@ -232,6 +294,11 @@ func Load(path string) (*Store, error) {
 	var wrapper fileWrapper
 	if err := json.Unmarshal(data, &wrapper); err != nil {
 		return nil, fmt.Errorf("config: parse %s: %w", path, err)
+	}
+	for _, server := range wrapper.Broker.Servers {
+		if err := ValidateBrowserEndpoints(strings.TrimSpace(server.WebSocketUri), strings.TrimSpace(server.ServerInfoUri)); err != nil {
+			return nil, fmt.Errorf("config: server %q browser endpoints: %w", server.Id, err)
+		}
 	}
 	s.cfg = wrapper.Broker
 	return s, nil
@@ -438,6 +505,16 @@ func (s *Store) PublicBaseUrl() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.cfg.PublicBaseUrl
+}
+
+// ManagedBrowserEndpointTemplates returns the explicit endpoint templates
+// used for Agones-managed rooms. Empty values are intentional: a meeting may
+// provide concrete endpoints itself, and concierge never infers an origin
+// from the UDP address.
+func (s *Store) ManagedBrowserEndpointTemplates() (webSocketURI, serverInfoURI string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cfg.ManagedWebSocketUriTemplate, s.cfg.ManagedServerInfoUriTemplate
 }
 
 // AllowUnauthenticatedAdmin reports the configured dev-only admin bypass.

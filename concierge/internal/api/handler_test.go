@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sekaimate/sekaimate/concierge/internal/admission"
@@ -141,6 +142,36 @@ func TestAdmin_RequiresAuth(t *testing.T) {
 	rec = doRequest(t, mux, http.MethodGet, "/admin/servers", nil, map[string]string{"Authorization": "Bearer " + token})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("with token: status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPutAdminServer_PersistsBrowserEndpoints(t *testing.T) {
+	deps := newTestDepsAdminBypassed(t)
+	mux := NewMux(deps)
+	key := "01234567890123456789012345678901"
+	pub := "transport-public-key"
+	ws := "wss://game.example.com:4297/basis"
+	info := "https://game.example.com:4297/server-info"
+	id := "static-web"
+	providerID, issuer, audience, jwks := "p", "https://issuer.example", "aud", "https://issuer.example/jwks"
+	providers := []ProviderOptions{{Id: &providerID, Issuer: &issuer, Audience: &audience, JwksUri: &jwks}}
+	rec := doRequest(t, mux, http.MethodPut, "/admin/servers/"+id, AdminServerWrite{
+		TicketSigningKey: &key, TransportPublicKey: &pub, WebSocketUri: &ws, ServerInfoUri: &info,
+		Providers: &providers,
+	}, nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("put: status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	rec = doRequest(t, mux, http.MethodGet, "/admin/servers", nil, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list: status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var servers []AdminServerInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &servers); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(servers) != 1 || servers[0].WebSocketUri == nil || *servers[0].WebSocketUri != ws || servers[0].ServerInfoUri == nil || *servers[0].ServerInfoUri != info {
+		t.Fatalf("static browser endpoints = %+v", servers)
 	}
 }
 
@@ -388,6 +419,60 @@ func TestCreateMeeting_ExplicitHost_SkipsProvisioning(t *testing.T) {
 	if len(provisioner.deleteIDs) != 0 {
 		t.Errorf("Provisioner.Delete called %d times, want 0 for an explicit-host meeting", len(provisioner.deleteIDs))
 	}
+}
+
+func TestCreateMeeting_BrowserEndpointsFlowToManifestAndDeepLink(t *testing.T) {
+	t.Setenv("BASIS_CONTROL_PLANE_ALLOW_MANUAL_MEETINGS", "true")
+	deps := newTestDepsAdminBypassed(t)
+	if ok, msg := deps.Config.SetOrganization(config.OrganizationConfig{
+		Providers: []config.ProviderConfig{{Id: "p", Issuer: "https://issuer.example", Audience: "aud", JwksUri: "https://issuer.example/jwks"}},
+	}); !ok {
+		t.Fatalf("SetOrganization: %s", msg)
+	}
+	mux := NewMux(deps)
+	host := "game.example.com"
+	ws := "wss://game.example.com:4297/basis"
+	info := "https://game.example.com:4297/server-info"
+	rec := doRequest(t, mux, http.MethodPost, "/admin/meetings", CreateMeetingRequest{
+		Title: "Browser Room", Host: &host, WebSocketUri: &ws, ServerInfoUri: &info,
+	}, nil)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var view MeetingView
+	if err := json.Unmarshal(rec.Body.Bytes(), &view); err != nil {
+		t.Fatalf("unmarshal view: %v", err)
+	}
+	if view.WebSocketUri == nil || *view.WebSocketUri != ws || view.ServerInfoUri == nil || *view.ServerInfoUri != info {
+		t.Fatalf("view browser endpoints = %v / %v", view.WebSocketUri, view.ServerInfoUri)
+	}
+	rec = doRequest(t, mux, http.MethodGet, "/join/"+mustMeetingInvite(t, deps, view.Id)+"/manifest", nil, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("manifest: status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var manifest JoinManifest
+	if err := json.Unmarshal(rec.Body.Bytes(), &manifest); err != nil {
+		t.Fatalf("unmarshal manifest: %v", err)
+	}
+	if manifest.Connection == nil || manifest.Connection.WebSocketUri == nil || *manifest.Connection.WebSocketUri != ws {
+		t.Fatalf("manifest connection = %+v", manifest.Connection)
+	}
+	if !strings.Contains(view.JoinUrl, "/join/") {
+		t.Fatalf("join url = %q", view.JoinUrl)
+	}
+	page := doRequest(t, mux, http.MethodGet, view.JoinUrl, nil, nil)
+	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "websocketUri") {
+		t.Fatalf("join page: status=%d body=%s", page.Code, page.Body.String())
+	}
+}
+
+func mustMeetingInvite(t *testing.T, deps Deps, id string) string {
+	t.Helper()
+	meeting, ok := deps.Meetings.Find(id)
+	if !ok {
+		t.Fatalf("meeting %s not found", id)
+	}
+	return meeting.InviteToken
 }
 
 // TestCreateMeeting_NoHost_ProvisionsAndDeletes checks that omitting host

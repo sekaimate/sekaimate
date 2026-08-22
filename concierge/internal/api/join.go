@@ -25,7 +25,7 @@ func (a *serverAPI) JoinConfig(w http.ResponseWriter, r *http.Request, token Tok
 		return
 	}
 	origin := a.deps.Config.RequestOrigin(r)
-	writeJSON(w, http.StatusOK, clientConfiguration(origin, meeting.Id, meeting.TransportPublicKey, providers, organization.DefaultProviderId))
+	writeJSON(w, http.StatusOK, clientConfiguration(origin, meeting.Id, meeting.TransportPublicKey, meeting.WebSocketUri, meeting.ServerInfoUri, providers, organization.DefaultProviderId))
 }
 
 // bracketHost wraps a literal IPv6 host in [...] for use in a
@@ -37,9 +37,13 @@ func bracketHost(host string) string {
 	return host
 }
 
-func deepLink(meetingID, host string, port uint16, password string) string {
-	return "basisdemo://" + bracketHost(host) + ":" + strconv.Itoa(int(port)) +
+func deepLink(meetingID, host string, port uint16, password, webSocketURI string) string {
+	link := "basisdemo://" + bracketHost(host) + ":" + strconv.Itoa(int(port)) +
 		"?password=" + escapeDataString(password) + "&meeting=" + escapeDataString(meetingID)
+	if webSocketURI != "" {
+		link += "&websocketUri=" + escapeDataString(webSocketURI)
+	}
+	return link
 }
 
 // JoinPage implements GET /join/{token}: an HTML page that tries the
@@ -54,7 +58,7 @@ func (a *serverAPI) JoinPage(w http.ResponseWriter, r *http.Request, token Token
 		writeText(w, http.StatusConflict, "This meeting is not ready yet.")
 		return
 	}
-	link := deepLink(meeting.Id, meeting.Host, meeting.Port, meeting.Password)
+	link := deepLink(meeting.Id, meeting.Host, meeting.Port, meeting.Password, meeting.WebSocketUri)
 	origin := a.deps.Config.RequestOrigin(r)
 	configurationURL := origin + "/join/" + escapeDataString(token) + "/config"
 	loopbackURL := "http://127.0.0.1:56831/basis-join?config=" + escapeDataString(configurationURL) + "&link=" + escapeDataString(link)
@@ -78,7 +82,7 @@ func (a *serverAPI) JoinOpenPage(w http.ResponseWriter, r *http.Request, token T
 		writeText(w, http.StatusConflict, "This meeting is not ready yet.")
 		return
 	}
-	link := deepLink(meeting.Id, meeting.Host, meeting.Port, meeting.Password)
+	link := deepLink(meeting.Id, meeting.Host, meeting.Port, meeting.Password, meeting.WebSocketUri)
 	page, err := renderJoinOpenPage(meeting.Title, link)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -96,7 +100,7 @@ func (a *serverAPI) JoinManifest(w http.ResponseWriter, r *http.Request, token T
 		return
 	}
 	origin := a.deps.Config.RequestOrigin(r)
-	transport := transportConfig(origin, meeting.Id, meeting.TransportPublicKey)
+	transport := transportConfig(origin, meeting.Id, meeting.TransportPublicKey, meeting.WebSocketUri, meeting.ServerInfoUri)
 	port := int(meeting.Port)
 	writeJSON(w, http.StatusOK, JoinManifest{
 		Meeting: &JoinManifestMeeting{
@@ -104,9 +108,11 @@ func (a *serverAPI) JoinManifest(w http.ResponseWriter, r *http.Request, token T
 			Title: &meeting.Title,
 		},
 		Connection: &JoinManifestConnection{
-			Host:     &meeting.Host,
-			Port:     &port,
-			Password: &meeting.Password,
+			Host:          &meeting.Host,
+			Port:          &port,
+			Password:      &meeting.Password,
+			WebSocketUri:  strPtrIfNonEmpty(meeting.WebSocketUri),
+			ServerInfoUri: strPtrIfNonEmpty(meeting.ServerInfoUri),
 		},
 		ServerTransport: &transport,
 	})

@@ -38,15 +38,26 @@ func (a *serverAPI) EnrollConfig(w http.ResponseWriter, r *http.Request, token T
 		providers = server.Providers
 	}
 	publicKey := ""
+	webSocketURI, serverInfoURI := "", ""
 	if meetingKnown && meeting.TransportPublicKey != "" {
 		publicKey = meeting.TransportPublicKey
+		webSocketURI, serverInfoURI = meeting.WebSocketUri, meeting.ServerInfoUri
+		if serverKnown {
+			if webSocketURI == "" {
+				webSocketURI = server.WebSocketUri
+			}
+			if serverInfoURI == "" {
+				serverInfoURI = server.ServerInfoUri
+			}
+		}
 	} else if serverKnown {
 		publicKey = server.EffectiveTransportPublicKey()
+		webSocketURI, serverInfoURI = server.WebSocketUri, server.ServerInfoUri
 	}
 	if !serverKnown || len(providers) == 0 || publicKey == "" {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
 	origin := a.deps.Config.RequestOrigin(r)
-	writeJSON(w, http.StatusOK, clientConfiguration(origin, serverID, publicKey, providers, organization.DefaultProviderId))
+	writeJSON(w, http.StatusOK, clientConfiguration(origin, serverID, publicKey, webSocketURI, serverInfoURI, providers, organization.DefaultProviderId))
 }

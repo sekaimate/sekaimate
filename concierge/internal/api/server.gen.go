@@ -26,18 +26,22 @@ type AdminServerInfo struct {
 	Id                                    string            `json:"id"`
 	Providers                             []ProviderOptions `json:"providers"`
 	Ready                                 bool              `json:"ready"`
+	ServerInfoUri                         *string           `json:"serverInfoUri,omitempty"`
 	TicketSigningKeyEnvironmentVariable   *string           `json:"ticketSigningKeyEnvironmentVariable,omitempty"`
 	TransportPublicKeyEnvironmentVariable *string           `json:"transportPublicKeyEnvironmentVariable,omitempty"`
+	WebSocketUri                          *string           `json:"webSocketUri,omitempty"`
 }
 
 // AdminServerWrite Body for PUT /admin/servers/{serverId} (BrokerServerOptions equivalent).
 type AdminServerWrite struct {
 	Id                                    *string            `json:"id,omitempty"`
 	Providers                             *[]ProviderOptions `json:"providers,omitempty"`
+	ServerInfoUri                         *string            `json:"serverInfoUri,omitempty"`
 	TicketSigningKey                      *string            `json:"ticketSigningKey,omitempty"`
 	TicketSigningKeyEnvironmentVariable   *string            `json:"ticketSigningKeyEnvironmentVariable,omitempty"`
 	TransportPublicKey                    *string            `json:"transportPublicKey,omitempty"`
 	TransportPublicKeyEnvironmentVariable *string            `json:"transportPublicKeyEnvironmentVariable,omitempty"`
+	WebSocketUri                          *string            `json:"webSocketUri,omitempty"`
 }
 
 // AdmissionRequest defines model for AdmissionRequest.
@@ -80,11 +84,13 @@ type ClientProviderConfig struct {
 
 // CreateMeetingRequest defines model for CreateMeetingRequest.
 type CreateMeetingRequest struct {
-	Host     *string `json:"host,omitempty"`
-	Id       *string `json:"id,omitempty"`
-	Password *string `json:"password,omitempty"`
-	Port     *int    `json:"port,omitempty"`
-	Title    string  `json:"title"`
+	Host          *string `json:"host,omitempty"`
+	Id            *string `json:"id,omitempty"`
+	Password      *string `json:"password,omitempty"`
+	Port          *int    `json:"port,omitempty"`
+	ServerInfoUri *string `json:"serverInfoUri,omitempty"`
+	Title         string  `json:"title"`
+	WebSocketUri  *string `json:"webSocketUri,omitempty"`
 }
 
 // EnforcementConfig defines model for EnforcementConfig.
@@ -132,9 +138,11 @@ type JoinManifest struct {
 
 // JoinManifestConnection defines model for JoinManifestConnection.
 type JoinManifestConnection struct {
-	Host     *string `json:"host,omitempty"`
-	Password *string `json:"password,omitempty"`
-	Port     *int    `json:"port,omitempty"`
+	Host          *string `json:"host,omitempty"`
+	Password      *string `json:"password,omitempty"`
+	Port          *int    `json:"port,omitempty"`
+	ServerInfoUri *string `json:"serverInfoUri,omitempty"`
+	WebSocketUri  *string `json:"webSocketUri,omitempty"`
 }
 
 // JoinManifestMeeting defines model for JoinManifestMeeting.
@@ -151,10 +159,12 @@ type MeetingView struct {
 	InvitationReady bool      `json:"invitationReady"`
 	JoinUrl         string    `json:"joinUrl"`
 	Port            int       `json:"port"`
+	ServerInfoUri   *string   `json:"serverInfoUri,omitempty"`
 	Status          string    `json:"status"`
 	StatusDetail    string    `json:"statusDetail"`
 	Title           string    `json:"title"`
 	UpdatedAt       time.Time `json:"updatedAt"`
+	WebSocketUri    *string   `json:"webSocketUri,omitempty"`
 }
 
 // OrganizationOptions defines model for OrganizationOptions.
@@ -196,7 +206,9 @@ type RedirectConfig struct {
 type ServerTransportConfig struct {
 	AdmissionEndpoint                 *string `json:"admissionEndpoint,omitempty"`
 	AllowUntrustedLoopbackCertificate *bool   `json:"allowUntrustedLoopbackCertificate,omitempty"`
+	ServerInfoUri                     *string `json:"serverInfoUri,omitempty"`
 	ServerPublicKey                   *string `json:"serverPublicKey,omitempty"`
+	WebSocketUri                      *string `json:"webSocketUri,omitempty"`
 }
 
 // MeetingId defines model for MeetingId.

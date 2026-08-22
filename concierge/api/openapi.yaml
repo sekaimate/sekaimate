@@ -567,6 +567,10 @@ components:
           type: boolean
         hasTransportPublicKey:
           type: boolean
+        webSocketUri:
+          type: string
+        serverInfoUri:
+          type: string
     AdminServerWrite:
       type: object
       description: Body for PUT /admin/servers/{serverId} (BrokerServerOptions equivalent).
@@ -580,6 +584,10 @@ components:
         ticketSigningKey:
           type: string
         transportPublicKey:
+          type: string
+        webSocketUri:
+          type: string
+        serverInfoUri:
           type: string
         providers:
           type: array
@@ -611,6 +619,10 @@ components:
           type: string
         invitationReady:
           type: boolean
+        webSocketUri:
+          type: string
+        serverInfoUri:
+          type: string
     CreateMeetingRequest:
       type: object
       required: [title]
@@ -624,6 +636,10 @@ components:
         port:
           type: integer
         password:
+          type: string
+        webSocketUri:
+          type: string
+        serverInfoUri:
           type: string
     InvitationResponse:
       type: object
@@ -650,6 +666,10 @@ components:
           type: string
         allowUntrustedLoopbackCertificate:
           type: boolean
+        webSocketUri:
+          type: string
+        serverInfoUri:
+          type: string
     ClaimRule:
       type: object
       properties:
@@ -739,6 +759,10 @@ components:
         port:
           type: integer
         password:
+          type: string
+        webSocketUri:
+          type: string
+        serverInfoUri:
           type: string
     JoinManifest:
       type: object

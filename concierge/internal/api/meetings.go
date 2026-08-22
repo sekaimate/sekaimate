@@ -114,6 +114,18 @@ func (a *serverAPI) CreateMeeting(w http.ResponseWriter, r *http.Request) {
 	if password == "" {
 		password = controlplane.RandomPassword()
 	}
+	webSocketURI := ""
+	if req.WebSocketUri != nil {
+		webSocketURI = strings.TrimSpace(*req.WebSocketUri)
+	}
+	serverInfoURI := ""
+	if req.ServerInfoUri != nil {
+		serverInfoURI = strings.TrimSpace(*req.ServerInfoUri)
+	}
+	if err := config.ValidateBrowserEndpoints(webSocketURI, serverInfoURI); err != nil {
+		writeError(w, http.StatusBadRequest, "Browser endpoints are invalid: "+err.Error())
+		return
+	}
 
 	managed := host == ""
 	status, detail := "provisioning", "Waiting for Kubernetes provisioning."
@@ -137,6 +149,8 @@ func (a *serverAPI) CreateMeeting(w http.ResponseWriter, r *http.Request) {
 		TicketSigningKey:    signingKey,
 		TransportPrivateKey: privateKey,
 		TransportPublicKey:  publicKey,
+		WebSocketUri:        webSocketURI,
+		ServerInfoUri:       serverInfoURI,
 		Status:              status,
 		StatusDetail:        detail,
 		Managed:             managed,
@@ -153,6 +167,8 @@ func (a *serverAPI) CreateMeeting(w http.ResponseWriter, r *http.Request) {
 		Providers:          admissionProviders,
 		TicketSigningKey:   signingKey,
 		TransportPublicKey: publicKey,
+		WebSocketUri:       webSocketURI,
+		ServerInfoUri:      serverInfoURI,
 		FromMeeting:        true,
 	}
 
@@ -170,6 +186,8 @@ func (a *serverAPI) CreateMeeting(w http.ResponseWriter, r *http.Request) {
 			TicketSigningKey:    signingKey,
 			TransportPrivateKey: privateKey,
 			TransportPublicKey:  publicKey,
+			WebSocketUri:        webSocketURI,
+			ServerInfoUri:       serverInfoURI,
 		}); err != nil {
 			_, _ = a.deps.Meetings.Delete(id)
 			_ = a.deps.Config.RemoveServer(id)

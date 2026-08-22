@@ -87,6 +87,27 @@ func TestServerConfig_ReadyAndEffectiveKeys(t *testing.T) {
 	}
 }
 
+func TestValidateBrowserEndpoints(t *testing.T) {
+	cases := []struct {
+		name, websocket, info string
+		wantErr               bool
+	}{
+		{"empty", "", "", false},
+		{"secure remote", "wss://game.example/basis", "https://game.example/server-info", false},
+		{"loopback development", "ws://127.0.0.1:4297/basis", "http://localhost:4297/server-info", false},
+		{"missing pair", "wss://game.example/basis", "", true},
+		{"insecure remote websocket", "ws://game.example/basis", "https://game.example/server-info", true},
+		{"fragment", "wss://game.example/basis#x", "https://game.example/server-info", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := ValidateBrowserEndpoints(tc.websocket, tc.info); (err != nil) != tc.wantErr {
+				t.Fatalf("ValidateBrowserEndpoints() error = %v, wantErr %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
 func TestStore_AddServer_DuplicateRejected(t *testing.T) {
 	s, err := Load(filepath.Join(t.TempDir(), "appsettings.json"))
 	if err != nil {
@@ -110,6 +131,8 @@ func TestStore_PersistenceRoundTrip(t *testing.T) {
 		Id:               "srv-1",
 		Providers:        []ProviderConfig{{Id: "p1", Issuer: "https://issuer.example", Audience: "aud", JwksUri: "https://issuer.example/jwks"}},
 		TicketSigningKey: "0123456789012345678901234567890123456789",
+		WebSocketUri:     "wss://game.example/basis",
+		ServerInfoUri:    "https://game.example/server-info",
 	}
 	if err := s1.AddServer(server); err != nil {
 		t.Fatalf("AddServer: %v", err)
@@ -131,7 +154,7 @@ func TestStore_PersistenceRoundTrip(t *testing.T) {
 	if !ok {
 		t.Fatalf("reloaded store: srv-1 not found")
 	}
-	if reloaded.Id != server.Id || len(reloaded.Providers) != 1 || reloaded.Providers[0].Id != "p1" {
+	if reloaded.Id != server.Id || len(reloaded.Providers) != 1 || reloaded.Providers[0].Id != "p1" || reloaded.WebSocketUri != server.WebSocketUri || reloaded.ServerInfoUri != server.ServerInfoUri {
 		t.Errorf("reloaded server = %+v", reloaded)
 	}
 }

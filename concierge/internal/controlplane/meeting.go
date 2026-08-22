@@ -41,6 +41,8 @@ type MeetingRecord struct {
 	TicketSigningKey    string `json:"TicketSigningKey"`
 	TransportPrivateKey string `json:"TransportPrivateKey"`
 	TransportPublicKey  string `json:"TransportPublicKey"`
+	WebSocketUri        string `json:"WebSocketUri,omitempty"`
+	ServerInfoUri       string `json:"ServerInfoUri,omitempty"`
 	// Managed is true when this meeting's compute is provisioned and owned
 	// by concierge itself (an Agones GameServer created via
 	// RoomProvisioner.Create), and false for meetings whose host/port were
@@ -186,6 +188,13 @@ func (s *Store) Exists(id string) bool {
 // with id already exists, refresh its connection info whenever anything
 // differs; otherwise create it, but only if no meetings exist at all yet.
 func (s *Store) EnsureSingleComposeMeeting(id, title, host string, port uint16, password, transportPublicKey string) {
+	s.EnsureSingleComposeMeetingWithBrowser(id, title, host, port, password, transportPublicKey, "", "")
+}
+
+// EnsureSingleComposeMeetingWithBrowser is the browser-aware form of the
+// Compose bootstrap helper. The legacy method above remains for callers and
+// persisted deployments that only expose UDP.
+func (s *Store) EnsureSingleComposeMeetingWithBrowser(id, title, host string, port uint16, password, transportPublicKey, webSocketURI, serverInfoURI string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -205,6 +214,8 @@ func (s *Store) EnsureSingleComposeMeeting(id, title, host string, port uint16, 
 			existing.Port != port ||
 			existing.Password != password ||
 			existing.TransportPublicKey != transportPublicKey ||
+			existing.WebSocketUri != webSocketURI ||
+			existing.ServerInfoUri != serverInfoURI ||
 			existing.Status != "ready"
 		if changed {
 			existing.Title = title
@@ -212,6 +223,8 @@ func (s *Store) EnsureSingleComposeMeeting(id, title, host string, port uint16, 
 			existing.Port = port
 			existing.Password = password
 			existing.TransportPublicKey = transportPublicKey
+			existing.WebSocketUri = webSocketURI
+			existing.ServerInfoUri = serverInfoURI
 			existing.Status = status
 			existing.StatusDetail = detail
 			existing.UpdatedAt = time.Now().UTC()
@@ -233,6 +246,8 @@ func (s *Store) EnsureSingleComposeMeeting(id, title, host string, port uint16, 
 		Port:               port,
 		Password:           password,
 		TransportPublicKey: transportPublicKey,
+		WebSocketUri:       webSocketURI,
+		ServerInfoUri:      serverInfoURI,
 		InviteToken:        RandomToken(24),
 		Status:             status,
 		StatusDetail:       detail,
@@ -287,6 +302,28 @@ func (s *Store) UpdateStatus(id, status, detail, host string, port uint16) bool 
 		if port > 0 {
 			m.Port = port
 		}
+		m.UpdatedAt = time.Now().UTC()
+		s.state.Meetings[i] = m
+		if err := s.saveLocked(); err != nil {
+			log.Printf("concierge control plane: failed to save %q: %v", s.path, err)
+		}
+		return true
+	}
+	return false
+}
+
+// UpdateBrowserEndpoints records the explicit browser endpoints for a
+// meeting. It is separate from UpdateStatus so existing callers retain the
+// native UDP-only semantics and old control-plane files remain compatible.
+func (s *Store) UpdateBrowserEndpoints(id, webSocketURI, serverInfoURI string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, m := range s.state.Meetings {
+		if m.Id != id {
+			continue
+		}
+		m.WebSocketUri = webSocketURI
+		m.ServerInfoUri = serverInfoURI
 		m.UpdatedAt = time.Now().UTC()
 		s.state.Meetings[i] = m
 		if err := s.saveLocked(); err != nil {

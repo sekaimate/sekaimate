@@ -88,6 +88,12 @@ func adminServerInfo(s config.ServerConfig) AdminServerInfo {
 	if s.TransportPublicKeyEnvironmentVariable != "" {
 		out.TransportPublicKeyEnvironmentVariable = strPtr(s.TransportPublicKeyEnvironmentVariable)
 	}
+	if s.WebSocketUri != "" {
+		out.WebSocketUri = strPtr(s.WebSocketUri)
+	}
+	if s.ServerInfoUri != "" {
+		out.ServerInfoUri = strPtr(s.ServerInfoUri)
+	}
 	return out
 }
 
@@ -105,6 +111,8 @@ func apiToServerConfig(serverID string, w AdminServerWrite) config.ServerConfig 
 		TransportPublicKeyEnvironmentVariable: derefStr(w.TransportPublicKeyEnvironmentVariable),
 		TicketSigningKey:                      derefStr(w.TicketSigningKey),
 		TransportPublicKey:                    derefStr(w.TransportPublicKey),
+		WebSocketUri:                          derefStr(w.WebSocketUri),
+		ServerInfoUri:                         derefStr(w.ServerInfoUri),
 		Providers:                             providers,
 	}
 }
@@ -121,6 +129,8 @@ func meetingToView(m controlplane.MeetingRecord, origin string) MeetingView {
 		UpdatedAt:       m.UpdatedAt,
 		JoinUrl:         origin + "/join/" + m.InviteToken,
 		InvitationReady: strings.EqualFold(m.Status, "ready") && strings.TrimSpace(m.Host) != "",
+		WebSocketUri:    strPtrIfNonEmpty(m.WebSocketUri),
+		ServerInfoUri:   strPtrIfNonEmpty(m.ServerInfoUri),
 	}
 }
 
@@ -128,14 +138,21 @@ func meetingToView(m controlplane.MeetingRecord, origin string) MeetingView {
 // ClientConfiguration and JoinManifest, matching TransportConfig in
 // Program.cs, including the loopback-only allowUntrustedLoopbackCertificate
 // computation.
-func transportConfig(origin, serverID, publicKey string) ServerTransportConfig {
+func transportConfig(origin, serverID, publicKey, webSocketURI, serverInfoURI string) ServerTransportConfig {
 	endpoint := origin + "/admission/" + serverID
 	loopback := isLoopbackURL(endpoint)
-	return ServerTransportConfig{
+	out := ServerTransportConfig{
 		ServerPublicKey:                   strPtr(publicKey),
 		AdmissionEndpoint:                 strPtr(endpoint),
 		AllowUntrustedLoopbackCertificate: &loopback,
 	}
+	if webSocketURI != "" {
+		out.WebSocketUri = strPtr(webSocketURI)
+	}
+	if serverInfoURI != "" {
+		out.ServerInfoUri = strPtr(serverInfoURI)
+	}
+	return out
 }
 
 func isLoopbackURL(raw string) bool {
@@ -157,9 +174,9 @@ func isLoopbackURL(raw string) bool {
 // AllowedHostedDomains folded into access.allowedClaims as one {claim:"hd",
 // values:[domain]} entry per domain, AllowedGroups -> access.allowedGroups
 // directly.
-func clientConfiguration(origin, serverID, publicKey string, providers []config.ProviderConfig, defaultProviderID string) ClientConfiguration {
+func clientConfiguration(origin, serverID, publicKey, webSocketURI, serverInfoURI string, providers []config.ProviderConfig, defaultProviderID string) ClientConfiguration {
 	out := ClientConfiguration{
-		ServerTransport: ptrServerTransport(transportConfig(origin, serverID, publicKey)),
+		ServerTransport: ptrServerTransport(transportConfig(origin, serverID, publicKey, webSocketURI, serverInfoURI)),
 		Redirect: &RedirectConfig{
 			Mode: strPtr("loopback"),
 			Host: strPtr("127.0.0.1"),
@@ -205,5 +222,11 @@ func clientConfiguration(origin, serverID, publicKey string, providers []config.
 }
 
 func ptrServerTransport(t ServerTransportConfig) *ServerTransportConfig { return &t }
-func intPtr(i int) *int                                                 { return &i }
-func boolPtr(b bool) *bool                                              { return &b }
+func strPtrIfNonEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+func intPtr(i int) *int    { return &i }
+func boolPtr(b bool) *bool { return &b }

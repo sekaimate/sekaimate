@@ -126,6 +126,40 @@ func TestCreate_SecretAndGameServer(t *testing.T) {
 	}
 }
 
+func TestCreate_WebSocketAddsNamedTCPPortAndOverrides(t *testing.T) {
+	m, agones, _ := newTestManager(t, nil, ManagerConfig{
+		WebSocketEnabled:        true,
+		WebSocketContainerPort:  4297,
+		WebSocketPath:           "/basis",
+		ServerInfoPath:          "/server-info",
+		WebSocketUseTLS:         true,
+		WebSocketAllowedOrigins: []string{"https://web.example"},
+	})
+	if err := m.Create(context.Background(), "web-room", testKeys()); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	gs, err := agones.AgonesV1().GameServers(testNamespace).Get(context.Background(), "basis-web-room", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get gameserver: %v", err)
+	}
+	if len(gs.Spec.Ports) != 2 || gs.Spec.Ports[1].Name != "websocket" || gs.Spec.Ports[1].Protocol != corev1.ProtocolTCP {
+		t.Fatalf("ports = %+v, want game UDP + websocket TCP", gs.Spec.Ports)
+	}
+	env := map[string]string{}
+	for _, item := range gs.Spec.Template.Spec.Containers[0].Env {
+		env[item.Name] = item.Value
+	}
+	for key, want := range map[string]string{
+		"WebSocketEnabled": "true", "WebSocketPort": "4297", "WebSocketPath": "/basis",
+		"WebSocketServerInfoPath": "/server-info", "WebSocketUseTls": "true",
+		"WebSocketAllowedOrigins": "https://web.example",
+	} {
+		if env[key] != want {
+			t.Errorf("env[%s] = %q, want %q", key, env[key], want)
+		}
+	}
+}
+
 func TestCreate_CustomImageAndPort(t *testing.T) {
 	m, agones, _ := newTestManager(t, nil, ManagerConfig{Image: "registry.example/basis-server:v2", ContainerPort: 5000})
 	ctx := context.Background()
@@ -255,6 +289,44 @@ func TestCreate_WatchReadySuccess(t *testing.T) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
+}
+
+func TestCreate_WatchReadyExpandsBrowserEndpoints(t *testing.T) {
+	meetings := newTestStore(t)
+	if err := meetings.Add(controlplane.MeetingRecord{Id: "web-room", Title: "Web", Status: "provisioning"}); err != nil {
+		t.Fatalf("seed meeting record: %v", err)
+	}
+	m, agones, _ := newTestManager(t, meetings, ManagerConfig{
+		WebSocketEnabled: true, WebSocketUriTemplate: "wss://{host}:{port}/basis",
+		ServerInfoUriTemplate: "https://{host}:{port}/server-info",
+		PollInterval:          10 * time.Millisecond, ReadyTimeout: 2 * time.Second,
+	})
+	if err := m.Create(context.Background(), "web-room", testKeys()); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	gs, err := agones.AgonesV1().GameServers(testNamespace).Get(context.Background(), "basis-web-room", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get gameserver: %v", err)
+	}
+	gs.Status = agonesv1.GameServerStatus{
+		State: agonesv1.GameServerStateReady, Address: "10.0.0.9",
+		Ports: []agonesv1.GameServerStatusPort{{Name: "game", Port: 7777}, {Name: "websocket", Port: 8777}},
+	}
+	if _, err := agones.AgonesV1().GameServers(testNamespace).Update(context.Background(), gs, metav1.UpdateOptions{}); err != nil {
+		t.Fatalf("update gameserver status: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		rec, _ := meetings.Find("web-room")
+		if rec.Status == "ready" {
+			if rec.WebSocketUri != "wss://10.0.0.9:8777/basis" || rec.ServerInfoUri != "https://10.0.0.9:8777/server-info" {
+				t.Fatalf("browser endpoints = %q / %q", rec.WebSocketUri, rec.ServerInfoUri)
+			}
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("meeting did not become ready")
 }
 
 // TestCreate_WatchReadyTimeout checks that the background watch marks the

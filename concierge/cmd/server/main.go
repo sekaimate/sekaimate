@@ -95,7 +95,7 @@ func bootstrapLocalMeeting(cfg *config.Store, meetings *controlplane.Store) {
 		}
 	}
 	password := os.Getenv("Password")
-	meetings.EnsureSingleComposeMeeting("local", "Local meeting", host, port, password, local.EffectiveTransportPublicKey())
+	meetings.EnsureSingleComposeMeetingWithBrowser("local", "Local meeting", host, port, password, local.EffectiveTransportPublicKey(), local.WebSocketUri, local.ServerInfoUri)
 }
 
 // checkNoStaticMeetingIDCollision implements design.md §4.1's startup
@@ -128,7 +128,7 @@ func checkNoStaticMeetingIDCollision(cfg *config.Store, meetings *controlplane.S
 // non-Kubernetes deployments keep working exactly as in phase 1
 // (docs/concierge/design.md §12 decision 2/3 only apply once Kubernetes
 // integration is actually enabled).
-func buildProvisioner(meetings *controlplane.Store) kube.RoomProvisioner {
+func buildProvisioner(cfg *config.Store, meetings *controlplane.Store) kube.RoomProvisioner {
 	restCfg, ok, err := kube.ResolveRESTConfig()
 	if err != nil {
 		log.Fatalf("concierge: resolve kubeconfig: %v", err)
@@ -164,12 +164,43 @@ func buildProvisioner(meetings *controlplane.Store) kube.RoomProvisioner {
 			log.Printf("concierge: ignoring invalid BASIS_SERVER_PORT=%q", raw)
 		}
 	}
+	webSocketEnabled := strings.EqualFold(os.Getenv("BASIS_SERVER_WEBSOCKET_ENABLED"), "true")
+	webSocketPort := int32(4297)
+	if raw := os.Getenv("BASIS_SERVER_WEBSOCKET_PORT"); raw != "" {
+		if parsed, err := strconv.ParseUint(raw, 10, 16); err == nil {
+			webSocketPort = int32(parsed)
+		} else {
+			log.Printf("concierge: ignoring invalid BASIS_SERVER_WEBSOCKET_PORT=%q", raw)
+		}
+	}
+	webSocketUseTLS := !strings.EqualFold(os.Getenv("BASIS_SERVER_WEBSOCKET_USE_TLS"), "false")
+	var allowedOrigins []string
+	for _, origin := range strings.FieldsFunc(os.Getenv("BASIS_SERVER_WEBSOCKET_ALLOWED_ORIGINS"), func(r rune) bool { return r == ',' || r == ';' }) {
+		if origin = strings.TrimSpace(origin); origin != "" {
+			allowedOrigins = append(allowedOrigins, origin)
+		}
+	}
 
+	webSocketTemplate, serverInfoTemplate := cfg.ManagedBrowserEndpointTemplates()
+	if value := os.Getenv("BASIS_SERVER_WEBSOCKET_URI_TEMPLATE"); value != "" {
+		webSocketTemplate = value
+	}
+	if value := os.Getenv("BASIS_SERVER_INFO_URI_TEMPLATE"); value != "" {
+		serverInfoTemplate = value
+	}
 	manager := kube.NewManager(agonesClientset, coreClientset, meetings, kube.ManagerConfig{
-		Namespace:     namespace,
-		Image:         envOrDefault("BASIS_SERVER_IMAGE", ""),
-		ContainerPort: containerPort,
-		ReadyTimeout:  readyTimeout,
+		Namespace:               namespace,
+		Image:                   envOrDefault("BASIS_SERVER_IMAGE", ""),
+		ContainerPort:           containerPort,
+		WebSocketEnabled:        webSocketEnabled,
+		WebSocketContainerPort:  webSocketPort,
+		WebSocketPath:           envOrDefault("BASIS_SERVER_WEBSOCKET_PATH", "/basis"),
+		ServerInfoPath:          envOrDefault("BASIS_SERVER_INFO_PATH", "/server-info"),
+		WebSocketUseTLS:         webSocketUseTLS,
+		WebSocketAllowedOrigins: allowedOrigins,
+		WebSocketUriTemplate:    webSocketTemplate,
+		ServerInfoUriTemplate:   serverInfoTemplate,
+		ReadyTimeout:            readyTimeout,
 	})
 
 	if err := manager.Reconcile(context.Background()); err != nil {
@@ -201,7 +232,7 @@ func main() {
 		Meetings:    meetings,
 		Enrollments: controlplane.NewEnrollmentStore(),
 		Validator:   admission.NewValidator(),
-		Provisioner: buildProvisioner(meetings),
+		Provisioner: buildProvisioner(cfg, meetings),
 	}
 
 	mux := api.NewMux(deps)

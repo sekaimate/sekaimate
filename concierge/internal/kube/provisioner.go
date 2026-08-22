@@ -17,6 +17,10 @@ type RoomKeys struct {
 	TicketSigningKey    string
 	TransportPrivateKey string
 	TransportPublicKey  string
+	// Optional explicit browser endpoints. When omitted, Manager may expand
+	// its explicitly configured URI templates after Agones assigns ports.
+	WebSocketUri  string
+	ServerInfoUri string
 }
 
 // RoomProvisioner creates and destroys the compute backing a

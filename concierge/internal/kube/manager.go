@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"strings"
 	"time"
 
 	agonesv1 "agones.dev/agones/pkg/apis/agones/v1"
@@ -45,10 +46,11 @@ const (
 	readyContainerScript = `until curl -sf -X POST -H "Content-Type: application/json" -d "{}" http://localhost:9358/ready; do sleep 1; done
 while true; do curl -sf -X POST -H "Content-Type: application/json" -d "{}" http://localhost:9358/health; sleep 2; done`
 
-	defaultImage         = "basis-server:latest"
-	defaultContainerPort = int32(4296)
-	defaultReadyTimeout  = 120 * time.Second
-	defaultPollInterval  = 2 * time.Second
+	defaultImage                  = "basis-server:latest"
+	defaultContainerPort          = int32(4296)
+	defaultWebSocketContainerPort = int32(4297)
+	defaultReadyTimeout           = 120 * time.Second
+	defaultPollInterval           = 2 * time.Second
 )
 
 // ErrAlreadyExists is returned by Create when the Secret or GameServer for
@@ -75,6 +77,17 @@ type ManagerConfig struct {
 	// container as the SetPort environment variable so the two never drift
 	// apart.
 	ContainerPort int32
+	// WebSocketEnabled adds a named dynamic TCP port and injects the
+	// web-support Configuration fields. It defaults false for UDP-only
+	// backwards compatibility.
+	WebSocketEnabled        bool
+	WebSocketContainerPort  int32
+	WebSocketPath           string
+	ServerInfoPath          string
+	WebSocketUseTLS         bool
+	WebSocketAllowedOrigins []string
+	WebSocketUriTemplate    string
+	ServerInfoUriTemplate   string
 	// ReadyTimeout bounds how long Create's background watch waits for the
 	// GameServer to become Ready before marking the meeting failed.
 	// Defaults to 120s (design.md §12 decision 3).
@@ -90,6 +103,15 @@ func (c ManagerConfig) withDefaults() ManagerConfig {
 	}
 	if c.ContainerPort == 0 {
 		c.ContainerPort = defaultContainerPort
+	}
+	if c.WebSocketContainerPort == 0 {
+		c.WebSocketContainerPort = defaultWebSocketContainerPort
+	}
+	if c.WebSocketPath == "" {
+		c.WebSocketPath = "/basis"
+	}
+	if c.ServerInfoPath == "" {
+		c.ServerInfoPath = "/server-info"
 	}
 	if c.ReadyTimeout == 0 {
 		c.ReadyTimeout = defaultReadyTimeout
@@ -215,6 +237,25 @@ func (m *Manager) Create(ctx context.Context, meetingID string, keys RoomKeys) e
 			},
 		},
 	}
+	if m.cfg.WebSocketEnabled {
+		gs.Spec.Ports = append(gs.Spec.Ports, agonesv1.GameServerPort{
+			Name:          "websocket",
+			PortPolicy:    agonesv1.Dynamic,
+			ContainerPort: m.cfg.WebSocketContainerPort,
+			Protocol:      corev1.ProtocolTCP,
+		})
+		webEnv := []corev1.EnvVar{
+			{Name: "WebSocketEnabled", Value: "true"},
+			{Name: "WebSocketPort", Value: strconv.FormatInt(int64(m.cfg.WebSocketContainerPort), 10)},
+			{Name: "WebSocketPath", Value: m.cfg.WebSocketPath},
+			{Name: "WebSocketServerInfoPath", Value: m.cfg.ServerInfoPath},
+			{Name: "WebSocketUseTls", Value: strconv.FormatBool(m.cfg.WebSocketUseTLS)},
+		}
+		if len(m.cfg.WebSocketAllowedOrigins) > 0 {
+			webEnv = append(webEnv, corev1.EnvVar{Name: "WebSocketAllowedOrigins", Value: strings.Join(m.cfg.WebSocketAllowedOrigins, ",")})
+		}
+		gs.Spec.Template.Spec.Containers[0].Env = append(gs.Spec.Template.Spec.Containers[0].Env, webEnv...)
+	}
 	if _, err := m.agones.AgonesV1().GameServers(m.cfg.Namespace).Create(ctx, gs, metav1.CreateOptions{}); err != nil {
 		// Roll back the Secret so a failed Create never leaves an orphaned
 		// Secret behind. Use context.Background() for the rollback: ctx may
@@ -229,6 +270,9 @@ func (m *Manager) Create(ctx context.Context, meetingID string, keys RoomKeys) e
 	}
 
 	if m.meetings != nil {
+		if keys.WebSocketUri != "" && keys.ServerInfoUri != "" {
+			m.meetings.UpdateBrowserEndpoints(meetingID, keys.WebSocketUri, keys.ServerInfoUri)
+		}
 		go m.watchReady(meetingID)
 	}
 	return nil
@@ -252,9 +296,26 @@ func (m *Manager) watchReady(meetingID string) {
 	for {
 		gs, err := m.agones.AgonesV1().GameServers(m.cfg.Namespace).Get(ctx, name, metav1.GetOptions{})
 		switch {
-		case err == nil && gs.Status.State == agonesv1.GameServerStateReady && gs.Status.Address != "" && len(gs.Status.Ports) > 0:
-			port := gs.Status.Ports[0].Port
-			m.meetings.UpdateStatus(meetingID, "ready", "Kubernetes GameServer is ready.", gs.Status.Address, uint16(port))
+		case err == nil && gs.Status.State == agonesv1.GameServerStateReady && gs.Status.Address != "":
+			udpPort, tcpPort, ok := resolvedPorts(gs.Status.Ports)
+			if !ok {
+				break
+			}
+			m.meetings.UpdateStatus(meetingID, "ready", "Kubernetes GameServer is ready.", gs.Status.Address, uint16(udpPort))
+			if m.cfg.WebSocketEnabled {
+				record, _ := m.meetings.Find(meetingID)
+				webSocketURI := record.WebSocketUri
+				serverInfoURI := record.ServerInfoUri
+				if webSocketURI == "" {
+					webSocketURI = expandEndpointTemplate(m.cfg.WebSocketUriTemplate, gs.Status.Address, tcpPort)
+				}
+				if serverInfoURI == "" {
+					serverInfoURI = expandEndpointTemplate(m.cfg.ServerInfoUriTemplate, gs.Status.Address, tcpPort)
+				}
+				if webSocketURI != "" && serverInfoURI != "" {
+					m.meetings.UpdateBrowserEndpoints(meetingID, webSocketURI, serverInfoURI)
+				}
+			}
 			return
 		case err != nil && apierrors.IsNotFound(err):
 			// Deleted out from under the watch (e.g. the meeting was
@@ -270,6 +331,33 @@ func (m *Manager) watchReady(meetingID string) {
 		case <-ticker.C:
 		}
 	}
+}
+
+func resolvedPorts(ports []agonesv1.GameServerStatusPort) (udpPort, tcpPort int32, ok bool) {
+	for _, p := range ports {
+		switch p.Name {
+		case "game":
+			udpPort = p.Port
+		case "websocket":
+			tcpPort = p.Port
+		}
+	}
+	// Existing GameServers created before named-port support may have a
+	// single unnamed status port. Preserve their UDP behavior.
+	if udpPort == 0 && len(ports) == 1 {
+		udpPort = ports[0].Port
+	}
+	if udpPort == 0 || (tcpPort == 0 && len(ports) > 1) {
+		return 0, 0, false
+	}
+	return udpPort, tcpPort, true
+}
+
+func expandEndpointTemplate(template, host string, port int32) string {
+	if template == "" || port <= 0 {
+		return ""
+	}
+	return strings.NewReplacer("{host}", host, "{port}", strconv.FormatInt(int64(port), 10)).Replace(template)
 }
 
 // Delete implements RoomProvisioner. It removes the GameServer and Secret
