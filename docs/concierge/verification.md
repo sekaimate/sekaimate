@@ -1,6 +1,6 @@
 # concierge 検証ドキュメント(phase 3: minikube + Agones)
 
-最終更新: 2026-08-22
+最終更新: 2026-08-23
 
 `design.md` §10.3 に定めた手順に沿って、実際の minikube + Agones 環境に対して concierge の結合確認を行った記録。
 実行環境は macOS arm64(Podman ドライバー)。事前修正(§2)・検証項目ごとの結果(§4)・検証中に見つかった不具合と
@@ -143,8 +143,35 @@ design.md §10.3 の手順(a〜h)に対応させた。すべて実際の minikub
 - その server を `DELETE /api/admin/servers/{id}` で削除し、検証用データを残していない。
 
 この smoke check は browser UI の build/test と組み合わせて、remote 側の Web OAuth/join/Admin 認証を保持した
-まま Concierge の WebGL endpoint 管理が動作することを確認するもの。実 Basis Server の WebSocket handshake、
-server-info payload、TLS/CORS は引き続き §8 の未検証項目である。
+まま Concierge の WebGL endpoint 管理が動作することを確認するもの。実 Basis Server の listener/handshake 等の追加結果は
+次節 §4.2 に記録する。
+
+### 4.2 実 Basis Server による WebGL/TLS E2E (2026-08-23)
+
+§8 に残っていた実サーバー経路を、現ブランチの `Basis Server/Docker/Dockerfile` からビルドしたイメージで再検証した。
+既存の Podman ドライバーの minikube プロファイルを再利用し、検証中に作成した会議/GameServer は終了後に削除した。
+
+検証で作成した meeting は `real-basis-wss-e2e-fixed-9zblpvm`。結果は次のとおり。
+
+| 項目 | 結果 |
+|---|---|
+| 実イメージ build | Pass。`.NET 10` SDK publish が完了し、現行 web-support の WebSocket server-info 実装を含むイメージを minikube 内へロードした。 |
+| GameServer Ready | Pass。`basis-real-basis-wss-e2e-fixed-9zblpvm` が `Ready`。`Status.Address=192.168.49.2`、UDP `game=7028`、TCP `websocket=7612`。 |
+| 実サーバー listener | Pass。実プロセスの起動後に UDP `4296` と TLS WebSocket listener の起動を確認した。Agones の ready サイドカーだけによる誤判定ではない。 |
+| server-info payload | Pass。`GET /server-info` は `200`、`{"online":0,"max":1024,"protocolVersion":1,"name":"Basis Server","motd":""}`。 |
+| 許可 Origin | Pass。`Origin: http://allowed.example:4173` に `Access-Control-Allow-Origin` を返し、WebSocket Upgrade は `101 Switching Protocols`。 |
+| 拒否 Origin | Pass。`Origin: http://evil.example:4173` の server-info と WebSocket Upgrade は `403 Forbidden`。 |
+| WebSocket protocol | Pass(transport/protocol 入口まで)。TLS WebSocket HTTP Upgrade 後に Basis binary `Hello` frame を送信し、実サーバーから `Reject` data frame (`03 00 02 15 00 49 6e 76 61 6c 69 64 20 63 6c 69 65 6e 74 20 64 61 74 61 2e`) を受信した。空の hello payload のため admission は拒否されたが、listener がフレームを受理・処理したことを確認した。完全な認証済み接続は実 OIDC/JWKS または有効な admission ticket が必要なため未実施。 |
+| TLS/WSS | Pass。自己署名証明書を検証専用イメージへ組み込み、`openssl s_client` で SAN と subject/issuer を確認した。curl は `-k`、または同証明書を CA として指定して検証できる。 |
+| API/join 整合 | Pass。`GET /api/admin/meetings`、`GET /api/admin/servers`、`/join/{token}/manifest`、`/join/{token}/config` の全てが `wss://192.168.49.2:7612/basis` と `https://192.168.49.2:7612/server-info` を返した。 |
+
+Podman の minikube ネットワークではホストから `192.168.49.2:7612` へ直接到達できなかったため、listener/payload/Origin/TLS の HTTP 検証は
+実 GameServer Pod の `4297` へ `kubectl port-forward` した経路で行った。これは実 Basis Server プロセスと実 TLS 設定を通るが、
+ノード外部 IP のファイアウォール/Ingress 経路の検証ではない。`Status.Address`/named port の解決と API/join への伝播は実クラスタの値で確認済み。
+
+検証中に見つかった実装上の不足も修正した。Concierge が TLS 証明書パスを GameServer に渡せるよう
+`BASIS_SERVER_WEBSOCKET_CERTIFICATE_PATH`/`..._KEY_PATH` を追加し、Basis の .NET 10 Kestrel が設定由来の HTTPS endpoint を
+読み込むため `UseKestrelHttpsConfiguration()` を呼ぶようにした。これらの変更を含む実イメージで再デプロイ・再検証した。
 
 ## 5. 検証中に見つかった不具合と修正
 
@@ -180,10 +207,9 @@ server-info payload、TLS/CORS は引き続き §8 の未検証項目である�
 5. **`basisdemo://` deep link が `html/template` の URL サニタイズで `#ZgotmplZ` になっていた。** WebGL URI を含む
    join deep link の実環境確認で発見し、生成値を `template.URL` として href/JavaScript fallback に渡すよう修正した。
 
-## 6. basis-server スタブによる代替と、その限界
+## 6. basis-server スタブによる初期検証と、その限界
 
-実際の Basis Server(C#、`Basis/Packages/com.basis.server/Docker/Dockerfile`)イメージのビルドは本検証の
-スコープ外(タスク定義どおり)。代わりに、スクラッチ領域(リポジトリ外)に置いた最小限の Go 製 UDP エコー
+初期の phase-3 検証では、実イメージのビルドを待たずスクラッチ領域(リポジトリ外)に置いた最小限の Go 製 UDP エコー
 リスナーを `basis-server-stub:dev` としてビルドし、`BASIS_SERVER_IMAGE` に指定した。
 
 - 動作: `SetPort` 環境変数(既定 4296)で UDP リッスンし、受信したデータグラムに `"echo: "` を付けて送り返すのみ。
@@ -193,7 +219,7 @@ server-info payload、TLS/CORS は引き続き §8 の未検証項目である�
   動的ポート割り当てと複数会議室の共存、Kubernetes を source of truth とした再起動時の整合性チェック、
   Ready タイムアウトの `"failed"` 遷移。いずれも Basis Server 本体の実装に依存しない、concierge 側の
   プロビジョニングロジックの検証。
-- **検証できていないこと**: Basis Server 本体が実際に `RequireSso`/`SsoTransportPrivateKey`/
+- **このスタブでは検証できていないこと**: Basis Server 本体が実際に `RequireSso`/`SsoTransportPrivateKey`/
   `SsoTransportPublicKey`/`SsoAdmissionTicketSigningKey` の環境変数オーバーライドを正しく読み、SSO 事前認証
   ハンドシェイクを行うかどうか。concierge が発行する `basis-sso-ticket-v2` チケットを実際のゲームサーバーが
   検証できるかどうか。UDP ゲームプロトコル自体の疎通。これらは実際の Basis Server イメージが無ければ検証
@@ -222,10 +248,8 @@ kubectl delete -f concierge/deploy/00-namespace.yaml   # 上と同義
 ## 8. 未検証の項目
 
 - 実際の Basis Server イメージによる SSO 事前認証ハンドシェイク・UDP ゲームプロトコルの疎通(§6)。
-- `feature/web-support` の実 Basis Server による WebSocket handshake と server-info HTTP 応答。今回の minikube 検証は
-  UDP echo の `basis-server-stub` を使用したため、concierge が作る TCP named port、環境変数、URI 伝播までは確認したが、
-  実際の listener/handshake/Server Info payload/CORS 応答は未確認である。TLS 終端、Ingress、証明書、Origin 許可は
-  運用環境の明示構成が必要。
+- ノード外部 IP/Ingress を経由した WebSocket listener の到達性。§4.2 の実サーバー検証は Pod port-forward 経路であり、
+  Podman ネットワーク外から `Status.Address` の TCP port へ直接到達できることまでは確認していない。
 - 実際の OIDC プロバイダ(Google/Auth0 等)に対する `POST /admission/{serverId}` の入場審査
   (`appsettings.json` はダミーの `Issuer`/`JwksUri` を使用しており、JWKS 取得も ID トークン検証も行っていない)。
 - 複数ノードクラスタでの Agones GameServer スケジューリング(minikube は単一ノード)。

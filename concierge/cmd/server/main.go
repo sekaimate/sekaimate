@@ -174,6 +174,8 @@ func buildProvisioner(cfg *config.Store, meetings *controlplane.Store) kube.Room
 		}
 	}
 	webSocketUseTLS := !strings.EqualFold(os.Getenv("BASIS_SERVER_WEBSOCKET_USE_TLS"), "false")
+	webSocketCertificatePath := os.Getenv("BASIS_SERVER_WEBSOCKET_CERTIFICATE_PATH")
+	webSocketCertificateKeyPath := os.Getenv("BASIS_SERVER_WEBSOCKET_CERTIFICATE_KEY_PATH")
 	var allowedOrigins []string
 	for _, origin := range strings.FieldsFunc(os.Getenv("BASIS_SERVER_WEBSOCKET_ALLOWED_ORIGINS"), func(r rune) bool { return r == ',' || r == ';' }) {
 		if origin = strings.TrimSpace(origin); origin != "" {
@@ -192,18 +194,20 @@ func buildProvisioner(cfg *config.Store, meetings *controlplane.Store) kube.Room
 		log.Fatalf("concierge: invalid managed browser URI templates: %v", err)
 	}
 	manager := kube.NewManager(agonesClientset, coreClientset, meetings, kube.ManagerConfig{
-		Namespace:               namespace,
-		Image:                   envOrDefault("BASIS_SERVER_IMAGE", ""),
-		ContainerPort:           containerPort,
-		WebSocketEnabled:        webSocketEnabled,
-		WebSocketContainerPort:  webSocketPort,
-		WebSocketPath:           envOrDefault("BASIS_SERVER_WEBSOCKET_PATH", "/basis"),
-		ServerInfoPath:          envOrDefault("BASIS_SERVER_INFO_PATH", "/server-info"),
-		WebSocketUseTLS:         webSocketUseTLS,
-		WebSocketAllowedOrigins: allowedOrigins,
-		WebSocketUriTemplate:    webSocketTemplate,
-		ServerInfoUriTemplate:   serverInfoTemplate,
-		ReadyTimeout:            readyTimeout,
+		Namespace:                   namespace,
+		Image:                       envOrDefault("BASIS_SERVER_IMAGE", ""),
+		ContainerPort:               containerPort,
+		WebSocketEnabled:            webSocketEnabled,
+		WebSocketContainerPort:      webSocketPort,
+		WebSocketPath:               envOrDefault("BASIS_SERVER_WEBSOCKET_PATH", "/basis"),
+		ServerInfoPath:              envOrDefault("BASIS_SERVER_INFO_PATH", "/server-info"),
+		WebSocketUseTLS:             webSocketUseTLS,
+		WebSocketCertificatePath:    webSocketCertificatePath,
+		WebSocketCertificateKeyPath: webSocketCertificateKeyPath,
+		WebSocketAllowedOrigins:     allowedOrigins,
+		WebSocketUriTemplate:        webSocketTemplate,
+		ServerInfoUriTemplate:       serverInfoTemplate,
+		ReadyTimeout:                readyTimeout,
 	})
 	manager.SetServerRegistry(cfg)
 

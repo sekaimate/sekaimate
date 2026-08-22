@@ -288,6 +288,13 @@ meeting/static server に明示されるか、両方の managed template が設�
 loopback 制約で検証する。Ready 後に展開されたペアは control-plane の meeting と admission 用 `Servers[]` の双方へ
 保存するため、`/admin/servers`・admin client-config template・join manifest が同じ公開 URI を返す。
 
+TLS を Basis Server 自身で終端する構成では、`BASIS_SERVER_WEBSOCKET_USE_TLS=true` と証明書/秘密鍵パスの 2 つの
+環境変数を併用する。`BASIS_SERVER_WEBSOCKET_CERTIFICATE_PATH` と
+`BASIS_SERVER_WEBSOCKET_CERTIFICATE_KEY_PATH` は GameServer の `basis-server` コンテナへ
+`WebSocketCertificatePath`/`WebSocketCertificateKeyPath` として注入される。通常の本番構成では証明書を
+Ingress/リバースプロキシで終端し、GameServer 内は HTTP/WebSocket (`ws`) とする。なお `ws://` は Concierge の
+URI 検証で loopback に限定されるため、リモート公開 URI は `wss://`/`https://` と明示する。
+
 `RoomKeys`(`internal/kube/provisioner.go` で定義済み)のフィールドと Secret データキーの対応は次のとおり。
 
 | `RoomKeys` フィールド | Secret データキー = コンテナ環境変数名 |
@@ -367,6 +374,7 @@ implementation.md phase 1 の §8 で「未実装」としていた、静的 `Se
 | `BASIS_SERVER_WEBSOCKET_PATH` / `BASIS_SERVER_INFO_PATH` | `/basis` / `/server-info` | Basis Server 内の WebSocket/server-info path。 |
 | `BASIS_SERVER_WEBSOCKET_USE_TLS` | `true` | WebSocket TLS の明示設定。Ingress/証明書は別途構成し、concierge は推測しない。 |
 | `BASIS_SERVER_WEBSOCKET_ALLOWED_ORIGINS` | (空) | カンマ/セミコロン区切りの CORS origin。 |
+| `BASIS_SERVER_WEBSOCKET_CERTIFICATE_PATH` / `BASIS_SERVER_WEBSOCKET_CERTIFICATE_KEY_PATH` | (空) | TLS を Basis Server 自身で終端する場合の証明書/秘密鍵パス。指定時は WebGL enabled GameServer の環境変数へ同名で注入する。通常の Ingress 終端では未設定のままにする。 |
 | `BASIS_SERVER_WEBSOCKET_URI_TEMPLATE` / `BASIS_SERVER_INFO_URI_TEMPLATE` | (空) | `{host}`/`{port}`だけを置換する完全な外部 URI。appsettings の `Broker.Managed*Template` でも指定可能で、環境変数が優先される。 |
 | `GAMESERVER_READY_TIMEOUT_SECONDS` | `120` | `watchReady` が Ready を待つ上限秒数。超過すると会議は `failed` になり、自動リトライしない(`design.md` §12 決定事項 3)。 |
 

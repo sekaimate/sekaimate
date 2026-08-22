@@ -129,12 +129,14 @@ func TestCreate_SecretAndGameServer(t *testing.T) {
 
 func TestCreate_WebSocketAddsNamedTCPPortAndOverrides(t *testing.T) {
 	m, agones, _ := newTestManager(t, nil, ManagerConfig{
-		WebSocketEnabled:        true,
-		WebSocketContainerPort:  4297,
-		WebSocketPath:           "/basis",
-		ServerInfoPath:          "/server-info",
-		WebSocketUseTLS:         true,
-		WebSocketAllowedOrigins: []string{"https://web.example"},
+		WebSocketEnabled:            true,
+		WebSocketContainerPort:      4297,
+		WebSocketPath:               "/basis",
+		ServerInfoPath:              "/server-info",
+		WebSocketUseTLS:             true,
+		WebSocketCertificatePath:    "/run/certs/server.pem",
+		WebSocketCertificateKeyPath: "/run/certs/server-key.pem",
+		WebSocketAllowedOrigins:     []string{"https://web.example"},
 	})
 	if err := m.Create(context.Background(), "web-room", testKeys()); err != nil {
 		t.Fatalf("Create: %v", err)
@@ -153,6 +155,7 @@ func TestCreate_WebSocketAddsNamedTCPPortAndOverrides(t *testing.T) {
 	for key, want := range map[string]string{
 		"WebSocketEnabled": "true", "WebSocketPort": "4297", "WebSocketPath": "/basis",
 		"WebSocketServerInfoPath": "/server-info", "WebSocketUseTls": "true",
+		"WebSocketCertificatePath": "/run/certs/server.pem", "WebSocketCertificateKeyPath": "/run/certs/server-key.pem",
 		"WebSocketAllowedOrigins": "https://web.example",
 	} {
 		if env[key] != want {

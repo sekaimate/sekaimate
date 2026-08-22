@@ -81,14 +81,16 @@ type ManagerConfig struct {
 	// WebSocketEnabled adds a named dynamic TCP port and injects the
 	// web-support Configuration fields. It defaults false for UDP-only
 	// backwards compatibility.
-	WebSocketEnabled        bool
-	WebSocketContainerPort  int32
-	WebSocketPath           string
-	ServerInfoPath          string
-	WebSocketUseTLS         bool
-	WebSocketAllowedOrigins []string
-	WebSocketUriTemplate    string
-	ServerInfoUriTemplate   string
+	WebSocketEnabled            bool
+	WebSocketContainerPort      int32
+	WebSocketPath               string
+	ServerInfoPath              string
+	WebSocketUseTLS             bool
+	WebSocketCertificatePath    string
+	WebSocketCertificateKeyPath string
+	WebSocketAllowedOrigins     []string
+	WebSocketUriTemplate        string
+	ServerInfoUriTemplate       string
 	// ReadyTimeout bounds how long Create's background watch waits for the
 	// GameServer to become Ready before marking the meeting failed.
 	// Defaults to 120s (design.md §12 decision 3).
@@ -270,6 +272,12 @@ func (m *Manager) Create(ctx context.Context, meetingID string, keys RoomKeys) e
 			{Name: "WebSocketPath", Value: m.cfg.WebSocketPath},
 			{Name: "WebSocketServerInfoPath", Value: m.cfg.ServerInfoPath},
 			{Name: "WebSocketUseTls", Value: strconv.FormatBool(m.cfg.WebSocketUseTLS)},
+		}
+		if m.cfg.WebSocketCertificatePath != "" {
+			webEnv = append(webEnv, corev1.EnvVar{Name: "WebSocketCertificatePath", Value: m.cfg.WebSocketCertificatePath})
+		}
+		if m.cfg.WebSocketCertificateKeyPath != "" {
+			webEnv = append(webEnv, corev1.EnvVar{Name: "WebSocketCertificateKeyPath", Value: m.cfg.WebSocketCertificateKeyPath})
 		}
 		if len(m.cfg.WebSocketAllowedOrigins) > 0 {
 			webEnv = append(webEnv, corev1.EnvVar{Name: "WebSocketAllowedOrigins", Value: strings.Join(m.cfg.WebSocketAllowedOrigins, ",")})
