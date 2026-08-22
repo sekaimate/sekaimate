@@ -30,19 +30,31 @@ var ErrDuplicateMeetingID = errors.New("controlplane: meeting id already exists"
 // broker's control-plane.json exactly (research-sso-broker.md §5.3/§7-12)
 // so an existing deployment's file can be read without migration.
 type MeetingRecord struct {
-	Id                  string    `json:"Id"`
-	Title               string    `json:"Title"`
-	Status              string    `json:"Status"`
-	StatusDetail        string    `json:"StatusDetail"`
-	Host                string    `json:"Host"`
-	Port                uint16    `json:"Port"`
-	Password            string    `json:"Password"`
-	InviteToken         string    `json:"InviteToken"`
-	TicketSigningKey    string    `json:"TicketSigningKey"`
-	TransportPrivateKey string    `json:"TransportPrivateKey"`
-	TransportPublicKey  string    `json:"TransportPublicKey"`
-	CreatedAt           time.Time `json:"CreatedAt"`
-	UpdatedAt           time.Time `json:"UpdatedAt"`
+	Id                  string `json:"Id"`
+	Title               string `json:"Title"`
+	Status              string `json:"Status"`
+	StatusDetail        string `json:"StatusDetail"`
+	Host                string `json:"Host"`
+	Port                uint16 `json:"Port"`
+	Password            string `json:"Password"`
+	InviteToken         string `json:"InviteToken"`
+	TicketSigningKey    string `json:"TicketSigningKey"`
+	TransportPrivateKey string `json:"TransportPrivateKey"`
+	TransportPublicKey  string `json:"TransportPublicKey"`
+	// Managed is true when this meeting's compute is provisioned and owned
+	// by concierge itself (an Agones GameServer created via
+	// RoomProvisioner.Create), and false for meetings whose host/port were
+	// supplied externally at creation time (design.md §4.2's distinction
+	// between "concierge 管理の部屋" and externally-run servers). Only
+	// Managed meetings get a Provisioner.Delete call on deletion or a
+	// Reconcile "missing GameServer -> failed" check at startup. This field
+	// has no equivalent in the C# broker's control-plane.json; it defaults
+	// to false (Go's zero value) when absent from an existing file, which is
+	// the correct interpretation for records written before concierge ever
+	// provisioned anything itself.
+	Managed   bool      `json:"Managed,omitempty"`
+	CreatedAt time.Time `json:"CreatedAt"`
+	UpdatedAt time.Time `json:"UpdatedAt"`
 }
 
 type controlPlaneState struct {

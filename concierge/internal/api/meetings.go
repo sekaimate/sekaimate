@@ -39,8 +39,12 @@ func manualMeetingsAllowed() bool {
 // CreateMeeting implements POST /admin/meetings, matching Program.cs's
 // handler: validate -> allocate id -> generate per-meeting SSO keys ->
 // register a matching static server entry -> persist the meeting record ->
-// (phase 1: no-op) hand the keys to the RoomProvisioner, rolling back on
-// any failure along the way.
+// provision compute via the RoomProvisioner, rolling back on any failure
+// along the way. Provisioning only happens when the request supplies no
+// explicit host: an explicit host names an externally-run server (matching
+// the C# broker, which never provisioned anything), so that case skips
+// RoomProvisioner.Create entirely and the meeting is immediately "ready"
+// (design.md §4.2).
 func (a *serverAPI) CreateMeeting(w http.ResponseWriter, r *http.Request) {
 	if !a.deps.Config.AdminAuthorized(r) {
 		unauthorized(w)
@@ -110,8 +114,9 @@ func (a *serverAPI) CreateMeeting(w http.ResponseWriter, r *http.Request) {
 		password = controlplane.RandomPassword()
 	}
 
+	managed := host == ""
 	status, detail := "provisioning", "Waiting for Kubernetes provisioning."
-	if host != "" {
+	if !managed {
 		status, detail = "ready", "External connection target configured."
 	}
 
@@ -127,6 +132,7 @@ func (a *serverAPI) CreateMeeting(w http.ResponseWriter, r *http.Request) {
 		TransportPublicKey:  publicKey,
 		Status:              status,
 		StatusDetail:        detail,
+		Managed:             managed,
 	}
 
 	admissionProviders := make([]config.ProviderConfig, len(organization.Providers))
@@ -149,15 +155,17 @@ func (a *serverAPI) CreateMeeting(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "A meeting with that ID already exists.")
 		return
 	}
-	if err := a.deps.Provisioner.Create(r.Context(), id, kube.RoomKeys{
-		TicketSigningKey:    signingKey,
-		TransportPrivateKey: privateKey,
-		TransportPublicKey:  publicKey,
-	}); err != nil {
-		_, _ = a.deps.Meetings.Delete(id)
-		_ = a.deps.Config.RemoveServer(id)
-		writeError(w, http.StatusInternalServerError, "failed to provision meeting")
-		return
+	if managed {
+		if err := a.deps.Provisioner.Create(r.Context(), id, kube.RoomKeys{
+			TicketSigningKey:    signingKey,
+			TransportPrivateKey: privateKey,
+			TransportPublicKey:  publicKey,
+		}); err != nil {
+			_, _ = a.deps.Meetings.Delete(id)
+			_ = a.deps.Config.RemoveServer(id)
+			writeError(w, http.StatusInternalServerError, "failed to provision meeting")
+			return
+		}
 	}
 
 	origin := a.deps.Config.RequestOrigin(r)
@@ -174,7 +182,8 @@ func (a *serverAPI) DeleteMeeting(w http.ResponseWriter, r *http.Request, meetin
 		unauthorized(w)
 		return
 	}
-	if _, ok := a.deps.Meetings.Delete(meetingId); !ok {
+	deleted, ok := a.deps.Meetings.Delete(meetingId)
+	if !ok {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
@@ -183,7 +192,9 @@ func (a *serverAPI) DeleteMeeting(w http.ResponseWriter, r *http.Request, meetin
 	if hasConfigPath {
 		_ = removeIfExists(configPath)
 	}
-	_ = a.deps.Provisioner.Delete(r.Context(), meetingId)
+	if deleted.Managed {
+		_ = a.deps.Provisioner.Delete(r.Context(), meetingId)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

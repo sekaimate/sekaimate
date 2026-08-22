@@ -361,12 +361,19 @@ kubectl apply -f deploy/
 
 ### 9.10 既知の注記・phase 3(minikube 検証)が把握しておくべきこと
 
-- **`POST /admin/meetings` に `host` を明示指定した場合でも、`Manager.Create` は変わらず GameServer/Secret を
-  作成する。** phase 1 のハンドラ実装(`internal/api/meetings.go`)は host の有無に関わらず常に
-  `Provisioner.Create` を呼んでおり、phase 2 ではこのハンドラを変更していないため、`host` 指定は
-  「concierge 管理外の接続先を上書きする」という意味には *ならない*。外部で手動運用しているサーバーを
-  登録する用途には(従来どおり)静的 `Servers[]` を使うこと。この挙動は既存仕様(ハンドラの呼び出し順序)を
-  そのまま維持したものであり、phase 2 で新たに導入したものではない。
+- **(phase 3 で修正済み)`POST /admin/meetings` は `host` を明示指定した場合、`Provisioner.Create` を呼ばない。**
+  phase 1/2 のハンドラ実装(`internal/api/meetings.go`)は host の有無に関わらず常に `Provisioner.Create` を
+  呼んでいたが、これは design.md §4.2 の「concierge 管理の部屋の場合」という前提と食い違っていた(外部で
+  手動運用しているサーバーを `host` 指定で登録したつもりが、意図せず GameServer/Secret も作られてしまう)。
+  phase 3 でこれを修正し、`host` が空の場合のみ concierge 管理の部屋として扱い `Provisioner.Create` を呼ぶ。
+  `host` を指定した場合は C# broker と同じく即座に `"ready"` になり、GameServer/Secret は一切作成しない。
+  この区別を永続化するため `controlplane.MeetingRecord` に `Managed bool`(JSON キー `Managed`,
+  `omitempty`)を追加した。既存の `control-plane.json` にこのキーが無いレコードは `Managed=false`
+  (=外部運用)として読み込まれる ── そもそも phase 2 以前は concierge が実際に Agones へ何かを作ったことは
+  なかったため、この解釈で後方互換が保たれる。`DELETE /admin/meetings/{id}` は `Managed=true` のレコードに
+  対してのみ `Provisioner.Delete` を呼ぶ。`Manager.Reconcile`(§9.5)も同様に、`Managed=false` のレコードは
+  GameServer が無くても `"failed"` にしない(元々存在しないはずなので)。外部で手動運用しているサーバーを
+  登録する用途には引き続き静的 `Servers[]`、または `host` を明示した `POST /admin/meetings` のどちらも使える。
 - **Agones バージョン:** `go.mod` は `agones.dev/agones v1.60.0` を要求する(`k8s.io/api`・
   `k8s.io/apimachinery`・`k8s.io/client-go` は `v0.36.4`)。minikube 環境には対応する Agones リリースを
   インストールすること。

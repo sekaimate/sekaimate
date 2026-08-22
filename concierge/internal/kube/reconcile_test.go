@@ -21,7 +21,7 @@ func seedGameServer(t *testing.T, m *Manager, id string) {
 // decision 2 (Kubernetes is the source of truth).
 func TestReconcile_MarksMissingGameServerFailed(t *testing.T) {
 	meetings := newTestStore(t)
-	if err := meetings.Add(controlplane.MeetingRecord{Id: "orphan-record", Title: "Orphan", Status: "ready", Host: "1.2.3.4", Port: 4296}); err != nil {
+	if err := meetings.Add(controlplane.MeetingRecord{Id: "orphan-record", Title: "Orphan", Status: "ready", Host: "1.2.3.4", Port: 4296, Managed: true}); err != nil {
 		t.Fatalf("seed meeting: %v", err)
 	}
 	m, _, _ := newTestManager(t, meetings, ManagerConfig{})
@@ -36,11 +36,32 @@ func TestReconcile_MarksMissingGameServerFailed(t *testing.T) {
 	}
 }
 
+// TestReconcile_IgnoresUnmanagedMeetingWithoutGameServer checks that a
+// MeetingRecord for an externally-run server (Managed=false, an explicit
+// host/port supplied at creation) is never marked failed for lacking a
+// GameServer — it was never expected to have one (design.md §4.2).
+func TestReconcile_IgnoresUnmanagedMeetingWithoutGameServer(t *testing.T) {
+	meetings := newTestStore(t)
+	if err := meetings.Add(controlplane.MeetingRecord{Id: "external-record", Title: "External", Status: "ready", Host: "1.2.3.4", Port: 4296, Managed: false}); err != nil {
+		t.Fatalf("seed meeting: %v", err)
+	}
+	m, _, _ := newTestManager(t, meetings, ManagerConfig{})
+
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	rec, ok := meetings.Find("external-record")
+	if !ok || rec.Status != "ready" {
+		t.Fatalf("record status = %+v, want unchanged ready", rec)
+	}
+}
+
 // TestReconcile_LeavesMatchedMeetingAlone checks a MeetingRecord backed by
 // an existing GameServer is left untouched.
 func TestReconcile_LeavesMatchedMeetingAlone(t *testing.T) {
 	meetings := newTestStore(t)
-	if err := meetings.Add(controlplane.MeetingRecord{Id: "matched", Title: "Matched", Status: "ready", Host: "1.2.3.4", Port: 4296}); err != nil {
+	if err := meetings.Add(controlplane.MeetingRecord{Id: "matched", Title: "Matched", Status: "ready", Host: "1.2.3.4", Port: 4296, Managed: true}); err != nil {
 		t.Fatalf("seed meeting: %v", err)
 	}
 	m, _, _ := newTestManager(t, meetings, ManagerConfig{})

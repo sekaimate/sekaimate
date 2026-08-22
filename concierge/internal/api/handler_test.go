@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -256,6 +257,125 @@ func TestCreateMeeting_FullFlow(t *testing.T) {
 	rec = doRequest(t, mux, http.MethodDelete, "/admin/meetings/"+view.Id, nil, nil)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("second delete: status = %d, want 404", rec.Code)
+	}
+}
+
+// countingProvisioner is a kube.RoomProvisioner test double that records how
+// many times Create/Delete were called and with which meeting ids, so tests
+// can assert provisioning was (or was not) attempted.
+type countingProvisioner struct {
+	createIDs []string
+	deleteIDs []string
+	createErr error
+}
+
+func (p *countingProvisioner) Create(_ context.Context, meetingID string, _ kube.RoomKeys) error {
+	p.createIDs = append(p.createIDs, meetingID)
+	return p.createErr
+}
+
+func (p *countingProvisioner) Delete(_ context.Context, meetingID string) error {
+	p.deleteIDs = append(p.deleteIDs, meetingID)
+	return nil
+}
+
+// TestCreateMeeting_ExplicitHost_SkipsProvisioning checks that supplying an
+// explicit host at creation time (an externally-run server, per design.md
+// §4.2) does not call RoomProvisioner.Create and the meeting is immediately
+// "ready", matching the C# broker's semantics for statically-hosted rooms.
+func TestCreateMeeting_ExplicitHost_SkipsProvisioning(t *testing.T) {
+	t.Setenv("BASIS_CONTROL_PLANE_ALLOW_MANUAL_MEETINGS", "true")
+	deps := newTestDepsAdminBypassed(t)
+	if ok, msg := deps.Config.SetOrganization(config.OrganizationConfig{
+		Providers: []config.ProviderConfig{{Id: "p", Issuer: "https://issuer.example", Audience: "aud", JwksUri: "https://issuer.example/jwks"}},
+	}); !ok {
+		t.Fatalf("SetOrganization: %s", msg)
+	}
+	provisioner := &countingProvisioner{}
+	deps.Provisioner = provisioner
+	mux := NewMux(deps)
+
+	host := "game.example.com"
+	rec := doRequest(t, mux, http.MethodPost, "/admin/meetings", CreateMeetingRequest{Title: "External Room", Host: &host}, nil)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: status = %d, want 201, body=%s", rec.Code, rec.Body.String())
+	}
+	var view MeetingView
+	if err := json.Unmarshal(rec.Body.Bytes(), &view); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if view.Status != "ready" {
+		t.Errorf("status = %q, want ready", view.Status)
+	}
+	if view.Host != host {
+		t.Errorf("host = %q, want %q", view.Host, host)
+	}
+	if len(provisioner.createIDs) != 0 {
+		t.Errorf("Provisioner.Create called %d times, want 0 for an explicit-host meeting", len(provisioner.createIDs))
+	}
+
+	stored, ok := deps.Meetings.Find(view.Id)
+	if !ok {
+		t.Fatalf("meeting %s not found in store", view.Id)
+	}
+	if stored.Managed {
+		t.Errorf("stored meeting Managed = true, want false for an explicit-host meeting")
+	}
+
+	// Delete must not call Provisioner.Delete for an unmanaged meeting.
+	rec = doRequest(t, mux, http.MethodDelete, "/admin/meetings/"+view.Id, nil, nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete: status = %d, want 204, body=%s", rec.Code, rec.Body.String())
+	}
+	if len(provisioner.deleteIDs) != 0 {
+		t.Errorf("Provisioner.Delete called %d times, want 0 for an explicit-host meeting", len(provisioner.deleteIDs))
+	}
+}
+
+// TestCreateMeeting_NoHost_ProvisionsAndDeletes checks that omitting host
+// (concierge-managed room) calls RoomProvisioner.Create at creation and
+// RoomProvisioner.Delete at deletion, and that the stored record is Managed.
+func TestCreateMeeting_NoHost_ProvisionsAndDeletes(t *testing.T) {
+	t.Setenv("BASIS_CONTROL_PLANE_ALLOW_MANUAL_MEETINGS", "true")
+	deps := newTestDepsAdminBypassed(t)
+	if ok, msg := deps.Config.SetOrganization(config.OrganizationConfig{
+		Providers: []config.ProviderConfig{{Id: "p", Issuer: "https://issuer.example", Audience: "aud", JwksUri: "https://issuer.example/jwks"}},
+	}); !ok {
+		t.Fatalf("SetOrganization: %s", msg)
+	}
+	provisioner := &countingProvisioner{}
+	deps.Provisioner = provisioner
+	mux := NewMux(deps)
+
+	rec := doRequest(t, mux, http.MethodPost, "/admin/meetings", CreateMeetingRequest{Title: "Managed Room"}, nil)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: status = %d, want 201, body=%s", rec.Code, rec.Body.String())
+	}
+	var view MeetingView
+	if err := json.Unmarshal(rec.Body.Bytes(), &view); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if view.Status != "provisioning" {
+		t.Errorf("status = %q, want provisioning", view.Status)
+	}
+	if len(provisioner.createIDs) != 1 || provisioner.createIDs[0] != view.Id {
+		t.Errorf("Provisioner.Create calls = %v, want exactly [%s]", provisioner.createIDs, view.Id)
+	}
+
+	stored, ok := deps.Meetings.Find(view.Id)
+	if !ok {
+		t.Fatalf("meeting %s not found in store", view.Id)
+	}
+	if !stored.Managed {
+		t.Errorf("stored meeting Managed = false, want true for a concierge-provisioned meeting")
+	}
+
+	rec = doRequest(t, mux, http.MethodDelete, "/admin/meetings/"+view.Id, nil, nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete: status = %d, want 204, body=%s", rec.Code, rec.Body.String())
+	}
+	if len(provisioner.deleteIDs) != 1 || provisioner.deleteIDs[0] != view.Id {
+		t.Errorf("Provisioner.Delete calls = %v, want exactly [%s]", provisioner.deleteIDs, view.Id)
 	}
 }
 

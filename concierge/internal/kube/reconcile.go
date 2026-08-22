@@ -21,9 +21,13 @@ const localMeetingID = "local"
 // every GameServer/Secret labeled app=basis-server in the namespace and
 // cross-checks them against m.meetings:
 //
-//   - A MeetingRecord (other than the "local" bootstrap meeting) with no
-//     matching GameServer is marked "failed" — its backing compute is gone,
-//     so the stale record must not keep advertising itself as usable.
+//   - A MeetingRecord (other than the "local" bootstrap meeting) that is
+//     Managed (i.e. concierge itself provisioned it via RoomProvisioner.
+//     Create) with no matching GameServer is marked "failed" — its backing
+//     compute is gone, so the stale record must not keep advertising itself
+//     as usable. Unmanaged meetings (explicit host/port supplied at
+//     creation, an externally-run server) never have a GameServer by design
+//     and are skipped.
 //   - A GameServer or Secret with no matching MeetingRecord is logged as
 //     orphaned. It is intentionally NOT deleted: Reconcile only detects and
 //     reports inconsistency, it does not attempt destructive cleanup of
@@ -60,7 +64,7 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 	recordIDs := make(map[string]bool)
 	for _, rec := range m.meetings.List() {
 		recordIDs[rec.Id] = true
-		if rec.Id == localMeetingID {
+		if rec.Id == localMeetingID || !rec.Managed {
 			continue
 		}
 		if !gameServerIDs[rec.Id] {
