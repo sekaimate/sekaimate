@@ -354,21 +354,29 @@ basis-k8s の手法をそのまま踏襲する。`internal/kube` は Agones の�
   部屋の自動アイドル検出・停止、ウォームスタンバイの仕組みは設計しない。会議(部屋)は作成リクエストのたびに
   同期的・個別に 1 つの GameServer として作成される。
 
-## 12. 未確認事項
+## 12. 決定事項
 
-以下は `broker-spec.md`/`basis-k8s-report.md`/現行コードのいずれからも断定できず、実装前にユーザーへ確認するか、
-実装時に別途調査が必要な事項として明示する。
+§12 に記載していた未確認事項は、phase 1 実装(`concierge/`)に着手するにあたり、以下のとおり確定した。
 
-- `local` ブートストラップ会議(`BASIS_MEETING_PUBLIC_HOST`/`SetPort`/`Password` による自動登録)を concierge でも
-  同じ形で維持するか、それとも `Servers[]`/`Organization` の明示設定のみに一本化するかは未確認。既存の Compose
-  デプロイとの後方互換性に関わるため、ユーザーへの確認が必要。
-- `control-plane.json` 相当のファイル永続化と、Kubernetes 上の GameServer/Secret という「実体」との間で、どちらを
-  信頼できるソース(source of truth)とするか(ファイルが真実か、Kubernetes API が真実か、両者をどう整合させるか)は
-  未確認。特に concierge プロセスが再起動した場合に、ファイルの内容と実際に存在する GameServer 群が食い違うケースの
-  扱いを設計時に詰める必要がある。
-- Agones の GameServer 作成から `Ready`(host/port 確定)までの典型的な所要時間、および万一 `Ready` に到達しないまま
-  タイムアウトした場合に concierge がどう振る舞うべきか(エラーとして会議を失敗状態にする、リトライする等)は
-  未確認。basis-k8s 自体もこの点を扱っていない(同期的に作成するのみ)。
-- 既存の `BasisSsoBrokerProcess.cs`(単体 Basis サーバーの子プロセスとして broker を同居起動する方式)を concierge が
-  代替するのか、それとも維持するのかは未確認。concierge は主に Agones 管理下の部屋を想定しているが、単体運用の
-  Basis サーバーが concierge を子プロセスとして同居起動する運用を求められるかどうかは、ユーザーへの確認が必要。
+1. **`local` ブートストラップ会議は現行どおり維持する。** `BASIS_MEETING_PUBLIC_HOST`/`SetPort`/`Password` による
+   自動登録ロジック(`MeetingStore.EnsureSingleComposeMeeting` 相当)を `concierge` の起動シーケンスにそのまま移植する
+   (`cmd/server/main.go` の `bootstrapLocalMeeting`)。既存の Compose デプロイとの後方互換性を優先し、
+   `Servers[]`/`Organization` の明示設定のみへの一本化は行わない。
+2. **source of truth は Kubernetes API とする。** concierge 起動時に Agones `GameServer`/`Secret` と
+   `MeetingRecord`(`control-plane.json`)を突き合わせ、不整合(例: `MeetingRecord` はあるが `GameServer` がない、
+   またはその逆)を検出する処理を phase 2 で実装する。phase 1 には Kubernetes 統合そのものがないため、この整合性
+   チェックは未実装(`internal/kube.RoomProvisioner` はまだ Kubernetes と通信しない)。
+3. **GameServer の `Ready` 待ちはタイムアウト(既定 120 秒、設定可能)で会議を `failed` 状態にし、自動リトライしない。**
+   この挙動も phase 2(実際に GameServer を作成するようになった時点)で実装する。phase 1 は `POST /admin/meetings` が
+   同期的にレスポンスを返す現行 C# broker と同じ動作(host 指定時は即座に `ready`、未指定なら `provisioning` のまま)
+   のままであり、待機・タイムアウトという概念自体がまだ発生しない。
+4. **`BasisSsoBrokerProcess.cs`(単体 Basis サーバーの子プロセス同居起動)は維持し、concierge は代替しない。**
+   concierge は Agones 管理下の部屋運用を主目的とし、単体運用の Basis サーバーが子プロセスとして broker を
+   同居起動する既存の運用パスにはこの設計は関与しない。
+
+### phase 1 のスコープ外(上記の決定を実装するのは phase 2)
+
+- 決定 2(Kubernetes API との整合性チェック)、決定 3(Ready 待ちタイムアウト)は、`internal/kube` に実際の
+  Agones/Kubernetes クライアントが入る phase 2 で実装する。phase 1 の `internal/kube.RoomProvisioner` は
+  `NoopProvisioner` のみを提供し、`POST`/`DELETE /admin/meetings` から呼び出されるが何も行わない
+  (`docs/concierge/implementation.md` 参照)。
