@@ -461,7 +461,7 @@ func TestCreateMeeting_BrowserEndpointsFlowToManifestAndDeepLink(t *testing.T) {
 		t.Fatalf("join url = %q", view.JoinUrl)
 	}
 	page := doRequest(t, mux, http.MethodGet, view.JoinUrl, nil, nil)
-	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "websocketUri") {
+	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "websocketUri") || !strings.Contains(page.Body.String(), "basisdemo://game.example.com:4296") || strings.Contains(page.Body.String(), "ZgotmplZ") {
 		t.Fatalf("join page: status=%d body=%s", page.Code, page.Body.String())
 	}
 }
@@ -499,7 +499,7 @@ func TestJoin_UsesStaticServerBrowserEndpointsForLegacyMeeting(t *testing.T) {
 		t.Fatalf("manifest browser endpoints = %+v", manifest.Connection)
 	}
 	rec = doRequest(t, mux, http.MethodGet, "/join/legacy-invite", nil, nil)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "websocketUri") || !strings.Contains(rec.Body.String(), escapeDataString(ws)) {
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "websocketUri") || !strings.Contains(rec.Body.String(), escapeDataString(ws)) || !strings.Contains(rec.Body.String(), "basisdemo://game.example.com:4296") || strings.Contains(rec.Body.String(), "ZgotmplZ") {
 		t.Fatalf("join page: status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }

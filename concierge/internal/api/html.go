@@ -34,7 +34,7 @@ func renderEnrollLanding(callback string) (string, error) {
 
 type joinPageData struct {
 	Title       string
-	DeepLink    string
+	DeepLink    template.URL
 	LoopbackURL string
 }
 
@@ -51,7 +51,7 @@ var joinPageTemplate = template.Must(template.New("joinPage").Parse(`<!doctype h
 
 func renderJoinPage(title, deepLink, loopbackURL string) (string, error) {
 	var buf bytes.Buffer
-	if err := joinPageTemplate.Execute(&buf, joinPageData{Title: title, DeepLink: deepLink, LoopbackURL: loopbackURL}); err != nil {
+	if err := joinPageTemplate.Execute(&buf, joinPageData{Title: title, DeepLink: template.URL(deepLink), LoopbackURL: loopbackURL}); err != nil {
 		return "", err
 	}
 	return buf.String(), nil
@@ -59,7 +59,7 @@ func renderJoinPage(title, deepLink, loopbackURL string) (string, error) {
 
 type joinOpenPageData struct {
 	Title    string
-	DeepLink string
+	DeepLink template.URL
 }
 
 var joinOpenPageTemplate = template.Must(template.New("joinOpenPage").Parse(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -69,7 +69,7 @@ var joinOpenPageTemplate = template.Must(template.New("joinOpenPage").Parse(`<!d
 
 func renderJoinOpenPage(title, deepLink string) (string, error) {
 	var buf bytes.Buffer
-	if err := joinOpenPageTemplate.Execute(&buf, joinOpenPageData{Title: title, DeepLink: deepLink}); err != nil {
+	if err := joinOpenPageTemplate.Execute(&buf, joinOpenPageData{Title: title, DeepLink: template.URL(deepLink)}); err != nil {
 		return "", err
 	}
 	return buf.String(), nil

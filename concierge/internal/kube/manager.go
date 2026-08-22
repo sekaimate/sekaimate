@@ -156,8 +156,17 @@ func (m *Manager) SetServerRegistry(servers *config.Store) {
 	m.servers = servers
 }
 
-func secretName(meetingID string) string     { return "basis-" + meetingID + "-sso" }
-func gameServerName(meetingID string) string { return "basis-" + meetingID }
+// Kubernetes object names are DNS subdomains, while meeting IDs intentionally
+// retain the broker-compatible '_' character. Use the control-plane's
+// canonical KubernetesName mapping for every object reference so a generated
+// ID can never be rejected by the API server for containing an underscore.
+func secretName(meetingID string) string {
+	return "basis-" + controlplane.KubernetesName(meetingID) + "-sso"
+}
+
+func gameServerName(meetingID string) string {
+	return "basis-" + controlplane.KubernetesName(meetingID)
+}
 
 // Create implements RoomProvisioner. It synchronously creates the Secret and
 // GameServer (rolling back the Secret if the GameServer create fails), then

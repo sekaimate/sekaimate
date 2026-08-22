@@ -454,6 +454,12 @@ listen を必要としない `internal/config`/`internal/kube`/`internal/api` �
   `DateTimeOffset.UtcNow` に設定するため、実機の 201 レスポンスは常に実時刻を持つ。これに合わせ、
   `CreateMeeting` 内で `MeetingRecord` を組み立てる時点で `CreatedAt`/`UpdatedAt` に現在時刻(UTC)を設定するよう
   修正した。`Store.Add` のゼロ値補完自体は他の呼び出し元との互換性のため変更していない。
+- **(phase 3 で修正済み) Kubernetes 名と deep link の実環境差異。** 互換仕様上 `_` を許可する meeting ID の
+  ランダム suffix が Kubernetes の RFC 1123 名を壊さないよう、Agones の Secret/GameServer 名には
+  `controlplane.KubernetesName` を常に適用する。join HTML の `basisdemo://` URL は `html/template` の安全化で
+  `#ZgotmplZ` にならないよう `template.URL` として href と JavaScript fallback に渡す。AdminUi は WebGL 用の
+  `WebSocket URI`/`Server Info URI` 入力、両方指定の検証、`PUT /admin/servers/{id}` での保存、一覧/会議詳細での表示を
+  実装済みで、`validation.test.ts` 4 件と `pnpm build` が成功している。
 - **Agones バージョン:** `go.mod` は `agones.dev/agones v1.60.0` を要求する(`k8s.io/api`・
   `k8s.io/apimachinery`・`k8s.io/client-go` は `v0.36.4`)。minikube 環境には対応する Agones リリースを
   インストールすること。

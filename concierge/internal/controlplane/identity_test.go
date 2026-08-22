@@ -64,6 +64,12 @@ func TestNewID_AlwaysSuffixesRequestedID(t *testing.T) {
 	}
 }
 
+func TestKubernetesName_NormalizesBrokerIDs(t *testing.T) {
+	if got := KubernetesName("WebGL_room_1"); got != "webgl-room-1" {
+		t.Fatalf("KubernetesName = %q, want webgl-room-1", got)
+	}
+}
+
 func TestIsSafeHost(t *testing.T) {
 	cases := map[string]bool{
 		"game.example.com": true,

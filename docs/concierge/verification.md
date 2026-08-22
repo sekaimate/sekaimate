@@ -123,6 +123,7 @@ design.md §10.3 の手順(a〜h)に対応させた。すべて実際の minikub
 | f | k8s 管理の会議を `DELETE` → GameServer + Secret 削除、レジストリからも消える | Pass。`DELETE` は即座に `204` を返す。GameServer は Agones 側の終了処理(`agones-ready` サイドカー等)のため実際に消えるまで数十秒かかるが、最終的に削除される(§4 の f のとおり非同期)。Secret は即時に削除される。 |
 | g | 残った会議の GameServer を `kubectl delete` で直接消し、concierge Pod を再起動 → 起動時に `"failed"` になる | Pass。`kube: reconcile: meeting <id> has no matching GameServer ...; marking failed` のログを確認し、`statusDetail` が `"No matching Kubernetes GameServer was found at startup reconciliation."` になった。同時に存在した `Managed=false`(外部ホスト)の会議は `"ready"` のまま変化しなかった(§3 の修正の副次確認)。 |
 | h | `GAMESERVER_READY_TIMEOUT_SECONDS` を極端に短く(`1`)設定し、Ready 待ちタイムアウトで `"failed"` になる | Pass。ログに `GameServer basis-<id> did not become Ready within 1s; marking failed` が出力され、`statusDetail` も一致した。タイムアウト後に自動リトライしないこと(design.md §12 決定事項 3)も、しばらく監視して確認した。 |
+| i | WebGL 有効化(`BASIS_SERVER_WEBSOCKET_ENABLED=true`)→UDP/TCP named ports→Ready 後の URI 永続化・API/join/deep link | Pass(2026-08-22 再検証)。現行ブランチを `concierge:webgl4` として再ビルドし、`webgl-diag-utpbzji` を作成。GameServer は `game` UDP `7192` と `websocket` TCP `7195`、`WebSocket*` 6 環境変数を持って Ready になり、`GET /admin/meetings`/`/admin/servers`、`/admin/client-config-template/{id}`、`/join/{token}/manifest`/`config` の全てに `wss://192.168.49.2:7195/basis` と `https://192.168.49.2:7195/server-info` が反映された。`join/{token}/open` の deep link にも `websocketUri` が含まれることを確認した。 |
 
 `h` は当初「存在しないイメージを指定する」方法で試したが、`agones-ready` サイドカー(`curlimages/curl`)は
 `basis-server` コンテナの状態と無関係に自分自身の `POST /ready` を成功させるため、`basis-server` が
@@ -156,6 +157,12 @@ design.md §10.3 の手順(a〜h)に対応させた。すべて実際の minikub
    `config.ServerConfig` に `FromMeeting bool` を追加し、`CreateMeeting` が作る Servers[] エントリにのみ立てる
    ようにしたうえで、`checkNoStaticMeetingIDCollision` は `FromMeeting` が立っているエントリとの衝突を
    無視するよう修正した(運用者が手で `appsettings.json` に書いた静的エントリとの本物の衝突は引き続き検出する)。
+4. **生成された meeting ID の `_` が Kubernetes 名として不正だった。** ID の互換仕様は `_` を許可しているが、
+   `NewID` のランダム suffix に `_` が出ると `basis-<id>` の Secret/GameServer 作成が RFC 1123 違反で拒否され、
+   API は `500 failed to provision meeting` になった。`controlplane.KubernetesName` を Secret/GameServer の全ての
+   オブジェクト参照に適用して解消した(会議 ID 自体と admission のキーは元の値を保持する)。
+5. **`basisdemo://` deep link が `html/template` の URL サニタイズで `#ZgotmplZ` になっていた。** WebGL URI を含む
+   join deep link の実環境確認で発見し、生成値を `template.URL` として href/JavaScript fallback に渡すよう修正した。
 
 ## 6. basis-server スタブによる代替と、その限界
 
@@ -199,10 +206,10 @@ kubectl delete -f concierge/deploy/00-namespace.yaml   # 上と同義
 ## 8. 未検証の項目
 
 - 実際の Basis Server イメージによる SSO 事前認証ハンドシェイク・UDP ゲームプロトコルの疎通(§6)。
-- `feature/web-support` の WebGL 実機疎通(WebSocket と server-info HTTP)。今回の concierge 実装では、WebGL を
-  `BASIS_SERVER_WEBSOCKET_ENABLED=true` で明示的に有効化した場合のみ Agones の `websocket` TCP named port と
-  `WebSocket*` 環境変数を追加し、外部 URI は templates または meeting の `WebSocketUri`/`ServerInfoUri` からのみ
-  決定する。TLS 終端、Ingress、証明書、Origin 許可は運用環境の明示構成が必要で、minikube の既存検証では未確認である。
+- `feature/web-support` の実 Basis Server による WebSocket handshake と server-info HTTP 応答。今回の minikube 検証は
+  UDP echo の `basis-server-stub` を使用したため、concierge が作る TCP named port、環境変数、URI 伝播までは確認したが、
+  実際の listener/handshake/Server Info payload/CORS 応答は未確認である。TLS 終端、Ingress、証明書、Origin 許可は
+  運用環境の明示構成が必要。
 - 実際の OIDC プロバイダ(Google/Auth0 等)に対する `POST /admission/{serverId}` の入場審査
   (`appsettings.json` はダミーの `Issuer`/`JwksUri` を使用しており、JWKS 取得も ID トークン検証も行っていない)。
 - 複数ノードクラスタでの Agones GameServer スケジューリング(minikube は単一ノード)。

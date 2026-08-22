@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -189,6 +190,7 @@ func (a *serverAPI) CreateMeeting(w http.ResponseWriter, r *http.Request) {
 			WebSocketUri:        webSocketURI,
 			ServerInfoUri:       serverInfoURI,
 		}); err != nil {
+			log.Printf("api: provision meeting %s: %v", id, err)
 			_, _ = a.deps.Meetings.Delete(id)
 			_ = a.deps.Config.RemoveServer(id)
 			writeError(w, http.StatusInternalServerError, "failed to provision meeting")
