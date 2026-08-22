@@ -1,16 +1,16 @@
-# concierge phase 1 実装ドキュメント
+# concierge 実装ドキュメント
 
 最終更新: 2026-08-22
 
-`concierge/` に実装した phase 1(Kubernetes 統合を含まない、ワイヤ互換の Go 版 Basis SSO Broker)の内容をまとめる。
-設計判断の根拠は `design.md`、互換性要件の出典は `research-sso-broker.md` と `Basis/Tools/BasisSsoBroker/` の C# 実装
-そのものを参照。
+`concierge/` の実装内容をまとめる。§1〜§8 は phase 1(Kubernetes 統合を含まない、ワイヤ互換の Go 版 Basis SSO
+Broker)の内容、§9 は phase 2(Agones/Kubernetes 統合)の内容。設計判断の根拠は `design.md`、互換性要件の出典は
+`research-sso-broker.md` と `Basis/Tools/BasisSsoBroker/` の C# 実装そのものを参照。
 
 ## 1. パッケージ構成
 
 ```
 concierge/
-├── go.mod, go.sum          module github.com/sekaimate/sekaimate/concierge, go 1.26.3
+├── go.mod, go.sum          module github.com/sekaimate/sekaimate/concierge, go 1.26.5(agones.dev/agones の要求により phase 2 で 1.26.3 から引き上げ)
 ├── api/
 │   └── openapi.yaml         公開/管理 API 全エンドポイントの単一の情報源
 └── internal/
@@ -25,8 +25,11 @@ concierge/
     │   ├── enrollment.go       EnrollmentStore(インメモリ、10 分 TTL、単発使用)
     │   ├── identity.go         NewID/IsValidID/RandomToken/IsSafeHost 等
     │   └── keys.go             GenerateMeetingKeys(X25519 + 48 バイト HMAC 鍵)
-    ├── kube/                phase 2 が実装する RoomProvisioner のインターフェースのみ(§4 参照)
-    │   └── provisioner.go
+    ├── kube/                RoomProvisioner とその Agones 実装(§4, §9 参照)
+    │   ├── provisioner.go      RoomProvisioner インターフェース、NoopProvisioner
+    │   ├── manager.go          Manager(Agones GameServer + Secret のプロビジョニング、§9.2/§9.3)
+    │   ├── reconcile.go        Manager.Reconcile(起動時整合性チェック、§9.5)
+    │   └── config.go           ResolveRESTConfig(kubeconfig 解決、§9.7)
     ├── adminui/             AdminUi 静的配信 + /api/* パススルー(§5 参照)
     │   └── adminui.go
     └── api/                 oapi-codegen 生成コード(server.gen.go)+ ハンドラ実装
@@ -144,7 +147,7 @@ phase 2 で Agones 対応の `Manager` を実装する際は、`RoomProvisioner`
 | `ADMIN_UI_DIR` | (未設定 = `/admin/` は 404) | ビルド済み AdminUi 静的アセットのディレクトリ(§5 参照、新規)。 |
 | `LISTEN_ADDR` | `:5080` | バインドアドレス(新規、basis-k8s の慣例に合わせた)。 |
 | `ASPNETCORE_URLS` | — | `LISTEN_ADDR` 未設定時のフォールバックとして 1 つ目の URL のホスト:ポートを解釈する(既存デプロイからの移行を容易にするための任意対応、新規)。 |
-| `KUBECONFIG` / `NAMESPACE` | — | phase 1 では未使用(Kubernetes 統合なし)。phase 2 で basis-k8s と同じ解決順序を導入予定。 |
+| `KUBECONFIG` / `NAMESPACE` | — / `basis` | phase 2 で有効化(§9.7)。basis-k8s と同じ解決順序(in-cluster → `$KUBECONFIG` → `$HOME/.kube/config`)。Kubernetes 設定が見つからない場合は `NoopProvisioner` にフォールバックし、phase 1 と同じ挙動になる。他の Kubernetes 関連の環境変数(`BASIS_SERVER_IMAGE` 等)は §9.7 を参照。 |
 
 `appsettings.json` の `Broker` セクション、`BrokerServerOptions`(`Servers[]` の各要素)、`ProviderOptions` の
 フィールド名は現行 C# broker と同じ PascalCase を維持している(`internal/config/config.go` の struct タグ参照)。
@@ -177,7 +180,10 @@ phase 2 で Agones 対応の `Manager` を実装する際は、`RoomProvisioner`
   安全性チェックであり、クライアント/サーバー間のワイヤ互換性チェックリスト(`research-sso-broker.md` §7)には
   含まれない。
 
-## 8. phase 2 が把握しておくべきこと
+## 8. phase 2 が把握しておくべきこと(phase 1 完了時点の申し送り)
+
+この節は phase 1 完了時点で書かれた申し送り事項であり、当時の未実装状態をそのまま記録している。実際に
+phase 2 で何を実装したか(この節で「未実装」としていた項目がどう解消されたかを含む)は §9 を参照。
 
 - **Kubernetes/Agones 統合は一切ない。** `internal/kube` には `RoomProvisioner` インターフェースと `NoopProvisioner`
   のみが存在する。`KUBECONFIG`/`NAMESPACE` の解決、GameServer/Secret の作成・削除、basis-k8s の `internal/kube.Manager`
@@ -197,3 +203,176 @@ phase 2 で Agones 対応の `Manager` を実装する際は、`RoomProvisioner`
 - **`AdminUi` の `Authorization` ヘッダー未送信問題は解消していない。** `research-sso-broker.md` §4.3/§8-3 で
   指摘されている既知の問題で、AdminUi 自体のコード改修が必要なため、concierge の実装スコープからは意図的に
   切り離している(`design.md` §9 の記載どおり)。
+
+## 9. phase 2: Kubernetes/Agones 統合
+
+phase 1 で `internal/kube.RoomProvisioner`/`NoopProvisioner` のみだった `internal/kube` に、Agones バックエンドの
+実装(`Manager`)を追加した。`internal/api` のハンドラ(`meetings.go` の `CreateMeeting`/`DeleteMeeting`)は変更して
+いない — `RoomProvisioner` インターフェース(`Create`/`Delete` のシグネチャ)は phase 1 のまま。
+
+### 9.1 追加したファイル
+
+```
+concierge/
+├── Dockerfile                      2 段階ビルド(golang:1.26.5 → gcr.io/distroless/static:nonroot)
+├── deploy/
+│   ├── 00-namespace.yaml            Namespace basis
+│   ├── 10-rbac.yaml                 ServiceAccount/Role/RoleBinding concierge
+│   ├── 20-deployment.yaml           Deployment concierge + PersistentVolumeClaim concierge-data
+│   └── 30-service.yaml              Service concierge(ClusterIP)
+├── cmd/server/main.go               checkNoStaticMeetingIDCollision, buildProvisioner を追加(既存関数は変更なし)
+└── internal/kube/
+    ├── manager.go                   Manager(RoomProvisioner の Agones 実装)
+    ├── manager_test.go
+    ├── reconcile.go                 Manager.Reconcile(起動時整合性チェック)
+    ├── reconcile_test.go
+    └── config.go                    ResolveRESTConfig(kubeconfig 解決)
+```
+
+### 9.2 `internal/kube.Manager`(`RoomProvisioner` の Agones 実装)
+
+`Manager.Create(ctx, meetingID, keys)` は次を **同期的に** 行う(`design.md` §4.2 のステップ 3〜5 に対応)。
+
+1. Secret `basis-<meetingId>-sso` を作成する。データキーは Basis `Configuration` のフィールド名そのもの
+   (`SsoAdmissionTicketSigningKey`/`SsoTransportPrivateKey`/`SsoTransportPublicKey`)。`envFrom.secretRef` で
+   参照すると、各キーが同名の環境変数としてコンテナに公開される(`design.md` §5.1 の設計どおり)。
+2. GameServer `basis-<meetingId>` を作成する。`basis-server` コンテナに上記 Secret を `envFrom` で注入したうえで、
+   個別の環境変数として `RequireSso=true`・`AutoStartSsoBroker=false`・`SetPort=<ContainerPort>` を設定する
+   (`SetPort` は design.md に明記された 3 変数には含まれないが、GameServer の `ContainerPort` と実際にコンテナが
+   listen するポートが食い違わないようにするための追加。`BASIS_SERVER_PORT` でデフォルト 4296 以外に変更した場合も
+   自動的に一致する)。
+3. GameServer の作成に失敗した場合、直前に作成した Secret を削除してロールバックする(孤立 Secret を残さない)。
+4. `agones-ready` サイドカー(`curlimages/curl:latest`)を basis-k8s と同一のスクリプトで注入する。Basis Server は
+   Agones SDK を自前で統合していないため、このサイドカーがローカルの Agones SDK HTTP ゲートウェイ(`:9358`)に対して
+   `POST /ready` を成功するまでリトライし、以後 2 秒おきに `POST /health` を送り続けることで GameServer の Ready 化と
+   ヘルスチェックを代行する。
+
+GameServer/Secret のラベルは basis-k8s と同じ形(`app=basis-server`, `instance=<meetingId>`)。
+
+`RoomKeys`(`internal/kube/provisioner.go` で定義済み)のフィールドと Secret データキーの対応は次のとおり。
+
+| `RoomKeys` フィールド | Secret データキー = コンテナ環境変数名 |
+|---|---|
+| `TicketSigningKey` | `SsoAdmissionTicketSigningKey` |
+| `TransportPrivateKey` | `SsoTransportPrivateKey` |
+| `TransportPublicKey` | `SsoTransportPublicKey` |
+
+### 9.3 Ready 待ち(非同期)
+
+`design.md` §4.2 は「Secret/GameServer 作成」を同期ステップ、その後の「Ready になるまでポーリングして
+`MeetingRecord` を更新する」を非同期ステップとして分けている。`RoomProvisioner` インターフェース
+(`Create(ctx, meetingID, keys) error`)を変更せずにこれを実現するため、`Manager.Create` は Secret/GameServer 作成に
+成功した直後、`NewManager` に渡された `*controlplane.Store` が非 nil であればバックグラウンド goroutine
+(`watchReady`)を起動して即座に return する。`internal/api` 側は今までどおり `Create` の戻り値(エラーの有無)だけを
+見て 201/500 を返し、以後の状態遷移には関与しない。
+
+`watchReady` は `cfg.PollInterval`(既定 2 秒)ごとに GameServer を `Get` し、`Status.State == Ready` かつ
+`Status.Address`/`Status.Ports` が確定した時点で `meetings.UpdateStatus(id, "ready", ..., address, port)` を呼ぶ。
+`cfg.ReadyTimeout`(既定 120 秒、`GAMESERVER_READY_TIMEOUT_SECONDS` で変更可)を超えても Ready にならなければ
+`meetings.UpdateStatus(id, "failed", ..., "", 0)` を呼んで終了する(`design.md` §12 決定事項 3 のとおり、自動リトライ
+はしない)。GameServer が待機中に削除された場合(`NotFound`)は何も更新せず終了する。
+
+### 9.4 削除フロー
+
+`Manager.Delete(ctx, meetingID)` は GameServer → Secret の順で削除する。どちらも `apierrors.IsNotFound` で
+「すでに存在しない」を許容し、その場合はエラーを返さない(`RoomProvisioner` のドキュメントコメントが要求する
+「未知の meetingID に対する Delete は no-op 成功」という契約を満たす。`internal/api` の作成ロールバック経路が
+これに依存している)。
+
+### 9.5 起動時整合性チェック(`Manager.Reconcile`)
+
+`design.md` §12 決定事項 2 のとおり、Kubernetes を concierge 管理下の会議に関する source of truth として扱う。
+`cmd/server/main.go` の `buildProvisioner` が Kubernetes 統合を有効化した場合、`Manager` 構築直後に一度
+`Reconcile(ctx)` を呼ぶ。
+
+- ラベル `app=basis-server` を持つ GameServer/Secret を一覧し、`instance` ラベルから会議 id の集合を作る。
+- `controlplane.Store` の全 `MeetingRecord` のうち、id が `"local"`(Compose ブートストラップ会議。`Manager.Create`
+  を一度も経由しないため対象外)以外で、対応する GameServer が見つからないものは
+  `UpdateStatus(id, "failed", ...)` で failed にする。
+- 対応する `MeetingRecord` がない GameServer/Secret は「孤立」としてログ出力するのみで、**削除はしない**
+  (どういう経緯で孤立したか分からないリソースを推測で消さないため)。
+
+`Reconcile` の失敗(一覧取得エラー等)は `main` では致命的エラーにせず、ログに warning を出して起動を継続する
+(RBAC の一時的な不整合等でサーバー全体が起動不能になるのを避けるため)。
+
+### 9.6 起動時 id 重複チェック(`cmd/server/main.go`)
+
+implementation.md phase 1 の §8 で「未実装」としていた、静的 `Servers[]` と `control-plane.json` の起動時 id 重複
+チェック(`design.md` §4.1)を `checkNoStaticMeetingIDCollision` として実装した。`"local"` は
+`bootstrapLocalMeeting` が意図的に両方に同じ id で登録する唯一の例外(`design.md` §12 決定事項 1)なので、
+チェック対象から除外する。それ以外で id が両方に存在すれば `log.Fatalf` で起動を拒否する。
+
+### 9.7 Kubernetes 統合の有効化条件と環境変数
+
+`cmd/server/main.go` の `buildProvisioner` は `kube.ResolveRESTConfig()`(in-cluster → `$KUBECONFIG` →
+`$HOME/.kube/config` の順、basis-k8s と同じ解決順序)で Kubernetes 設定が見つかった場合にのみ `Manager` を構築する。
+見つからない場合は `NoopProvisioner` にフォールバックし、phase 1 と完全に同じ挙動になる(kubeconfig ファイルが
+存在するのに `clientcmd.BuildConfigFromFlags` がパースに失敗した場合のみ起動時エラーとして扱う)。
+
+| 環境変数 | 既定値 | 説明 |
+|---|---|---|
+| `KUBECONFIG` | (未設定なら `$HOME/.kube/config`) | kubeconfig ファイルのパス。in-cluster config が取得できない場合のフォールバック。 |
+| `NAMESPACE` | `basis` | GameServer/Secret を作成する Kubernetes 名前空間。basis-k8s と同じ既定値。 |
+| `BASIS_SERVER_IMAGE` | `basis-server:latest` | GameServer の `basis-server` コンテナイメージ。 |
+| `BASIS_SERVER_PORT` | `4296` | GameServer が要求する Dynamic UDP ポート(`ContainerPort`)。同じ値が `SetPort` としてコンテナにも注入される。 |
+| `GAMESERVER_READY_TIMEOUT_SECONDS` | `120` | `watchReady` が Ready を待つ上限秒数。超過すると会議は `failed` になり、自動リトライしない(`design.md` §12 決定事項 3)。 |
+
+### 9.8 `Dockerfile`/`deploy/` の使い方
+
+`deploy/` は `design.md` §3 のツリーどおり 4 ファイル構成(`00-namespace.yaml`/`10-rbac.yaml`/
+`20-deployment.yaml`/`30-service.yaml`)。適用前に、コミットしていない 2 つの Secret を作成する必要がある
+(`20-deployment.yaml` の先頭コメントにも同じ手順を記載)。
+
+```sh
+kubectl create secret generic concierge-config -n basis \
+  --from-file=appsettings.json=./appsettings.json
+kubectl create secret generic concierge-admin -n basis \
+  --from-literal=token="$(openssl rand -base64 32)"
+kubectl apply -f deploy/
+```
+
+- `appsettings.json` の `Broker.AdminTokenEnvironmentVariable` は `"BASIS_SSO_ADMIN_TOKEN"` にしておくこと
+  (`20-deployment.yaml` がその名前の環境変数を `concierge-admin` Secret の `token` キーから注入する)。
+- `control-plane.json`(会議のパスワード・鍵・招待トークンを含む実行時状態)は Secret ではなく
+  `20-deployment.yaml` にバンドルした `PersistentVolumeClaim`(`concierge-data`、`/data` にマウント)に置く。
+  basis-k8s と異なり concierge はローカル状態を持つため、Pod 再起動をまたいで残す必要がある。
+- RBAC(`10-rbac.yaml`)は namespace スコープの `get`/`list`/`create`/`delete` のみを `agones.dev/gameservers` と
+  `secrets` に付与する。`update`/`patch` は付与していない — `Manager` は作成済みの GameServer/Secret を書き換える
+  ことがない(鍵のローテーションは新しい会議を作り直す形になる)ため。
+- `30-service.yaml` は basis-k8s の `LoadBalancer`+MetalLB とは異なり `ClusterIP`。concierge は公開の
+  admission/enroll/join エンドポイントも兼ねるため、TLS 終端を行う既存のリバースプロキシ/Ingress の背後に置く
+  (`design.md` §9 の前提どおり)。
+
+### 9.9 テスト
+
+`internal/kube` は basis-k8s と同じ手法(`agones.dev/agones/pkg/client/clientset/versioned/fake` +
+`k8s.io/client-go/kubernetes/fake`、stdlib `testing` のみ、モックフレームワーク不使用)で次をカバーする。
+
+- `manager_test.go`: Secret/GameServer の作成内容(ラベル・`envFrom`・env・sidecar)、カスタム
+  image/port、GameServer 作成失敗時の Secret ロールバック、削除(正常系・すでに存在しない場合の許容)、
+  Ready 待ちの成功(`Status` を手動で更新して `MeetingRecord` が `ready`+host/port になることを確認)と
+  タイムアウト(短い `ReadyTimeout` で `failed` になることを確認)。
+- `reconcile_test.go`: GameServer が無い `MeetingRecord` が `failed` になること、対応する GameServer がある
+  会議は変更されないこと、`"local"` 会議が対象外であること、孤立した GameServer/Secret が削除されずログのみに
+  なること、`meetings` が nil の `Manager` で `Reconcile` がエラーを返すこと。
+- `cmd/server/main_test.go`: `checkNoStaticMeetingIDCollision` の衝突検出・`"local"` 例外・非衝突ケース。
+
+`go build ./...`・`go test ./...`・`go vet ./...`・`gofmt -l .` はすべてクリーン。
+
+### 9.10 既知の注記・phase 3(minikube 検証)が把握しておくべきこと
+
+- **`POST /admin/meetings` に `host` を明示指定した場合でも、`Manager.Create` は変わらず GameServer/Secret を
+  作成する。** phase 1 のハンドラ実装(`internal/api/meetings.go`)は host の有無に関わらず常に
+  `Provisioner.Create` を呼んでおり、phase 2 ではこのハンドラを変更していないため、`host` 指定は
+  「concierge 管理外の接続先を上書きする」という意味には *ならない*。外部で手動運用しているサーバーを
+  登録する用途には(従来どおり)静的 `Servers[]` を使うこと。この挙動は既存仕様(ハンドラの呼び出し順序)を
+  そのまま維持したものであり、phase 2 で新たに導入したものではない。
+- **Agones バージョン:** `go.mod` は `agones.dev/agones v1.60.0` を要求する(`k8s.io/api`・
+  `k8s.io/apimachinery`・`k8s.io/client-go` は `v0.36.4`)。minikube 環境には対応する Agones リリースを
+  インストールすること。
+- **`basis-server` コンテナイメージ:** 既定は `basis-server:latest`(`BASIS_SERVER_IMAGE` で上書き可)。
+  Basis Server 本体が `RequireSso`/`AutoStartSsoBroker`/`SsoTransportPrivateKey` 等の環境変数オーバーライドに
+  対応している必要がある(`BasisServerConfiguration.cs:249-302` で確認済み)。
+- **`agones-ready` サイドカー:** GameServer は Agones SDK を自前で呼ばないため、`curlimages/curl:latest`
+  サイドカーが `localhost:9358` の SDK HTTP ゲートウェイに対して ready/health を代行する。minikube 側で
+  Agones SDK サイドカー注入(`agones.dev/sdk` の自動注入)が有効になっていることを前提とする。
