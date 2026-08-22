@@ -29,6 +29,20 @@ export type Meeting = {
   updatedAt: string;
   joinUrl: string;
   invitationReady: boolean;
+  webSocketUri?: string;
+  serverInfoUri?: string;
+};
+
+export type Server = {
+  id: string;
+  ticketSigningKeyEnvironmentVariable?: string;
+  transportPublicKeyEnvironmentVariable?: string;
+  providers: Provider[];
+  ready: boolean;
+  hasTicketSigningKey: boolean;
+  hasTransportPublicKey: boolean;
+  webSocketUri?: string;
+  serverInfoUri?: string;
 };
 
 export class ControlPlaneApi {
@@ -56,9 +70,28 @@ export class ControlPlaneApi {
   }
 
   listMeetings() { return this.request<Meeting[]>("/admin/meetings"); }
+  listServers() { return this.request<Server[]>("/admin/servers"); }
+  saveServer(server: Server) {
+    return this.request<void>(`/admin/servers/${encodeURIComponent(server.id)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: server.id,
+        ticketSigningKeyEnvironmentVariable: server.ticketSigningKeyEnvironmentVariable,
+        transportPublicKeyEnvironmentVariable: server.transportPublicKeyEnvironmentVariable,
+        providers: server.providers,
+        webSocketUri: server.webSocketUri ?? "",
+        serverInfoUri: server.serverInfoUri ?? "",
+      }),
+    });
+  }
   organization() { return this.request<Organization>("/admin/organization"); }
   saveOrganization(organization: Organization) {
     return this.request<void>("/admin/organization", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(organization) });
   }
   issueInvitation(meetingId: string) { return this.request<{ url: string; meetingId: string }>(`/admin/meetings/${encodeURIComponent(meetingId)}/invitations`, { method: "POST" }); }
+  issueEnrollment(serverId: string) {
+    return this.request<{ url: string; expiresInSeconds: number }>(`/admin/enrollment/${encodeURIComponent(serverId)}`,
+      { method: "POST", body: "" });
+  }
 }

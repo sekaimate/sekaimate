@@ -18,7 +18,8 @@ import Table from "@cloudscape-design/components/table";
 import TopNavigation from "@cloudscape-design/components/top-navigation";
 import Toggle from "@cloudscape-design/components/toggle";
 import { createRoot } from "react-dom/client";
-import { ControlPlaneApi, Meeting, Organization, Provider } from "./api";
+import { ControlPlaneApi, Meeting, Organization, Provider, Server } from "./api";
+import { validateBrowserEndpoints } from "./validation";
 import "./styles.css";
 
 type Notice = { type: "success" | "error"; text: string } | null;
@@ -566,6 +567,16 @@ function Meetings({
               cell: (meeting) => `${meeting.host}:${meeting.port}`,
             },
             {
+              id: "browser-endpoints",
+              header: "WebGL 接続先",
+              cell: (meeting) => (
+                <SpaceBetween size="xxs">
+                  <Box variant="small">WebSocket: {meeting.webSocketUri ?? "未設定"}</Box>
+                  <Box variant="small">Server Info: {meeting.serverInfoUri ?? "未設定"}</Box>
+                </SpaceBetween>
+              ),
+            },
+            {
               id: "actions",
               header: "",
               cell: (meeting) => (
@@ -618,6 +629,9 @@ function Meetings({
                   <Button onClick={() => navigate("/organization")}>
                     組織のログイン設定
                   </Button>
+                  <Button onClick={() => navigate("/servers")}>
+                    サーバー設定
+                  </Button>
                 </SpaceBetween>
               }
             >
@@ -625,6 +639,104 @@ function Meetings({
             </Header>
           }
         />
+      </SpaceBetween>
+    </Page>
+  );
+}
+
+function ServerSettings({ api }: { api: ControlPlaneApi }) {
+  const navigate = useNavigate();
+  const [servers, setServers] = useState<Server[]>([]);
+  const [selected, setSelected] = useState<Server | null>(null);
+  const [webSocketUri, setWebSocketUri] = useState("");
+  const [serverInfoUri, setServerInfoUri] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<Notice>(null);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const next = await api.listServers();
+      setServers(next);
+      if (selected) {
+        const refreshed = next.find((server) => server.id === selected.id);
+        if (refreshed) setSelected(refreshed);
+      }
+    } catch (error) {
+      setNotice({ type: "error", text: error instanceof Error ? error.message : "サーバーを読み込めませんでした。" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { void load(); }, []);
+
+  const edit = (server: Server) => {
+    setSelected(server);
+    setWebSocketUri(server.webSocketUri ?? "");
+    setServerInfoUri(server.serverInfoUri ?? "");
+    setNotice(null);
+  };
+
+  const save = async () => {
+    if (!selected) return;
+    const error = validateBrowserEndpoints(webSocketUri, serverInfoUri);
+    if (error) {
+      setNotice({ type: "error", text: error });
+      return;
+    }
+    setBusy(true);
+    try {
+      const updated = {
+        ...selected,
+        webSocketUri: webSocketUri.trim() || undefined,
+        serverInfoUri: serverInfoUri.trim() || undefined,
+      };
+      await api.saveServer(updated);
+      setServers((current) => current.map((server) => server.id === updated.id ? updated : server));
+      setSelected(updated);
+      setNotice({ type: "success", text: `サーバー「${updated.id}」の WebGL 接続先を保存しました。` });
+    } catch (error) {
+      setNotice({ type: "error", text: error instanceof Error ? error.message : "サーバー設定を保存できませんでした。" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Page notifications={<NoticeView notice={notice} onDismiss={() => setNotice(null)} />}>
+      <SpaceBetween size="l">
+        <Button iconName="arrow-left" onClick={() => navigate("/")}>会議一覧へ戻る</Button>
+        <Table
+          loading={loading}
+          loadingText="サーバーを読み込んでいます"
+          items={servers}
+          columnDefinitions={[
+            { id: "id", header: "サーバー", cell: (server) => server.id },
+            { id: "ready", header: "状態", cell: (server) => <StatusIndicator type={server.ready ? "success" : "warning"}>{server.ready ? "利用可能" : "未準備"}</StatusIndicator> },
+            { id: "websocket", header: "WebSocket URI", cell: (server) => server.webSocketUri ?? "未設定" },
+            { id: "server-info", header: "Server Info URI", cell: (server) => server.serverInfoUri ?? "未設定" },
+            { id: "actions", header: "", cell: (server) => <Button onClick={() => edit(server)}>編集</Button> },
+          ]}
+          header={<Header variant="h2" actions={<Button onClick={() => void load()}>更新</Button>}>静的サーバー</Header>}
+          empty={<Box textAlign="center">サーバーがありません。</Box>}
+        />
+        {selected && (
+          <Form
+            header={<Header variant="h2" description="WebGL ブラウザ接続では両方の URI を設定してください。">「{selected.id}」の WebGL 接続先</Header>}
+            actions={<SpaceBetween direction="horizontal" size="xs"><Button onClick={() => setSelected(null)}>キャンセル</Button><Button variant="primary" loading={busy} onClick={() => void save()}>保存する</Button></SpaceBetween>}
+          >
+            <SpaceBetween size="m">
+              <FormField label="WebSocket URI" description="例: wss://room.example/basis。ローカル開発時のみ ws://localhost/... を利用できます。">
+                <Input value={webSocketUri} onChange={({ detail }) => setWebSocketUri(detail.value)} placeholder="wss://room.example/basis" />
+              </FormField>
+              <FormField label="Server Info URI" description="例: https://room.example/server-info。WebSocket URI と同時に設定します。">
+                <Input value={serverInfoUri} onChange={({ detail }) => setServerInfoUri(detail.value)} placeholder="https://room.example/server-info" />
+              </FormField>
+            </SpaceBetween>
+          </Form>
+        )}
       </SpaceBetween>
     </Page>
   );
@@ -674,6 +786,7 @@ function AdminApp() {
         path="/organization"
         element={<OrganizationSettings api={api} refresh={refresh} />}
       />
+      <Route path="/servers" element={<ServerSettings api={api} />} />
     </Routes>
   );
 }

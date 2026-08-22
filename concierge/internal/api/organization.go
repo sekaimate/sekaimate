@@ -62,6 +62,28 @@ func (a *serverAPI) PutAdminServer(w http.ResponseWriter, r *http.Request, serve
 		return
 	}
 	server := apiToServerConfig(serverId, body)
+	// The GET representation intentionally never returns literal key material.
+	// Preserve fields omitted by an AdminUi edit so changing browser endpoints
+	// cannot accidentally make an otherwise-ready static server invalid.
+	if existing, found := a.deps.Config.FindServer(serverId); found {
+		if body.TicketSigningKeyEnvironmentVariable == nil && body.TicketSigningKey == nil {
+			server.TicketSigningKeyEnvironmentVariable = existing.TicketSigningKeyEnvironmentVariable
+			server.TicketSigningKey = existing.TicketSigningKey
+		}
+		if body.TransportPublicKeyEnvironmentVariable == nil && body.TransportPublicKey == nil {
+			server.TransportPublicKeyEnvironmentVariable = existing.TransportPublicKeyEnvironmentVariable
+			server.TransportPublicKey = existing.TransportPublicKey
+		}
+		if body.Providers == nil {
+			server.Providers = existing.Providers
+		}
+		if body.WebSocketUri == nil {
+			server.WebSocketUri = existing.WebSocketUri
+		}
+		if body.ServerInfoUri == nil {
+			server.ServerInfoUri = existing.ServerInfoUri
+		}
+	}
 	if ok, msg := a.deps.Config.UpsertServer(server); !ok {
 		writeError(w, http.StatusBadRequest, msg)
 		return
