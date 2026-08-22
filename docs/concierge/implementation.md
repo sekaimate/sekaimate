@@ -396,6 +396,16 @@ kubectl apply -f deploy/
   対してのみ `Provisioner.Delete` を呼ぶ。`Manager.Reconcile`(§9.5)も同様に、`Managed=false` のレコードは
   GameServer が無くても `"failed"` にしない(元々存在しないはずなので)。外部で手動運用しているサーバーを
   登録する用途には引き続き静的 `Servers[]`、または `host` を明示した `POST /admin/meetings` のどちらも使える。
+- **(phase 3 で修正済み)`POST /admin/meetings` の 201 レスポンスの `createdAt`/`updatedAt` が Go のゼロ値
+  (`"0001-01-01T00:00:00Z"`)になっていた。** `CreateMeeting`(`internal/api/meetings.go`)はローカルに組み立てた
+  `MeetingRecord` を `a.deps.Meetings.Add` に渡していたが、`Store.Add`(`internal/controlplane/meeting.go`)は
+  `CreatedAt`/`UpdatedAt` がゼロ値のときだけ自身のコピー上で現在時刻を補完して永続化する仕様のため、呼び出し元の
+  ローカル変数はゼロ値のまま残る。ハンドラはそのローカル変数から 201 レスポンスを組み立てていたため、直後の
+  `GET /admin/meetings` は正しい時刻を返す一方で `POST` の 201 だけがゼロ値を返していた(minikube 検証で実際に
+  再現)。C# broker の `MeetingRecord`(`ControlPlane.cs`)はコンストラクタで `CreatedAt`/`UpdatedAt` を
+  `DateTimeOffset.UtcNow` に設定するため、実機の 201 レスポンスは常に実時刻を持つ。これに合わせ、
+  `CreateMeeting` 内で `MeetingRecord` を組み立てる時点で `CreatedAt`/`UpdatedAt` に現在時刻(UTC)を設定するよう
+  修正した。`Store.Add` のゼロ値補完自体は他の呼び出し元との互換性のため変更していない。
 - **Agones バージョン:** `go.mod` は `agones.dev/agones v1.60.0` を要求する(`k8s.io/api`・
   `k8s.io/apimachinery`・`k8s.io/client-go` は `v0.36.4`)。minikube 環境には対応する Agones リリースを
   インストールすること。

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/sekaimate/sekaimate/concierge/internal/config"
 	"github.com/sekaimate/sekaimate/concierge/internal/controlplane"
@@ -120,6 +121,12 @@ func (a *serverAPI) CreateMeeting(w http.ResponseWriter, r *http.Request) {
 		status, detail = "ready", "External connection target configured."
 	}
 
+	// CreatedAt/UpdatedAt are set here, at construction, matching the C#
+	// broker's MeetingRecord constructor (ControlPlane.cs), so the 201
+	// response rendered from this local value below carries real timestamps
+	// instead of the zero time. Store.Add only backfills them when zero, so
+	// setting them here also makes it the value actually persisted.
+	now := time.Now().UTC()
 	meeting := controlplane.MeetingRecord{
 		Id:                  id,
 		Title:               title,
@@ -133,6 +140,8 @@ func (a *serverAPI) CreateMeeting(w http.ResponseWriter, r *http.Request) {
 		Status:              status,
 		StatusDetail:        detail,
 		Managed:             managed,
+		CreatedAt:           now,
+		UpdatedAt:           now,
 	}
 
 	admissionProviders := make([]config.ProviderConfig, len(organization.Providers))

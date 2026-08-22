@@ -260,6 +260,64 @@ func TestCreateMeeting_FullFlow(t *testing.T) {
 	}
 }
 
+// TestCreateMeeting_TimestampsNonZero guards against a wire-compatibility
+// regression: the 201 response body must carry real CreatedAt/UpdatedAt
+// timestamps, matching the C# broker's MeetingRecord constructor
+// (ControlPlane.cs), which sets both fields at construction rather than
+// leaving them for a later persistence step. A prior version of the handler
+// rendered the response from a local MeetingRecord built before
+// Store.Add assigned timestamps, so the 201 body always showed the Go zero
+// time even though the record GET returned afterward was correct.
+func TestCreateMeeting_TimestampsNonZero(t *testing.T) {
+	t.Setenv("BASIS_CONTROL_PLANE_ALLOW_MANUAL_MEETINGS", "true")
+	deps := newTestDepsAdminBypassed(t)
+	if ok, msg := deps.Config.SetOrganization(config.OrganizationConfig{
+		Providers: []config.ProviderConfig{{Id: "p", Issuer: "https://issuer.example", Audience: "aud", JwksUri: "https://issuer.example/jwks"}},
+	}); !ok {
+		t.Fatalf("SetOrganization: %s", msg)
+	}
+	mux := NewMux(deps)
+
+	rec := doRequest(t, mux, http.MethodPost, "/admin/meetings", CreateMeetingRequest{Title: "Timestamped Room"}, nil)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: status = %d, want 201, body=%s", rec.Code, rec.Body.String())
+	}
+	var created MeetingView
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if created.CreatedAt.IsZero() {
+		t.Errorf("201 body CreatedAt is zero, want a real timestamp")
+	}
+	if created.UpdatedAt.IsZero() {
+		t.Errorf("201 body UpdatedAt is zero, want a real timestamp")
+	}
+
+	rec = doRequest(t, mux, http.MethodGet, "/admin/meetings", nil, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list: status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	var list []MeetingView
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("unmarshal list: %v", err)
+	}
+	var found *MeetingView
+	for i := range list {
+		if list[i].Id == created.Id {
+			found = &list[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("created meeting %s missing from GET /admin/meetings", created.Id)
+	}
+	if !found.CreatedAt.Equal(created.CreatedAt) {
+		t.Errorf("GET CreatedAt = %v, want %v (from POST response)", found.CreatedAt, created.CreatedAt)
+	}
+	if !found.UpdatedAt.Equal(created.UpdatedAt) {
+		t.Errorf("GET UpdatedAt = %v, want %v (from POST response)", found.UpdatedAt, created.UpdatedAt)
+	}
+}
+
 // countingProvisioner is a kube.RoomProvisioner test double that records how
 // many times Create/Delete were called and with which meeting ids, so tests
 // can assert provisioning was (or was not) attempted.
