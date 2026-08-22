@@ -1,0 +1,464 @@
+// Package config loads and persists the concierge equivalent of the C#
+// broker's appsettings.json "Broker" section (research-sso-broker.md §5.1).
+// It owns the static server registry (BrokerServerOptions[]) and the
+// organization-wide OIDC settings, both of which admin endpoints mutate at
+// runtime and persist back to disk — matching the C# broker's
+// SaveBrokerConfigurationAsync, but (unlike the C# original) with a mutex
+// around every read-modify-write-save sequence, since research-sso-broker.md
+// §8 flags the C# broker's total absence of locking around BrokerOptions
+// mutation as a real bug, not a behavior to reproduce silently.
+package config
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+)
+
+// ErrDuplicateServerID is returned by AddServer when a server with the same
+// Id is already registered.
+var ErrDuplicateServerID = errors.New("config: server id already exists")
+
+// ErrServerNotFound is returned by RemoveServer when no server with the
+// given id is registered.
+var ErrServerNotFound = errors.New("config: server not found")
+
+// ProviderConfig is one OIDC identity provider, matching the C# broker's
+// ProviderOptions (research-sso-broker.md §5.1). Field names are PascalCase
+// to stay compatible with existing appsettings.json files written by the C#
+// broker.
+type ProviderConfig struct {
+	Id                   string   `json:"Id"`
+	Label                string   `json:"Label,omitempty"`
+	Issuer               string   `json:"Issuer"`
+	Audience             string   `json:"Audience"`
+	ClientSecret         string   `json:"ClientSecret,omitempty"`
+	JwksUri              string   `json:"JwksUri"`
+	AllowedHostedDomains []string `json:"AllowedHostedDomains,omitempty"`
+	AllowedGroups        []string `json:"AllowedGroups,omitempty"`
+}
+
+// Copy returns a deep copy of p, matching ProviderOptions.Copy in
+// ControlPlane.cs (used whenever a provider list needs to be duplicated
+// rather than aliased, e.g. organization -> local bootstrap server).
+func (p ProviderConfig) Copy() ProviderConfig {
+	out := p
+	if p.AllowedHostedDomains != nil {
+		out.AllowedHostedDomains = append([]string(nil), p.AllowedHostedDomains...)
+	}
+	if p.AllowedGroups != nil {
+		out.AllowedGroups = append([]string(nil), p.AllowedGroups...)
+	}
+	return out
+}
+
+// IsStructurallyValid mirrors ProviderOptions.IsStructurallyValid: non-blank
+// id, absolute-HTTPS issuer, non-blank audience, absolute-HTTPS JWKS URI.
+func (p ProviderConfig) IsStructurallyValid() bool {
+	return p.Id != "" && isAbsoluteHTTPS(p.Issuer) && p.Audience != "" && isAbsoluteHTTPS(p.JwksUri)
+}
+
+func isAbsoluteHTTPS(raw string) bool {
+	if raw == "" {
+		return false
+	}
+	return strings.HasPrefix(raw, "https://")
+}
+
+// ServerConfig is one Basis game server's admission configuration, matching
+// BrokerServerOptions.
+type ServerConfig struct {
+	Id                                    string           `json:"Id"`
+	TicketSigningKeyEnvironmentVariable   string           `json:"TicketSigningKeyEnvironmentVariable,omitempty"`
+	TransportPublicKeyEnvironmentVariable string           `json:"TransportPublicKeyEnvironmentVariable,omitempty"`
+	TicketSigningKey                      string           `json:"TicketSigningKey,omitempty"`
+	TransportPublicKey                    string           `json:"TransportPublicKey,omitempty"`
+	Providers                             []ProviderConfig `json:"Providers,omitempty"`
+}
+
+// EffectiveTicketSigningKey returns the literal TicketSigningKey if set,
+// otherwise the value of the environment variable named by
+// TicketSigningKeyEnvironmentVariable (re-read on every call, never
+// cached — matching EffectiveTicketSigningKey in BrokerServerOptions).
+func (s ServerConfig) EffectiveTicketSigningKey() string {
+	if strings.TrimSpace(s.TicketSigningKey) != "" {
+		return s.TicketSigningKey
+	}
+	return os.Getenv(s.TicketSigningKeyEnvironmentVariable)
+}
+
+// EffectiveTransportPublicKey is the TransportPublicKey analogue of
+// EffectiveTicketSigningKey.
+func (s ServerConfig) EffectiveTransportPublicKey() string {
+	if strings.TrimSpace(s.TransportPublicKey) != "" {
+		return s.TransportPublicKey
+	}
+	return os.Getenv(s.TransportPublicKeyEnvironmentVariable)
+}
+
+// HasTicketSigningKey mirrors HasTicketSigningKey: a 32+ character
+// effective key counts as configured.
+func (s ServerConfig) HasTicketSigningKey() bool {
+	return len(s.EffectiveTicketSigningKey()) >= 32
+}
+
+// HasTransportPublicKey mirrors HasTransportPublicKey.
+func (s ServerConfig) HasTransportPublicKey() bool {
+	return strings.TrimSpace(s.EffectiveTransportPublicKey()) != ""
+}
+
+// IsReady mirrors BrokerServerOptions.IsReady: drives /health and admission
+// 503s.
+func (s ServerConfig) IsReady() bool {
+	return s.Id != "" && len(s.Providers) > 0 && s.HasTicketSigningKey() && s.HasTransportPublicKey()
+}
+
+// IsStructurallyValid mirrors BrokerServerOptions.IsStructurallyValid, used
+// only on admin PUT /admin/servers/{id}.
+func (s ServerConfig) IsStructurallyValid() (bool, string) {
+	if s.Id == "" || !isValidServerID(s.Id) {
+		return false, "Server ID must use letters, numbers, '-' or '_'."
+	}
+	if strings.TrimSpace(s.TicketSigningKey) == "" && strings.TrimSpace(s.TicketSigningKeyEnvironmentVariable) == "" {
+		return false, "A ticket-signing key or key environment variable is required."
+	}
+	if strings.TrimSpace(s.TransportPublicKey) == "" && strings.TrimSpace(s.TransportPublicKeyEnvironmentVariable) == "" {
+		return false, "A transport public key or key environment variable is required."
+	}
+	if len(s.Providers) == 0 {
+		return false, "Every provider needs an ID, issuer, client ID, and HTTPS JWKS URL."
+	}
+	for _, p := range s.Providers {
+		if !p.IsStructurallyValid() {
+			return false, "Every provider needs an ID, issuer, client ID, and HTTPS JWKS URL."
+		}
+	}
+	return true, ""
+}
+
+func isValidServerID(id string) bool {
+	for _, c := range id {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return id != ""
+}
+
+// OrganizationConfig is the organization-wide OIDC settings, matching
+// OrganizationOptions.
+type OrganizationConfig struct {
+	DisplayName       string           `json:"DisplayName,omitempty"`
+	DefaultProviderId string           `json:"DefaultProviderId,omitempty"`
+	Providers         []ProviderConfig `json:"Providers,omitempty"`
+}
+
+// IsStructurallyValid mirrors OrganizationOptions.IsStructurallyValid.
+func (o OrganizationConfig) IsStructurallyValid() (bool, string) {
+	if len(o.Providers) == 0 {
+		return false, "Configure at least one valid identity provider."
+	}
+	for _, p := range o.Providers {
+		if !p.IsStructurallyValid() {
+			return false, "Configure at least one valid identity provider."
+		}
+	}
+	if o.DefaultProviderId != "" {
+		found := false
+		for _, p := range o.Providers {
+			if strings.EqualFold(p.Id, o.DefaultProviderId) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false, "The default provider must be enabled."
+		}
+	}
+	return true, ""
+}
+
+// BrokerConfig is the top-level "Broker" section of appsettings.json.
+type BrokerConfig struct {
+	PublicBaseUrl                 string              `json:"PublicBaseUrl,omitempty"`
+	ClientConfigDirectory         string              `json:"ClientConfigDirectory,omitempty"`
+	AdminTokenEnvironmentVariable string              `json:"AdminTokenEnvironmentVariable,omitempty"`
+	AllowUnauthenticatedAdmin     bool                `json:"AllowUnauthenticatedAdmin,omitempty"`
+	Servers                       []ServerConfig      `json:"Servers,omitempty"`
+	Organization                  *OrganizationConfig `json:"Organization,omitempty"`
+}
+
+type fileWrapper struct {
+	Broker BrokerConfig `json:"Broker"`
+}
+
+// Store holds the live BrokerConfig, guarding every mutation with a mutex
+// and persisting each change back to disk.
+type Store struct {
+	mu   sync.Mutex
+	path string
+	cfg  BrokerConfig
+}
+
+// Load reads path (the appsettings.json-equivalent file) if it exists, or
+// starts from a zero-value BrokerConfig if it does not — matching the C#
+// broker's IOptions<T> behavior when the "Broker" section is absent.
+func Load(path string) (*Store, error) {
+	s := &Store{path: path}
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return s, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("config: read %s: %w", path, err)
+	}
+	var wrapper fileWrapper
+	if err := json.Unmarshal(data, &wrapper); err != nil {
+		return nil, fmt.Errorf("config: parse %s: %w", path, err)
+	}
+	s.cfg = wrapper.Broker
+	return s, nil
+}
+
+// save writes the current config atomically (path+".tmp" then rename) and
+// chmods it 0600. research-sso-broker.md §5.3/§8 explicitly flags that the
+// C# broker never chmods appsettings.json even though it can contain
+// plaintext signing/private keys once any control-plane meeting exists —
+// concierge fixes that rather than reproducing it, matching
+// control-plane.json's existing 0600 treatment.
+func (s *Store) save() error {
+	if s.path == "" {
+		return nil
+	}
+	data, err := json.MarshalIndent(fileWrapper{Broker: s.cfg}, "", "  ")
+	if err != nil {
+		return err
+	}
+	if dir := filepath.Dir(s.path); dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	tmp := s.path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, s.path); err != nil {
+		return err
+	}
+	return os.Chmod(s.path, 0o600)
+}
+
+// GetServers returns a snapshot copy of the configured servers.
+func (s *Store) GetServers() []ServerConfig {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]ServerConfig(nil), s.cfg.Servers...)
+}
+
+// FindServer returns the server with the given id (ordinal exact match),
+// and whether it was found.
+func (s *Store) FindServer(id string) (ServerConfig, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.findServerLocked(id)
+}
+
+func (s *Store) findServerLocked(id string) (ServerConfig, bool) {
+	for _, server := range s.cfg.Servers {
+		if server.Id == id {
+			return server, true
+		}
+	}
+	return ServerConfig{}, false
+}
+
+// GetOrganization mirrors BrokerOptions.GetOrganization: if Organization has
+// no providers configured, synthesize one from the first Servers[] entry
+// that has any providers (back-compat with pre-organization deployments).
+func (s *Store) GetOrganization() OrganizationConfig {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.cfg.Organization != nil && len(s.cfg.Organization.Providers) > 0 {
+		return *s.cfg.Organization
+	}
+	for _, server := range s.cfg.Servers {
+		if len(server.Providers) > 0 {
+			providers := make([]ProviderConfig, len(server.Providers))
+			defaultID := ""
+			for i, p := range server.Providers {
+				providers[i] = p.Copy()
+				if i == 0 {
+					defaultID = p.Id
+				}
+			}
+			return OrganizationConfig{DefaultProviderId: defaultID, Providers: providers}
+		}
+	}
+	return OrganizationConfig{Providers: []ProviderConfig{}}
+}
+
+// SetOrganization validates and stores organization, mirrors the C#
+// PUT /admin/organization side effect of overwriting the "local" bootstrap
+// server's Providers, and persists.
+func (s *Store) SetOrganization(organization OrganizationConfig) (bool, string) {
+	if ok, msg := organization.IsStructurallyValid(); !ok {
+		return false, msg
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cfg.Organization = &organization
+	for i := range s.cfg.Servers {
+		if s.cfg.Servers[i].Id == "local" {
+			copied := make([]ProviderConfig, len(organization.Providers))
+			for j, p := range organization.Providers {
+				copied[j] = p.Copy()
+			}
+			s.cfg.Servers[i].Providers = copied
+			break
+		}
+	}
+	if err := s.save(); err != nil {
+		return false, err.Error()
+	}
+	return true, ""
+}
+
+// AddServer appends server, returning ErrDuplicateServerID if the id is
+// already registered, and persists on success.
+func (s *Store) AddServer(server ServerConfig) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.findServerLocked(server.Id); ok {
+		return ErrDuplicateServerID
+	}
+	s.cfg.Servers = append(s.cfg.Servers, server)
+	if err := s.save(); err != nil {
+		s.cfg.Servers = s.cfg.Servers[:len(s.cfg.Servers)-1]
+		return err
+	}
+	return nil
+}
+
+// RemoveServer deletes the server with id, returning ErrServerNotFound if
+// none exists, and persists on success. It does not persist if save fails;
+// the removal is rolled back.
+func (s *Store) RemoveServer(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	idx := -1
+	for i, server := range s.cfg.Servers {
+		if server.Id == id {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return ErrServerNotFound
+	}
+	removed := s.cfg.Servers[idx]
+	s.cfg.Servers = append(s.cfg.Servers[:idx:idx], s.cfg.Servers[idx+1:]...)
+	if err := s.save(); err != nil {
+		// Roll back the in-memory removal.
+		s.cfg.Servers = append(s.cfg.Servers, ServerConfig{})
+		copy(s.cfg.Servers[idx+1:], s.cfg.Servers[idx:])
+		s.cfg.Servers[idx] = removed
+		return err
+	}
+	return nil
+}
+
+// UpsertServer inserts or replaces the server with the given id (by id,
+// matching the C# broker's "path id wins" semantics — callers should set
+// server.Id before calling), returning a validation message if
+// structurally invalid.
+func (s *Store) UpsertServer(server ServerConfig) (bool, string) {
+	if ok, msg := server.IsStructurallyValid(); !ok {
+		return false, msg
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, existing := range s.cfg.Servers {
+		if existing.Id == server.Id {
+			s.cfg.Servers[i] = server
+			if err := s.save(); err != nil {
+				return false, err.Error()
+			}
+			return true, ""
+		}
+	}
+	s.cfg.Servers = append(s.cfg.Servers, server)
+	if err := s.save(); err != nil {
+		return false, err.Error()
+	}
+	return true, ""
+}
+
+// ClientConfigDirectory returns the configured client-config base
+// directory, or "" if unset.
+func (s *Store) ClientConfigDirectory() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cfg.ClientConfigDirectory
+}
+
+// ClientConfigPath returns the on-disk path for serverId's client-config
+// file, and whether the directory is configured and serverId is a known
+// server.
+func (s *Store) ClientConfigPath(serverId string) (string, bool) {
+	s.mu.Lock()
+	dir := s.cfg.ClientConfigDirectory
+	_, known := s.findServerLocked(serverId)
+	s.mu.Unlock()
+	if strings.TrimSpace(dir) == "" || !known {
+		return "", false
+	}
+	return filepath.Join(dir, serverId+".json"), true
+}
+
+// PublicBaseUrl returns the configured public base URL, or "".
+func (s *Store) PublicBaseUrl() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cfg.PublicBaseUrl
+}
+
+// AllowUnauthenticatedAdmin reports the configured dev-only admin bypass.
+func (s *Store) AllowUnauthenticatedAdmin() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cfg.AllowUnauthenticatedAdmin
+}
+
+// AdminTokenEnvironmentVariable returns the configured env var name holding
+// the admin bearer token.
+func (s *Store) AdminTokenEnvironmentVariable() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cfg.AdminTokenEnvironmentVariable
+}
+
+// AdminAuthorized mirrors AdminAuthorized in Program.cs exactly: dev-only
+// bypass, minimum 32-char configured token (re-read from the environment on
+// every call), case-insensitive "Bearer " prefix, constant-time comparison.
+func (s *Store) AdminAuthorized(r *http.Request) bool {
+	if s.AllowUnauthenticatedAdmin() {
+		return true
+	}
+	configured := os.Getenv(s.AdminTokenEnvironmentVariable())
+	if len(configured) < 32 {
+		return false
+	}
+	authorization := r.Header.Get("Authorization")
+	const prefix = "Bearer "
+	if len(authorization) < len(prefix) || !strings.EqualFold(authorization[:len(prefix)], prefix) {
+		return false
+	}
+	supplied := authorization[len(prefix):]
+	return constantTimeStringsEqual(configured, supplied)
+}
