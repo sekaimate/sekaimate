@@ -99,19 +99,23 @@ func bootstrapLocalMeeting(cfg *config.Store, meetings *controlplane.Store) {
 }
 
 // checkNoStaticMeetingIDCollision implements design.md §4.1's startup
-// requirement: a static Servers[] entry and a control-plane MeetingRecord
-// must never share an id (concierge would not know which one is
-// authoritative for that id's admission routing). The one sanctioned
-// exception is "local": bootstrapLocalMeeting deliberately registers a
-// MeetingRecord with the same id as the "local" static server entry it
-// reads from (design.md §12 decision 1), so that pairing is not a
-// collision.
+// requirement: a *hand-authored* static Servers[] entry and a control-plane
+// MeetingRecord must never share an id (concierge would not know which one
+// is authoritative for that id's admission routing). It is not a collision
+// when the Servers[] entry has FromMeeting set: every meeting concierge
+// creates deliberately registers matching entries in both stores by design
+// (internal/api.CreateMeeting adds both together, and NewID already avoids
+// colliding with anything in either store at creation time), so that
+// pairing is normal for any currently-existing meeting, not an error. The
+// other sanctioned exception is "local": bootstrapLocalMeeting deliberately
+// registers a MeetingRecord with the same id as the "local" static server
+// entry it reads from (design.md §12 decision 1).
 func checkNoStaticMeetingIDCollision(cfg *config.Store, meetings *controlplane.Store) error {
 	for _, m := range meetings.List() {
 		if m.Id == "local" {
 			continue
 		}
-		if _, exists := cfg.FindServer(m.Id); exists {
+		if server, exists := cfg.FindServer(m.Id); exists && !server.FromMeeting {
 			return fmt.Errorf("meeting id %q is registered both as a static Servers[] entry and as a control-plane meeting", m.Id)
 		}
 	}

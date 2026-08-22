@@ -79,6 +79,18 @@ type ServerConfig struct {
 	TicketSigningKey                      string           `json:"TicketSigningKey,omitempty"`
 	TransportPublicKey                    string           `json:"TransportPublicKey,omitempty"`
 	Providers                             []ProviderConfig `json:"Providers,omitempty"`
+	// FromMeeting is true when this entry was created by
+	// internal/api.CreateMeeting (i.e. it exists only because a
+	// controlplane.MeetingRecord with the same id does) rather than
+	// hand-authored by an operator in appsettings.json ahead of time. Every
+	// meeting concierge creates registers matching entries in both the
+	// server registry (so /admission/{serverId} can find its keys) and the
+	// meeting control plane, by design (design.md §4.1/§4.2) — that
+	// same-id-in-both-stores pairing is therefore expected and must not
+	// trip cmd/server's checkNoStaticMeetingIDCollision startup guard, which
+	// exists to catch a genuinely ambiguous case: an operator's static
+	// Servers[] entry independently colliding with an unrelated meeting id.
+	FromMeeting bool `json:"FromMeeting,omitempty"`
 }
 
 // EffectiveTicketSigningKey returns the literal TicketSigningKey if set,

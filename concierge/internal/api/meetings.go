@@ -144,6 +144,7 @@ func (a *serverAPI) CreateMeeting(w http.ResponseWriter, r *http.Request) {
 		Providers:          admissionProviders,
 		TicketSigningKey:   signingKey,
 		TransportPublicKey: publicKey,
+		FromMeeting:        true,
 	}
 
 	if err := a.deps.Config.AddServer(serverConfig); err != nil {
