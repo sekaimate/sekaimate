@@ -299,8 +299,16 @@ GameServer/Secret のラベルは basis-k8s と同じ形(`app=basis-server`, `in
 
 implementation.md phase 1 の §8 で「未実装」としていた、静的 `Servers[]` と `control-plane.json` の起動時 id 重複
 チェック(`design.md` §4.1)を `checkNoStaticMeetingIDCollision` として実装した。`"local"` は
-`bootstrapLocalMeeting` が意図的に両方に同じ id で登録する唯一の例外(`design.md` §12 決定事項 1)なので、
-チェック対象から除外する。それ以外で id が両方に存在すれば `log.Fatalf` で起動を拒否する。
+`bootstrapLocalMeeting` が意図的に両方に同じ id で登録する唯一の例外(`design.md` §12 決定事項 1)。
+
+**(phase 3 で修正済み)** 当初の実装は、`"local"` 以外で id が両方のソースに存在すれば無条件に `log.Fatalf` で
+起動を拒否していた。しかし `internal/api.CreateMeeting` は会議ごとに `Servers[]` と control-plane meetings の
+両方へ意図的に同じ id を登録する(admission ルーティングに必要な、正常な挙動)ため、concierge が管理する会議が
+1 件でも存在すると次回起動が必ず失敗する重大な回帰になっていた(minikube 検証で実際に再現。
+`verification.md` §5-3 参照)。`config.ServerConfig` に `FromMeeting bool` を追加して `CreateMeeting` が作る
+エントリにのみ立てるようにし、`checkNoStaticMeetingIDCollision` は `FromMeeting` が立っているエントリとの
+衝突を無視するよう修正した。運用者が `appsettings.json` に手で書いた静的エントリとの本物の衝突は引き続き
+`log.Fatalf` で検出する。
 
 ### 9.7 Kubernetes 統合の有効化条件と環境変数
 
@@ -333,12 +341,26 @@ kubectl apply -f deploy/
 
 - `appsettings.json` の `Broker.AdminTokenEnvironmentVariable` は `"BASIS_SSO_ADMIN_TOKEN"` にしておくこと
   (`20-deployment.yaml` がその名前の環境変数を `concierge-admin` Secret の `token` キーから注入する)。
-- `control-plane.json`(会議のパスワード・鍵・招待トークンを含む実行時状態)は Secret ではなく
-  `20-deployment.yaml` にバンドルした `PersistentVolumeClaim`(`concierge-data`、`/data` にマウント)に置く。
-  basis-k8s と異なり concierge はローカル状態を持つため、Pod 再起動をまたいで残す必要がある。
+- `control-plane.json`(会議のパスワード・鍵・招待トークンを含む実行時状態)と `appsettings.json`(動的な
+  `Servers[]`/`Organization` を含む実行時状態、後述)は Secret ではなく `20-deployment.yaml` にバンドルした
+  `PersistentVolumeClaim`(`concierge-data`、`/data` にマウント)に置く。basis-k8s と異なり concierge は
+  ローカル状態を持つため、Pod 再起動をまたいで残す必要がある。
+- **(phase 3 で修正済み)** `appsettings.json` は当初 `concierge-config` Secret から `readOnly: true` で直接
+  マウントしていたが、`internal/config.Store` は `POST /admin/meetings`・`DELETE`・組織設定の更新のたびに
+  同じパスへ書き戻す(§8)。Kubernetes の Secret ボリュームは `readOnly` 設定に関わらず書き戻しができない
+  (Pod ローカルの tmpfs コピーへの書き込みも Pod 再起動で失われる)ため、これでは最初の
+  `POST /admin/meetings` から必ず失敗していた(minikube 検証で実際に再現。`verification.md` §5-2 参照)。
+  `concierge-config` Secret はシードとしてのみ扱い、`seed-config` initContainer が `concierge-data` PVC へ
+  1 回だけコピーし(2 回目以降の Pod 起動では既存のコピーをそのまま使う)、本体コンテナはそのコピーを
+  `BASIS_SSO_BROKER_CONFIG_PATH=/data/appsettings.json` として読み書きするよう変更した。
 - RBAC(`10-rbac.yaml`)は namespace スコープの `get`/`list`/`create`/`delete` のみを `agones.dev/gameservers` と
-  `secrets` に付与する。`update`/`patch` は付与していない — `Manager` は作成済みの GameServer/Secret を書き換える
-  ことがない(鍵のローテーションは新しい会議を作り直す形になる)ため。
+  `secrets` に付与する(concierge 自身の ServiceAccount)。`update`/`patch` は付与していない — `Manager` は
+  作成済みの GameServer/Secret を書き換えることがない(鍵のローテーションは新しい会議を作り直す形になる)ため。
+  **(phase 3 で追加)** これとは別に、`basis` 名前空間で GameServer の Pod を起動できるようにするための
+  `agones-sdk` ServiceAccount + `ClusterRole agones-sdk` への RoleBinding も `10-rbac.yaml` に追加した。
+  Agones は GameServer Pod にこの名前の ServiceAccount を要求するが、Agones 自身のインストールは `default`
+  名前空間にしか作成しないため、他の名前空間で GameServer を動かすには個別に用意する必要がある
+  (`verification.md` §5-1 参照)。
 - `30-service.yaml` は basis-k8s の `LoadBalancer`+MetalLB とは異なり `ClusterIP`。concierge は公開の
   admission/enroll/join エンドポイントも兼ねるため、TLS 終端を行う既存のリバースプロキシ/Ingress の背後に置く
   (`design.md` §9 の前提どおり)。
@@ -382,4 +404,9 @@ kubectl apply -f deploy/
   対応している必要がある(`BasisServerConfiguration.cs:249-302` で確認済み)。
 - **`agones-ready` サイドカー:** GameServer は Agones SDK を自前で呼ばないため、`curlimages/curl:latest`
   サイドカーが `localhost:9358` の SDK HTTP ゲートウェイに対して ready/health を代行する。minikube 側で
-  Agones SDK サイドカー注入(`agones.dev/sdk` の自動注入)が有効になっていることを前提とする。
+  Agones SDK サイドカー注入(`agones.dev/sdk` の自動注入)が有効になっていることを前提とする。このサイドカーは
+  `basis-server` コンテナの状態と無関係に自分自身の `/ready` 呼び出しにのみ基づいて動くため、`basis-server` が
+  `ErrImagePull` 等で起動に失敗していても GameServer は `Ready` になる(`verification.md` §4 の h の注記参照)。
+
+実際に minikube + Agones 環境へデプロイして上記を確認した記録(環境情報・実行コマンド・検証項目ごとの結果・
+検証中に見つかった不具合とその修正)は `docs/concierge/verification.md`(phase 3)にまとめてある。
