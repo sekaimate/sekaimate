@@ -43,3 +43,37 @@ subjects:
   - kind: ServiceAccount
     name: concierge
     namespace: basis
+---
+# Agones only lets GameServer pods run in the "default" namespace out of the
+# box: its static/Helm install only creates the "agones-sdk" ServiceAccount
+# (and a RoleBinding to the cluster-wide "agones-sdk" ClusterRole, which the
+# Agones install itself creates) in "default". Every additional namespace
+# GameServers run in — here, "basis" — needs its own copy of both, or the
+# Agones controller fails to create the GameServer's Pod with
+# `pods "basis-<id>" is forbidden: error looking up service account
+# basis/agones-sdk: serviceaccount "agones-sdk" not found` (this is what the
+# GameServer's own SDK sidecar authenticates as against the Agones SDK HTTP
+# gateway, not concierge's own ServiceAccount above).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agones-sdk
+  namespace: basis
+  labels:
+    app: concierge
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: agones-sdk-access
+  namespace: basis
+  labels:
+    app: concierge
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: agones-sdk
+subjects:
+  - kind: ServiceAccount
+    name: agones-sdk
+    namespace: basis
