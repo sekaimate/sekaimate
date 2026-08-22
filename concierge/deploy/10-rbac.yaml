@@ -1,0 +1,45 @@
+# Least-privilege RBAC for concierge's internal/kube.Manager
+# (docs/concierge/design.md §5, implementation.md phase-2 section):
+# get/list/create/delete on Agones GameServers and on Secrets, scoped to
+# the "basis" namespace only. No "update"/"patch" is granted: concierge
+# never mutates a GameServer or its SSO Secret in place after creation
+# (rotating keys means deleting the meeting and creating a new one), and it
+# never touches any other namespace or resource kind.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: concierge
+  namespace: basis
+  labels:
+    app: concierge
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: concierge
+  namespace: basis
+  labels:
+    app: concierge
+rules:
+  - apiGroups: ["agones.dev"]
+    resources: ["gameservers"]
+    verbs: ["get", "list", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: concierge
+  namespace: basis
+  labels:
+    app: concierge
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: concierge
+subjects:
+  - kind: ServiceAccount
+    name: concierge
+    namespace: basis

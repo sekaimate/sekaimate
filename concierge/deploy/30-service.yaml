@@ -1,0 +1,24 @@
+# ClusterIP, not LoadBalancer: unlike basis-k8s's unauthenticated
+# room-management API (deliberately exposed directly via a MetalLB
+# LoadBalancer to a trusted network), concierge serves both the admin API
+# and the public admission/enroll/join endpoints that end users' Basis
+# clients reach over HTTPS. docs/concierge/design.md §9 assumes TLS is
+# always terminated externally (a reverse proxy / Ingress), so concierge is
+# meant to sit behind one rather than be exposed directly — point your
+# Ingress/reverse-proxy at this Service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: concierge
+  namespace: basis
+  labels:
+    app: concierge
+spec:
+  type: ClusterIP
+  selector:
+    app: concierge
+  ports:
+    - name: http
+      port: 5080
+      targetPort: http
+      protocol: TCP
