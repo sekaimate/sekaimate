@@ -1,0 +1,751 @@
+openapi: 3.0.3
+info:
+  title: concierge — Basis SSO admission & control plane API
+  version: "1.0.0"
+  description: >
+    Wire-compatible Go rewrite of the Basis SSO admission broker
+    (Basis/Tools/BasisSsoBroker). Endpoint paths, JSON field names, and
+    status codes are load-bearing: they are consumed by unmodified C# Unity
+    clients and the unmodified C# UDP game server. See
+    docs/concierge/research-sso-broker.md and docs/concierge/design.md for
+    the source specification. HTML/plain-text/raw-file responses (enroll and
+    join pages, /admin/client-config/{serverId}) are documented here for
+    completeness but are written directly by the handlers rather than
+    generated, since oapi-codegen's std-http-server mode only generates
+    routing and parameter binding, not response encoding.
+paths:
+  /client-config/{serverId}:
+    get:
+      operationId: getClientConfig
+      parameters:
+        - $ref: "#/components/parameters/ServerId"
+      responses:
+        "200":
+          description: Stored client configuration with clientSecret fields stripped.
+          content:
+            application/json:
+              schema:
+                type: object
+        "404":
+          description: Server unknown or no client-config file stored.
+  /health:
+    get:
+      operationId: health
+      responses:
+        "200":
+          description: All configured servers are ready.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "503":
+          description: At least one configured server is not ready.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+  /admission/{serverId}:
+    post:
+      operationId: admit
+      parameters:
+        - $ref: "#/components/parameters/ServerId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdmissionRequest"
+      responses:
+        "200":
+          description: Ticket minted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdmissionResponse"
+        "400":
+          description: Malformed request body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: ID token failed validation.
+        "404":
+          description: Unknown serverId.
+        "503":
+          description: Server is not configured (not ready).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /enroll/{token}:
+    get:
+      operationId: enrollLanding
+      parameters:
+        - $ref: "#/components/parameters/Token"
+      responses:
+        "200":
+          description: HTML landing page.
+          content:
+            text/html:
+              schema:
+                type: string
+        "410":
+          description: Token unknown or expired.
+          content:
+            text/plain:
+              schema:
+                type: string
+  /enroll/{token}/config:
+    get:
+      operationId: enrollConfig
+      parameters:
+        - $ref: "#/components/parameters/Token"
+      responses:
+        "200":
+          description: Organization client configuration; consumes the token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientConfiguration"
+        "404":
+          description: Server/providers/public key missing.
+        "410":
+          description: Token invalid, used, or expired.
+          content:
+            text/plain:
+              schema:
+                type: string
+  /join/{token}/config:
+    get:
+      operationId: joinConfig
+      parameters:
+        - $ref: "#/components/parameters/Token"
+      responses:
+        "200":
+          description: Meeting-pinned client configuration.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientConfiguration"
+        "404":
+          description: Unknown invite token.
+        "503":
+          description: Organization configuration incomplete.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /join/{token}:
+    get:
+      operationId: joinPage
+      parameters:
+        - $ref: "#/components/parameters/Token"
+      responses:
+        "200":
+          description: HTML deep-link page with loopback bridge iframe.
+          content:
+            text/html:
+              schema:
+                type: string
+        "404":
+          description: Unknown or revoked invite.
+          content:
+            text/plain:
+              schema:
+                type: string
+        "409":
+          description: Meeting not ready / host unset.
+          content:
+            text/plain:
+              schema:
+                type: string
+  /join/{token}/open:
+    get:
+      operationId: joinOpenPage
+      parameters:
+        - $ref: "#/components/parameters/Token"
+      responses:
+        "200":
+          description: HTML deep-link page without the loopback iframe.
+          content:
+            text/html:
+              schema:
+                type: string
+        "404":
+          description: Unknown or revoked invite.
+          content:
+            text/plain:
+              schema:
+                type: string
+        "409":
+          description: Meeting not ready / host unset.
+          content:
+            text/plain:
+              schema:
+                type: string
+  /join/{token}/manifest:
+    get:
+      operationId: joinManifest
+      parameters:
+        - $ref: "#/components/parameters/Token"
+      responses:
+        "200":
+          description: Meeting connection manifest, including the plaintext join password.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JoinManifest"
+        "404":
+          description: Unknown invite token.
+  /admin/servers:
+    get:
+      operationId: listAdminServers
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminServerInfo"
+        "401":
+          description: Unauthorized.
+  /admin/organization:
+    get:
+      operationId: getOrganization
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationOptions"
+        "401":
+          description: Unauthorized.
+    put:
+      operationId: putOrganization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrganizationOptions"
+      responses:
+        "204":
+          description: Saved.
+        "400":
+          description: Structurally invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized.
+  /admin/meetings:
+    get:
+      operationId: listMeetings
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MeetingView"
+        "401":
+          description: Unauthorized.
+    post:
+      operationId: createMeeting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMeetingRequest"
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeetingView"
+        "400":
+          description: Invalid title/id/host.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized.
+        "409":
+          description: Organization SSO settings incomplete.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "501":
+          description: Manual meeting creation not enabled.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /admin/meetings/{meetingId}:
+    delete:
+      operationId: deleteMeeting
+      parameters:
+        - $ref: "#/components/parameters/MeetingId"
+      responses:
+        "204":
+          description: Deleted.
+        "401":
+          description: Unauthorized.
+        "404":
+          description: Unknown meeting.
+  /admin/meetings/{meetingId}/invitations:
+    post:
+      operationId: createInvitation
+      parameters:
+        - $ref: "#/components/parameters/MeetingId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvitationResponse"
+        "401":
+          description: Unauthorized.
+        "404":
+          description: Unknown meeting.
+  /admin/servers/{serverId}:
+    put:
+      operationId: putAdminServer
+      parameters:
+        - $ref: "#/components/parameters/ServerId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminServerWrite"
+      responses:
+        "204":
+          description: Upserted.
+        "400":
+          description: Structurally invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized.
+    delete:
+      operationId: deleteAdminServer
+      parameters:
+        - $ref: "#/components/parameters/ServerId"
+      responses:
+        "204":
+          description: Deleted.
+        "401":
+          description: Unauthorized.
+        "404":
+          description: Unknown server.
+  /admin/client-config-template/{serverId}:
+    get:
+      operationId: getClientConfigTemplate
+      parameters:
+        - $ref: "#/components/parameters/ServerId"
+      responses:
+        "200":
+          description: Pretty-printed canonical client configuration, including clientSecret.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientConfiguration"
+        "401":
+          description: Unauthorized.
+        "404":
+          description: Unknown server.
+        "503":
+          description: Transport public key not available.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /admin/client-config/{serverId}:
+    get:
+      operationId: getAdminClientConfig
+      parameters:
+        - $ref: "#/components/parameters/ServerId"
+      responses:
+        "200":
+          description: Raw stored client-config file bytes.
+          content:
+            application/json:
+              schema:
+                type: object
+        "401":
+          description: Unauthorized.
+        "404":
+          description: Unknown server or no file stored.
+    put:
+      operationId: putAdminClientConfig
+      parameters:
+        - $ref: "#/components/parameters/ServerId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "204":
+          description: Stored.
+        "400":
+          description: Body too large or not a JSON object.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized.
+        "404":
+          description: Unknown server.
+        "503":
+          description: Client config directory not configured.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /admin/enrollment/{serverId}:
+    post:
+      operationId: createEnrollment
+      parameters:
+        - $ref: "#/components/parameters/ServerId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnrollmentResponse"
+        "401":
+          description: Unauthorized.
+        "404":
+          description: Unknown server.
+components:
+  parameters:
+    ServerId:
+      name: serverId
+      in: path
+      required: true
+      schema:
+        type: string
+    Token:
+      name: token
+      in: path
+      required: true
+      schema:
+        type: string
+    MeetingId:
+      name: meetingId
+      in: path
+      required: true
+      schema:
+        type: string
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+    ProblemDetails:
+      type: object
+      description: RFC 7807 application/problem+json envelope, matching ASP.NET Core's Results.Problem default shape.
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+    AdmissionRequest:
+      type: object
+      required: [idToken, did]
+      properties:
+        idToken:
+          type: string
+        did:
+          type: string
+    AdmissionResponse:
+      type: object
+      required: [ticket]
+      properties:
+        ticket:
+          type: string
+    HealthServerInfo:
+      type: object
+      required: [id, ready, providers]
+      properties:
+        id:
+          type: string
+        ready:
+          type: boolean
+        providers:
+          type: array
+          items:
+            type: string
+    HealthResponse:
+      type: object
+      required: [status, servers]
+      properties:
+        status:
+          type: string
+        error:
+          type: string
+        servers:
+          type: array
+          items:
+            $ref: "#/components/schemas/HealthServerInfo"
+    ProviderOptions:
+      type: object
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        issuer:
+          type: string
+        audience:
+          type: string
+        clientSecret:
+          type: string
+        jwksUri:
+          type: string
+        allowedHostedDomains:
+          type: array
+          items:
+            type: string
+        allowedGroups:
+          type: array
+          items:
+            type: string
+    OrganizationOptions:
+      type: object
+      properties:
+        displayName:
+          type: string
+        defaultProviderId:
+          type: string
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProviderOptions"
+    AdminServerInfo:
+      type: object
+      required: [id, ready, providers, hasTicketSigningKey, hasTransportPublicKey]
+      properties:
+        id:
+          type: string
+        ticketSigningKeyEnvironmentVariable:
+          type: string
+        transportPublicKeyEnvironmentVariable:
+          type: string
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProviderOptions"
+        ready:
+          type: boolean
+        hasTicketSigningKey:
+          type: boolean
+        hasTransportPublicKey:
+          type: boolean
+    AdminServerWrite:
+      type: object
+      description: Body for PUT /admin/servers/{serverId} (BrokerServerOptions equivalent).
+      properties:
+        id:
+          type: string
+        ticketSigningKeyEnvironmentVariable:
+          type: string
+        transportPublicKeyEnvironmentVariable:
+          type: string
+        ticketSigningKey:
+          type: string
+        transportPublicKey:
+          type: string
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProviderOptions"
+    MeetingView:
+      type: object
+      required: [id, title, status, statusDetail, host, port, createdAt, updatedAt, joinUrl, invitationReady]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        status:
+          type: string
+        statusDetail:
+          type: string
+        host:
+          type: string
+        port:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        joinUrl:
+          type: string
+        invitationReady:
+          type: boolean
+    CreateMeetingRequest:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+        id:
+          type: string
+        host:
+          type: string
+        port:
+          type: integer
+        password:
+          type: string
+    InvitationResponse:
+      type: object
+      required: [url, meetingId]
+      properties:
+        url:
+          type: string
+        meetingId:
+          type: string
+    EnrollmentResponse:
+      type: object
+      required: [url, expiresInSeconds]
+      properties:
+        url:
+          type: string
+        expiresInSeconds:
+          type: integer
+    ServerTransportConfig:
+      type: object
+      properties:
+        serverPublicKey:
+          type: string
+        admissionEndpoint:
+          type: string
+        allowUntrustedLoopbackCertificate:
+          type: boolean
+    ClaimRule:
+      type: object
+      properties:
+        claim:
+          type: string
+        values:
+          type: array
+          items:
+            type: string
+    AccessConfig:
+      type: object
+      properties:
+        allowedGroups:
+          type: array
+          items:
+            type: string
+        allowedClaims:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClaimRule"
+    ClientProviderConfig:
+      type: object
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        issuer:
+          type: string
+        clientId:
+          type: string
+        clientSecret:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        displayNameClaims:
+          type: array
+          items:
+            type: string
+        access:
+          $ref: "#/components/schemas/AccessConfig"
+    RedirectConfig:
+      type: object
+      properties:
+        mode:
+          type: string
+        host:
+          type: string
+        port:
+          type: integer
+        path:
+          type: string
+    EnforcementConfig:
+      type: object
+      properties:
+        allowOfflineWithinTokenValidity:
+          type: boolean
+    ClientConfiguration:
+      type: object
+      properties:
+        defaultProviderId:
+          type: string
+        serverTransport:
+          $ref: "#/components/schemas/ServerTransportConfig"
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClientProviderConfig"
+        redirect:
+          $ref: "#/components/schemas/RedirectConfig"
+        enforcement:
+          $ref: "#/components/schemas/EnforcementConfig"
+    JoinManifestMeeting:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+    JoinManifestConnection:
+      type: object
+      properties:
+        host:
+          type: string
+        port:
+          type: integer
+        password:
+          type: string
+    JoinManifest:
+      type: object
+      properties:
+        meeting:
+          $ref: "#/components/schemas/JoinManifestMeeting"
+        connection:
+          $ref: "#/components/schemas/JoinManifestConnection"
+        serverTransport:
+          $ref: "#/components/schemas/ServerTransportConfig"
