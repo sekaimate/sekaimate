@@ -466,6 +466,44 @@ func TestCreateMeeting_BrowserEndpointsFlowToManifestAndDeepLink(t *testing.T) {
 	}
 }
 
+func TestJoin_UsesStaticServerBrowserEndpointsForLegacyMeeting(t *testing.T) {
+	deps := newTestDeps(t)
+	ws := "wss://legacy.example.com:4297/basis"
+	info := "https://legacy.example.com:4297/server-info"
+	provider := config.ProviderConfig{Id: "p", Issuer: "https://issuer.example", Audience: "aud", JwksUri: "https://issuer.example/jwks"}
+	if err := deps.Config.AddServer(config.ServerConfig{
+		Id: "legacy", TransportPublicKey: "legacy-public", TicketSigningKey: strings.Repeat("k", 32),
+		WebSocketUri: ws, ServerInfoUri: info, Providers: []config.ProviderConfig{provider},
+	}); err != nil {
+		t.Fatalf("add static server: %v", err)
+	}
+	meeting := controlplane.MeetingRecord{
+		Id: "legacy", Title: "Legacy room", Status: "ready", Host: "game.example.com", Port: 4296,
+		Password: "secret", InviteToken: "legacy-invite", TransportPublicKey: "legacy-public",
+	}
+	if err := deps.Meetings.Add(meeting); err != nil {
+		t.Fatalf("add meeting: %v", err)
+	}
+	mux := NewMux(deps)
+
+	rec := doRequest(t, mux, http.MethodGet, "/join/legacy-invite/config", nil, nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), ws) || !strings.Contains(rec.Body.String(), info) {
+		t.Fatalf("join config: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	rec = doRequest(t, mux, http.MethodGet, "/join/legacy-invite/manifest", nil, nil)
+	var manifest JoinManifest
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &manifest) != nil {
+		t.Fatalf("join manifest: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if manifest.Connection == nil || manifest.Connection.WebSocketUri == nil || *manifest.Connection.WebSocketUri != ws || manifest.Connection.ServerInfoUri == nil || *manifest.Connection.ServerInfoUri != info {
+		t.Fatalf("manifest browser endpoints = %+v", manifest.Connection)
+	}
+	rec = doRequest(t, mux, http.MethodGet, "/join/legacy-invite", nil, nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "websocketUri") || !strings.Contains(rec.Body.String(), escapeDataString(ws)) {
+		t.Fatalf("join page: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func mustMeetingInvite(t *testing.T, deps Deps, id string) string {
 	t.Helper()
 	meeting, ok := deps.Meetings.Find(id)
