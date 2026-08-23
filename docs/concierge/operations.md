@@ -221,6 +221,71 @@ curl --fail --cacert "$(mkcert -CAROOT)/rootCA.pem" \
 Agones 経由の実 image TLS 検証、port-forward を含む過去の実測値は `verification.md §4.2` に記録しています。
 外部 IP／Ingress 経路は別の証明書・DNS・firewall 設定が必要です。
 
+### 5.1 Agones GameServer へ証明書 Secret を渡す
+
+Basis Server 自身に TLS を終端させる場合は、Concierge が会議ごとに作成する
+GameServer の Pod へ、あらかじめ作成した Kubernetes Secret を read-only で mount します。
+証明書を Concierge Pod に mount する必要はありません。`appsettings.json` の
+`Broker.Kubernetes` に Secret 名、2 つのキー、mount 先を明示してください。
+
+次の例は minikube のローカル検証用です。証明書の SAN には、ブラウザまたは curl が実際に
+接続する名前/IP を全て含めます。生成した秘密鍵と Secret の manifest はリポジトリへ commit
+しないでください。
+
+```sh
+set -eu
+cert_dir="$(mktemp -d)"
+chmod 700 "$cert_dir"
+openssl req -x509 -newkey rsa:2048 -sha256 -nodes \
+  -keyout "$cert_dir/tls.key" \
+  -out "$cert_dir/tls.crt" \
+  -days 7 \
+  -subj '/CN=basis-web.local' \
+  -addext 'subjectAltName=DNS:basis-web.local,DNS:localhost,IP:127.0.0.1'
+
+kubectl --context minikube --namespace basis create secret tls basis-web-tls \
+  --cert="$cert_dir/tls.crt" --key="$cert_dir/tls.key" \
+  --dry-run=client --output yaml | kubectl --context minikube apply -f -
+```
+
+`appsettings.json` には次を追加します（`CertificateKey` と `PrivateKeyKey` は Secret の
+data key と一致させます）。
+
+```json
+{
+  "Broker": {
+    "Kubernetes": {
+      "WebSocketTlsSecretName": "basis-web-tls",
+      "CertificateKey": "tls.crt",
+      "PrivateKeyKey": "tls.key",
+      "MountPath": "/run/basis-web-tls"
+    }
+  }
+}
+```
+
+`BASIS_SERVER_WEBSOCKET_ENABLED=true` と
+`BASIS_SERVER_WEBSOCKET_USE_TLS=true` を Concierge Deployment に設定して再起動すると、
+managed GameServer の `basis-server` コンテナには次が生成されます。
+
+- Secret `basis-web-tls` の `tls.crt`/`tls.key` を `/run/basis-web-tls` に read-only mount
+- `WebSocketCertificatePath=/run/basis-web-tls/tls.crt`
+- `WebSocketCertificateKeyPath=/run/basis-web-tls/tls.key`
+
+作成内容は次で確認できます。値そのものは表示せず、Secret の存在・キー名・Pod の
+volume/volumeMount と、コンテナ内のファイル mode だけを確認します。
+
+```sh
+kubectl --context minikube --namespace basis get secret basis-web-tls \
+  --output jsonpath='{.type}{"\n"}{.data.tls\.crt}{"\n"}{.data.tls\.key}{"\n"}' >/dev/null
+kubectl --context minikube --namespace basis get gameserver -o yaml \
+  | rg -n 'websocket-tls|basis-web-tls|WebSocketCertificate(Path|KeyPath)|readOnly'
+```
+
+TLS が無効な構成ではこの Secret 設定は無視され、既存の UDP-only/WebSocket plaintext
+構成は変わりません。TLS 有効時に 4 項目のいずれかが欠けている場合は会議作成を拒否し、
+不完全な Secret や GameServer を作成しません。
+
 ## 6. Web OIDC（test fixture と実 IdP）
 
 OIDC の署名検証は、外部 IdP の秘密値を共有せずに再現できる Go test fixture を使用します。これは

@@ -406,6 +406,25 @@ implementation.md phase 1 の §8 で「未実装」としていた、静的 `Se
 | `BASIS_SERVER_WEBSOCKET_URI_TEMPLATE` / `BASIS_SERVER_INFO_URI_TEMPLATE` | (空) | `{host}`/`{port}`だけを置換する完全な外部 URI。appsettings の `Broker.Managed*Template` でも指定可能で、環境変数が優先される。 |
 | `GAMESERVER_READY_TIMEOUT_SECONDS` | `120` | `watchReady` が Ready を待つ上限秒数。超過すると会議は `failed` になり、自動リトライしない(`design.md` §12 決定事項 3)。 |
 
+`Broker.Kubernetes` は managed GameServer が Basis Server 自身で TLS を終端する場合の
+証明書 Secret を指定する。`WebSocketTlsSecretName`、`CertificateKey`、`PrivateKeyKey`、
+`MountPath` は TLS 有効時に全て指定する必要があり、GameServer の `basis-server` コンテナへ
+Secret を read-only で mount し、mount 内の実パスを `WebSocketCertificatePath`/
+`WebSocketCertificateKeyPath` として注入する。TLS 無効時はこの設定を無視する。
+
+```json
+{
+  "Broker": {
+    "Kubernetes": {
+      "WebSocketTlsSecretName": "basis-web-tls",
+      "CertificateKey": "tls.crt",
+      "PrivateKeyKey": "tls.key",
+      "MountPath": "/run/basis-web-tls"
+    }
+  }
+}
+```
+
 ### 9.8 `Dockerfile`/`deploy/` の使い方
 
 `deploy/` は `design.md` §3 のツリーどおり 4 ファイル構成(`00-namespace.yaml`/`10-rbac.yaml`/

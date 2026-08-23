@@ -206,6 +206,40 @@ distroless のままである。
 検証用 meeting、GameServer、Web provider credential は終了時に削除・復元し、他の既存 meeting は削除していない。
 ユーザーのブラウザ確認用に minikube と Concierge Deployment、`localhost:5080` port-forward は維持している。
 
+同じ検証を、TLS Secret の自動 mount 実装を含む現 HEAD の Concierge image (`localhost/concierge:tls-secret`)で再実施した。
+既存のブラウザ確認用 Deployment/PVC は変更せず、一時的な `concierge-tls-e2e` Deployment/PVC/設定 Secret を追加して
+実測後に専用リソースだけ削除した。`Broker.Kubernetes` には次を設定した。
+
+```json
+{
+  "WebSocketTlsSecretName": "basis-web-tls",
+  "CertificateKey": "tls.crt",
+  "PrivateKeyKey": "tls.key",
+  "MountPath": "/run/basis-web-tls"
+}
+```
+
+`basis-web-tls` は minikube 内で SAN (`basis-web.local`, `localhost`, `127.0.0.1`) 付き自己署名証明書を生成し、
+`kubectl create secret tls` で作成した。実 image `basis-server:real-e2e-tls2` の meeting
+`tls-secret-e2e-n_a_zd0` / GameServer `basis-tls-secret-e2e-n-a-zd0` は `Ready` となり、
+`Status.Address=192.168.49.2`、UDP `game=7776`、TCP `websocket=7168` を得た。GameServer YAML で
+`basis-web-tls` の `tls.crt`/`tls.key` read-only volume、`/run/basis-web-tls` mount、
+`WebSocketCertificatePath=/run/basis-web-tls/tls.crt`、`WebSocketCertificateKeyPath=/run/basis-web-tls/tls.key` を確認し、
+実 Pod のログでも HTTPS listener (`4297`) の起動を確認した。
+
+実 Pod の `4297` へ一時 port-forward (`127.0.0.1:17917`) して再実測した結果は次のとおり。
+
+| 項目 | 結果 |
+|---|---|
+| 許可 Origin の server-info | Pass。`Origin: http://allowed.example:4173` が `200` と `Access-Control-Allow-Origin` を返した。 |
+| 拒否 Origin の server-info | Pass。`Origin: http://evil.example:4173` が `403 Forbidden` を返した。 |
+| 許可 Origin の WSS Upgrade | Pass。`wss://127.0.0.1:17917/basis` が `101 Switching Protocols` を返した。 |
+| 拒否 Origin の WSS Upgrade | Pass。同じ URL に拒否 Origin を付けると `403 Forbidden` を返した。 |
+
+これにより、証明書を別途イメージへ焼き込まず、Kubernetes Secret → GameServer read-only volume → Basis Server TLS
+環境変数という現行実装の経路を minikube で再現できることを確認した。検証用 meeting/GameServer、専用 Concierge
+Deployment/PVC/Secret、port-forward は検証後に削除し、既存のブラウザ確認用 Concierge Deployment/port-forward は維持した。
+
 ## 5. 検証中に見つかった不具合と修正
 
 いずれもコードまたは `deploy/` マニフェストを修正し、コミットして再デプロイ・再検証した。

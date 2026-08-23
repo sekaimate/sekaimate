@@ -193,6 +193,13 @@ func buildProvisioner(cfg *config.Store, meetings *controlplane.Store) kube.Room
 	if err := config.ValidateBrowserEndpointTemplates(webSocketTemplate, serverInfoTemplate); err != nil {
 		log.Fatalf("concierge: invalid managed browser URI templates: %v", err)
 	}
+	var tlsSecretName, tlsCertificateKey, tlsPrivateKeyKey, tlsMountPath string
+	if kubernetesConfig := cfg.GetKubernetes(); kubernetesConfig != nil {
+		tlsSecretName = kubernetesConfig.WebSocketTlsSecretName
+		tlsCertificateKey = kubernetesConfig.CertificateKey
+		tlsPrivateKeyKey = kubernetesConfig.PrivateKeyKey
+		tlsMountPath = kubernetesConfig.MountPath
+	}
 	manager := kube.NewManager(agonesClientset, coreClientset, meetings, kube.ManagerConfig{
 		Namespace:                   namespace,
 		Image:                       envOrDefault("BASIS_SERVER_IMAGE", ""),
@@ -204,6 +211,10 @@ func buildProvisioner(cfg *config.Store, meetings *controlplane.Store) kube.Room
 		WebSocketUseTLS:             webSocketUseTLS,
 		WebSocketCertificatePath:    webSocketCertificatePath,
 		WebSocketCertificateKeyPath: webSocketCertificateKeyPath,
+		WebSocketTlsSecretName:      tlsSecretName,
+		WebSocketTlsCertificateKey:  tlsCertificateKey,
+		WebSocketTlsPrivateKeyKey:   tlsPrivateKeyKey,
+		WebSocketTlsMountPath:       tlsMountPath,
 		WebSocketAllowedOrigins:     allowedOrigins,
 		WebSocketUriTemplate:        webSocketTemplate,
 		ServerInfoUriTemplate:       serverInfoTemplate,

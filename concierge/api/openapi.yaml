@@ -12,7 +12,10 @@ info:
     join pages, /admin/client-config/{serverId}) are documented here for
     completeness but are written directly by the handlers rather than
     generated, since oapi-codegen's std-http-server mode only generates
-    routing and parameter binding, not response encoding.
+    routing and parameter binding, not response encoding. Managed WebGL
+    GameServers may terminate TLS using the read-only Kubernetes Secret
+    configured by Broker.Kubernetes; that deployment-only setting is not
+    mutable through this API.
 paths:
   /client-config/{serverId}:
     get:
@@ -406,6 +409,12 @@ paths:
           description: Unauthorized.
         "409":
           description: Organization SSO settings incomplete.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Kubernetes GameServer provisioning failed, including invalid TLS Secret configuration.
           content:
             application/problem+json:
               schema:

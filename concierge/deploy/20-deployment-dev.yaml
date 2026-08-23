@@ -67,6 +67,15 @@ spec:
               value: "true"
             - name: BASIS_SERVER_IMAGE
               value: basis-server:dev
+            # WebGL-managed GameServers use the Kubernetes.WebSocketTls*
+            # settings from appsettings.json. Create that Secret before
+            # creating a meeting (see docs/concierge/operations.md §5).
+            - name: BASIS_SERVER_WEBSOCKET_ENABLED
+              value: "true"
+            - name: BASIS_SERVER_WEBSOCKET_USE_TLS
+              value: "true"
+            - name: BASIS_SERVER_WEBSOCKET_ALLOWED_ORIGINS
+              value: "http://127.0.0.1:5080,http://localhost:5080"
             - name: GAMESERVER_READY_TIMEOUT_SECONDS
               value: "120"
             - name: BASIS_SSO_ADMIN_TOKEN

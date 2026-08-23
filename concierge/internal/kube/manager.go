@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -88,9 +89,18 @@ type ManagerConfig struct {
 	WebSocketUseTLS             bool
 	WebSocketCertificatePath    string
 	WebSocketCertificateKeyPath string
-	WebSocketAllowedOrigins     []string
-	WebSocketUriTemplate        string
-	ServerInfoUriTemplate       string
+	// WebSocket TLS Secret settings are used when Basis Server terminates TLS
+	// itself. The Secret is mounted read-only into each managed GameServer;
+	// all four fields must be supplied together. Empty values retain the
+	// legacy direct-path behavior for deployments that terminate TLS outside
+	// the GameServer.
+	WebSocketTlsSecretName     string
+	WebSocketTlsCertificateKey string
+	WebSocketTlsPrivateKeyKey  string
+	WebSocketTlsMountPath      string
+	WebSocketAllowedOrigins    []string
+	WebSocketUriTemplate       string
+	ServerInfoUriTemplate      string
 	// ReadyTimeout bounds how long Create's background watch waits for the
 	// GameServer to become Ready before marking the meeting failed.
 	// Defaults to 120s (design.md §12 decision 3).
@@ -123,6 +133,32 @@ func (c ManagerConfig) withDefaults() ManagerConfig {
 		c.PollInterval = defaultPollInterval
 	}
 	return c
+}
+
+func (c ManagerConfig) validateWebSocketTLS() error {
+	if !c.WebSocketEnabled || !c.WebSocketUseTLS {
+		return nil
+	}
+	values := []string{c.WebSocketTlsSecretName, c.WebSocketTlsCertificateKey, c.WebSocketTlsPrivateKeyKey, c.WebSocketTlsMountPath}
+	set := 0
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			set++
+		}
+	}
+	if set == 0 {
+		return nil
+	}
+	if set != len(values) {
+		return errors.New("kube: WebSocket TLS SecretName, CertificateKey, PrivateKeyKey, and MountPath must be configured together")
+	}
+	if !path.IsAbs(c.WebSocketTlsMountPath) || c.WebSocketTlsMountPath == "/" {
+		return fmt.Errorf("kube: WebSocket TLS MountPath must be an absolute non-root path, got %q", c.WebSocketTlsMountPath)
+	}
+	if strings.ContainsAny(c.WebSocketTlsCertificateKey, `/\\`) || strings.ContainsAny(c.WebSocketTlsPrivateKeyKey, `/\\`) {
+		return errors.New("kube: WebSocket TLS Secret keys must be single path components")
+	}
+	return nil
 }
 
 // Manager is the Agones-backed RoomProvisioner. It implements
@@ -181,6 +217,9 @@ func gameServerName(meetingID string) string {
 // the synchronous part); the async continuation lives entirely inside
 // Manager rather than requiring internal/api's handlers to change.
 func (m *Manager) Create(ctx context.Context, meetingID string, keys RoomKeys) error {
+	if err := m.cfg.validateWebSocketTLS(); err != nil {
+		return err
+	}
 	labels := map[string]string{appLabelKey: appLabelValue, instanceLabelKey: meetingID}
 
 	secret := &corev1.Secret{
@@ -273,11 +312,29 @@ func (m *Manager) Create(ctx context.Context, meetingID string, keys RoomKeys) e
 			{Name: "WebSocketServerInfoPath", Value: m.cfg.ServerInfoPath},
 			{Name: "WebSocketUseTls", Value: strconv.FormatBool(m.cfg.WebSocketUseTLS)},
 		}
-		if m.cfg.WebSocketCertificatePath != "" {
-			webEnv = append(webEnv, corev1.EnvVar{Name: "WebSocketCertificatePath", Value: m.cfg.WebSocketCertificatePath})
+		certificatePath, certificateKeyPath := m.cfg.WebSocketCertificatePath, m.cfg.WebSocketCertificateKeyPath
+		if m.cfg.WebSocketUseTLS && m.cfg.WebSocketTlsSecretName != "" {
+			certificatePath = path.Join(m.cfg.WebSocketTlsMountPath, m.cfg.WebSocketTlsCertificateKey)
+			certificateKeyPath = path.Join(m.cfg.WebSocketTlsMountPath, m.cfg.WebSocketTlsPrivateKeyKey)
+			gs.Spec.Template.Spec.Volumes = append(gs.Spec.Template.Spec.Volumes, corev1.Volume{
+				Name: "websocket-tls",
+				VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{
+					SecretName: m.cfg.WebSocketTlsSecretName,
+					Items: []corev1.KeyToPath{
+						{Key: m.cfg.WebSocketTlsCertificateKey, Path: m.cfg.WebSocketTlsCertificateKey},
+						{Key: m.cfg.WebSocketTlsPrivateKeyKey, Path: m.cfg.WebSocketTlsPrivateKeyKey},
+					},
+				}},
+			})
+			gs.Spec.Template.Spec.Containers[0].VolumeMounts = append(gs.Spec.Template.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+				Name: "websocket-tls", MountPath: m.cfg.WebSocketTlsMountPath, ReadOnly: true,
+			})
 		}
-		if m.cfg.WebSocketCertificateKeyPath != "" {
-			webEnv = append(webEnv, corev1.EnvVar{Name: "WebSocketCertificateKeyPath", Value: m.cfg.WebSocketCertificateKeyPath})
+		if certificatePath != "" {
+			webEnv = append(webEnv, corev1.EnvVar{Name: "WebSocketCertificatePath", Value: certificatePath})
+		}
+		if certificateKeyPath != "" {
+			webEnv = append(webEnv, corev1.EnvVar{Name: "WebSocketCertificateKeyPath", Value: certificateKeyPath})
 		}
 		if len(m.cfg.WebSocketAllowedOrigins) > 0 {
 			webEnv = append(webEnv, corev1.EnvVar{Name: "WebSocketAllowedOrigins", Value: strings.Join(m.cfg.WebSocketAllowedOrigins, ",")})

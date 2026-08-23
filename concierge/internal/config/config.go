@@ -267,6 +267,18 @@ type OrganizationConfig struct {
 	Providers         []ProviderConfig `json:"Providers,omitempty"`
 }
 
+// KubernetesConfig contains settings that affect concierge-created
+// GameServers.  It intentionally lives in the appsettings Broker section so
+// the same seed file can be used by the deployment and by local operators.
+// The WebSocket TLS fields describe an existing Kubernetes Secret; concierge
+// never creates or mutates that Secret.
+type KubernetesConfig struct {
+	WebSocketTlsSecretName string `json:"WebSocketTlsSecretName,omitempty"`
+	CertificateKey         string `json:"CertificateKey,omitempty"`
+	PrivateKeyKey          string `json:"PrivateKeyKey,omitempty"`
+	MountPath              string `json:"MountPath,omitempty"`
+}
+
 // IsStructurallyValid mirrors OrganizationOptions.IsStructurallyValid.
 func (o OrganizationConfig) IsStructurallyValid() (bool, string) {
 	if len(o.Providers) == 0 {
@@ -302,6 +314,7 @@ type BrokerConfig struct {
 	AllowUnauthenticatedAdmin     bool                `json:"AllowUnauthenticatedAdmin,omitempty"`
 	Servers                       []ServerConfig      `json:"Servers,omitempty"`
 	Organization                  *OrganizationConfig `json:"Organization,omitempty"`
+	Kubernetes                    *KubernetesConfig   `json:"Kubernetes,omitempty"`
 	// These templates are used only for concierge-managed rooms when their
 	// Agones TCP port becomes known. Both must be explicit; {host} and {port}
 	// are replaced, and no scheme/ingress path is guessed.
@@ -399,6 +412,19 @@ func (s *Store) FindServer(id string) (ServerConfig, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.findServerLocked(id)
+}
+
+// GetKubernetes returns a copy of the optional Kubernetes provisioning
+// settings. A nil result means no Kubernetes-specific settings were supplied
+// and preserves the legacy zero-configuration behavior.
+func (s *Store) GetKubernetes() *KubernetesConfig {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.cfg.Kubernetes == nil {
+		return nil
+	}
+	out := *s.cfg.Kubernetes
+	return &out
 }
 
 func (s *Store) findServerLocked(id string) (ServerConfig, bool) {

@@ -305,6 +305,7 @@ basis-k8s の `/servers`(`POST`/`GET`/`GET {name}`/`DELETE`)相当の操作は�
 | （新規）`BASIS_SERVER_WEBSOCKET_ENABLED` / `BASIS_SERVER_WEBSOCKET_PORT` | WebGL 用 named TCP port を有効化。既定は無効、コンテナポート既定 `4297`。 |
 | （新規）`BASIS_SERVER_WEBSOCKET_PATH` / `BASIS_SERVER_INFO_PATH` | WebSocket/server-info の Basis Server 内パス。既定は `/basis`/`/server-info`。 |
 | （新規）`BASIS_SERVER_WEBSOCKET_USE_TLS` / `BASIS_SERVER_WEBSOCKET_ALLOWED_ORIGINS` | TLS と CORS 許可 origin を明示設定する。Ingress や証明書の自動推測は行わない。 |
+| `Broker.Kubernetes.WebSocketTlsSecretName` / `CertificateKey` / `PrivateKeyKey` / `MountPath` | Basis Server 自身で TLS を終端する managed GameServer 用の Secret 設定。4 項目を全て指定すると Secret を read-only mount し、mount 内の証明書パスを `WebSocketCertificatePath`/`WebSocketCertificateKeyPath` として注入する。TLS 無効時は無視する。 |
 | （新規）`BASIS_SERVER_WEBSOCKET_URI_TEMPLATE` / `BASIS_SERVER_INFO_URI_TEMPLATE` | Agones Status の address と named TCP port から外部 URI を組み立てるテンプレート。2 つとも明示する。 |
 
 ### 8.2 設定ファイル

@@ -164,6 +164,80 @@ func TestCreate_WebSocketAddsNamedTCPPortAndOverrides(t *testing.T) {
 	}
 }
 
+func TestCreate_WebSocketTLSSecretMountsReadOnlyAndDerivesPaths(t *testing.T) {
+	m, agones, _ := newTestManager(t, nil, ManagerConfig{
+		WebSocketEnabled:           true,
+		WebSocketUseTLS:            true,
+		WebSocketTlsSecretName:     "basis-web-tls",
+		WebSocketTlsCertificateKey: "tls.crt",
+		WebSocketTlsPrivateKeyKey:  "tls.key",
+		WebSocketTlsMountPath:      "/run/basis-web-tls",
+	})
+	if err := m.Create(context.Background(), "tls-room", testKeys()); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	gs, err := agones.AgonesV1().GameServers(testNamespace).Get(context.Background(), "basis-tls-room", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get gameserver: %v", err)
+	}
+	if len(gs.Spec.Template.Spec.Volumes) != 1 {
+		t.Fatalf("volumes = %+v, want one TLS Secret volume", gs.Spec.Template.Spec.Volumes)
+	}
+	volume := gs.Spec.Template.Spec.Volumes[0]
+	if volume.Name != "websocket-tls" || volume.Secret == nil || volume.Secret.SecretName != "basis-web-tls" {
+		t.Fatalf("TLS volume = %+v, want read-only Secret basis-web-tls", volume)
+	}
+	if len(volume.Secret.Items) != 2 || volume.Secret.Items[0].Key != "tls.crt" || volume.Secret.Items[1].Key != "tls.key" {
+		t.Fatalf("TLS volume items = %+v, want tls.crt/tls.key", volume.Secret.Items)
+	}
+	game := gs.Spec.Template.Spec.Containers[0]
+	if len(game.VolumeMounts) != 1 || game.VolumeMounts[0].Name != "websocket-tls" || game.VolumeMounts[0].MountPath != "/run/basis-web-tls" || !game.VolumeMounts[0].ReadOnly {
+		t.Fatalf("volume mounts = %+v, want read-only /run/basis-web-tls", game.VolumeMounts)
+	}
+	env := map[string]string{}
+	for _, item := range game.Env {
+		env[item.Name] = item.Value
+	}
+	if env["WebSocketCertificatePath"] != "/run/basis-web-tls/tls.crt" || env["WebSocketCertificateKeyPath"] != "/run/basis-web-tls/tls.key" {
+		t.Fatalf("TLS env = %v, want derived certificate paths", env)
+	}
+}
+
+func TestCreate_WebSocketTLSSecretConfigurationMustBeComplete(t *testing.T) {
+	m, agones, core := newTestManager(t, nil, ManagerConfig{
+		WebSocketEnabled:       true,
+		WebSocketUseTLS:        true,
+		WebSocketTlsSecretName: "basis-web-tls",
+	})
+	if err := m.Create(context.Background(), "invalid-tls-room", testKeys()); err == nil {
+		t.Fatal("Create succeeded with incomplete WebSocket TLS Secret configuration")
+	}
+	if _, err := core.CoreV1().Secrets(testNamespace).Get(context.Background(), "basis-invalid-tls-room-sso", metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("SSO Secret after validation failure = %v, want NotFound", err)
+	}
+	if _, err := agones.AgonesV1().GameServers(testNamespace).Get(context.Background(), "basis-invalid-tls-room", metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("GameServer after validation failure = %v, want NotFound", err)
+	}
+}
+
+func TestCreate_WebSocketTLSSecretConfigurationIgnoredWhenTLSDisabled(t *testing.T) {
+	m, agones, _ := newTestManager(t, nil, ManagerConfig{
+		WebSocketEnabled:       true,
+		WebSocketUseTLS:        false,
+		WebSocketTlsSecretName: "basis-web-tls",
+	})
+	if err := m.Create(context.Background(), "plain-web-room", testKeys()); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	gs, err := agones.AgonesV1().GameServers(testNamespace).Get(context.Background(), "basis-plain-web-room", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get gameserver: %v", err)
+	}
+	if len(gs.Spec.Template.Spec.Volumes) != 0 || len(gs.Spec.Template.Spec.Containers[0].VolumeMounts) != 0 {
+		t.Fatalf("TLS volume unexpectedly mounted while TLS disabled: volumes=%+v mounts=%+v", gs.Spec.Template.Spec.Volumes, gs.Spec.Template.Spec.Containers[0].VolumeMounts)
+	}
+}
+
 func TestCreate_CustomImageAndPort(t *testing.T) {
 	m, agones, _ := newTestManager(t, nil, ManagerConfig{Image: "registry.example/basis-server:v2", ContainerPort: 5000})
 	ctx := context.Background()
