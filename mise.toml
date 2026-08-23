@@ -47,22 +47,22 @@ description = "ローカルSSO用CAをmacOSのログインキーチェーンで�
 run = "bash ./tools/sso-trust-ca.sh"
 
 [tasks."sso:down"]
-description = "SSO BrokerとAdmin gatewayを停止"
+description = "ConciergeとAdmin gatewayを停止"
 run = 'docker compose -f "Basis Server/Docker/sso/docker-compose.yml" down'
 
 [tasks."sso:logs"]
-description = "SSO BrokerとAdmin gatewayのログを表示"
+description = "ConciergeとAdmin gatewayのログを表示"
 run = 'docker compose -f "Basis Server/Docker/sso/docker-compose.yml" logs -f'
 
 [tasks."sso:install"]
 description = "Admin Consoleの依存関係をインストール"
-dir = "Basis/Tools/BasisSsoBroker/AdminUi"
+dir = "concierge/adminui"
 run = "pnpm install --frozen-lockfile"
 
 [tasks."sso:dev"]
 description = "SSO gatewayを起動し、Admin Consoleの開発サーバーを実行"
 depends = ["sso:up", "sso:install"]
-dir = "Basis/Tools/BasisSsoBroker/AdminUi"
+dir = "concierge/adminui"
 run = "pnpm run dev"
 
 [tasks."local:up"]

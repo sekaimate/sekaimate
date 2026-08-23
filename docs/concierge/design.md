@@ -315,8 +315,8 @@ basis-k8s の `/servers`(`POST`/`GET`/`GET {name}`/`DELETE`)相当の操作は�
 
 ## 9. AdminUi
 
-Cloudscape AdminUi は元来 C# broker 用に `Basis/Tools/BasisSsoBroker/AdminUi` に実装された資産であり、
-C# broker と concierge は現時点で共存する。concierge 対応として、この既存 UI の管理画面部分を暫定的に
+Cloudscape AdminUi は元来 C# broker 用に `Basis/Tools/BasisSsoBroker/AdminUi` に実装された資産だが、runtime 完全移行に
+伴い `concierge/adminui` へ移管する。Concierge 対応として、この UI の管理画面部分を
 拡張し、Go API の認証ヘッダー、会議室ライフサイクル、health/status polling、静的サーバー管理、
 WebGL endpoint 検証を追加している。これは両 backend の完全互換や、concierge の正規共有ソースであることを
 意味しない。
@@ -325,7 +325,8 @@ WebGL endpoint 検証を追加している。これは両 backend の完全互�
 `/web-manifest`、`/web-oidc` 契約に依存する。concierge の参加導線は `/join/{token}`、`/config`、`/manifest`
 という別契約であり、join/OAuth の UI を共通利用できる状態ではない。将来 concierge 専用 UI にする場合は
 `concierge/adminui` へ分離し、Concierge の Dockerfile/deploy に frontend build と静的資産同梱を追加する。
-当面は C# Compose の現役導線を壊さないため、ソース移動は行わず、対応範囲を管理画面に限定する。
+Compose と standalone の現役導線を維持するため、gateway の TLS 契約と `/api` prefix は保つが、backend は Concierge
+だけにする。参加者向け web join/OIDC も Concierge 側の互換 endpoint を使う。
 ビルド済み静的アセットは concierge が `ADMIN_UI_DIR` から配信する。
 
 - AdminUi は Vite で `base: "/admin/"` としてビルドされ、`fetch('/api' + path)` で API を呼ぶ(`api.ts`)。
@@ -340,6 +341,13 @@ WebGL endpoint 検証を追加している。これは両 backend の完全互�
   変更しない)。
 - AdminUi は `sessionStorage` に入力した `BASIS_SSO_ADMIN_TOKEN` を Bearer token として `/api/*` の各管理 API に送る。
   API が返す JSON/problem detail のエラーを画面上の Flashbar に表示し、401 を握りつぶさない。
+
+Web/OIDC の完全移行では Concierge が `/web-client-config/{serverId}`、`/web-oidc/{serverId}/{providerId}/token`、
+`/join/{token}/details`、`/join/{token}/web-config`、`/join/{token}/web-manifest` も提供する。Web provider の
+client ID/secret/token endpoint と `Broker.AllowedWebOrigins` は Concierge の設定へ永続化し、token relay は認証コード・
+refresh token の必要フィールドだけを upstream へ転送する。CORS は許可 origin の完全一致、redirect は
+`/sso-callback` 固定で検証する。旧 C# broker 専用という記述は移行期間中の配信 UI と runtime API を混同しないための
+注記として扱い、API の正規実装は Concierge 側とする。
 
 ## 10. テスト・検証計画
 
@@ -390,8 +398,11 @@ basis-k8s の手法をそのまま踏襲する。`internal/kube` は Agones の�
 
 ## 11. 非スコープ
 
-- **C# broker の削除は行わない。** concierge は既存の C# broker と共存する新規サービスであり、既存の C# broker の
-  コード・デプロイ手順・ドキュメントを削除・非推奨化する作業はこの設計のスコープに含めない。
+- **C# broker runtime は Concierge に完全移行する。** `Basis/Tools/BasisSsoBroker` の C# サービス、child-process
+  launcher、Compose/systemd の C# build 導線は削除する。`SsoAdmissionTicket`、`SsoConnectionAuthPayload`、
+  `BasisSsoTransportKeys`、`RequireSso` と各 SSO key はゲームサーバーの wire protocol の一部なので維持する。
+  既存 `config.xml` の `AutoStartSsoBroker`/`SsoBrokerDirectory`/`SsoBrokerBindUrl` は XML 後方互換のため名前を残すが、
+  値は Concierge の起動設定として解釈する。
 - **スケーリング・アイドル停止は対象外。** basis-k8s 同様、Fleet/Fleet Autoscaler のようなプールベースのスケーリング、
   部屋の自動アイドル検出・停止、ウォームスタンバイの仕組みは設計しない。会議(部屋)は作成リクエストのたびに
   同期的・個別に 1 つの GameServer として作成される。
@@ -412,9 +423,8 @@ basis-k8s の手法をそのまま踏襲する。`internal/kube` は Agones の�
    この挙動も phase 2(実際に GameServer を作成するようになった時点)で実装する。phase 1 は `POST /admin/meetings` が
    同期的にレスポンスを返す現行 C# broker と同じ動作(host 指定時は即座に `ready`、未指定なら `provisioning` のまま)
    のままであり、待機・タイムアウトという概念自体がまだ発生しない。
-4. **`BasisSsoBrokerProcess.cs`(単体 Basis サーバーの子プロセス同居起動)は維持し、concierge は代替しない。**
-   concierge は Agones 管理下の部屋運用を主目的とし、単体運用の Basis サーバーが子プロセスとして broker を
-   同居起動する既存の運用パスにはこの設計は関与しない。
+4. **単体 Basis サーバーの child process も Concierge を起動する。** `ConciergeProcess.cs` は既存の XML 設定名を
+   読み、`concierge/concierge` と `appsettings.json` を同居起動する。Compose/systemd は同じ Go binary を直接起動する。
 
 ### phase 1 のスコープ外(上記の決定を実装するのは phase 2)
 

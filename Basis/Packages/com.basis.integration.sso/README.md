@@ -24,7 +24,7 @@ Implemented (this package):
 - X25519 + ChaCha20-Poly1305 encryption of the UDP admission envelope to the pinned server key.
 - Server-side HMAC validation, one-time ticket IDs, and the existing DID challenge.
 
-See `SSO-OPERATIONS.md` and `Tools/BasisSsoBroker/README.md` for deployment and trust-boundary details.
+See `docs/concierge/implementation.md` for deployment and trust-boundary details.
 
 ## WebGL client
 

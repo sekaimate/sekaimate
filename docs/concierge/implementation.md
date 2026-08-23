@@ -4,7 +4,23 @@
 
 `concierge/` の実装内容をまとめる。§1〜§8 は phase 1(Kubernetes 統合を含まない、ワイヤ互換の Go 版 Basis SSO
 Broker)の内容、§9 は phase 2(Agones/Kubernetes 統合)の内容。設計判断の根拠は `design.md`、互換性要件の出典は
-`research-sso-broker.md` と `Basis/Tools/BasisSsoBroker/` の C# 実装そのものを参照。
+`research-sso-broker.md` と、移行前に採取した C# broker の契約を参照する。runtime は Concierge に統一し、C# broker
+本体は配布しない。
+
+## Runtime 移行
+
+standalone Basis Server、Docker Compose、systemd、Agones の全運用で Go Concierge を起動する。standalone の
+`ConciergeProcess.cs` は既存 `config.xml` の `AutoStartSsoBroker`、`SsoBrokerDirectory`、`SsoBrokerBindUrl` を
+後方互換のため読み、指定ディレクトリの `concierge` binary と `appsettings.json` を起動する。フィールド名は既存 XML
+との互換性のため変更しないが、C# broker DLL は探索・起動しない。
+
+Compose は `concierge/Dockerfile.compose` と `concierge/docker-entrypoint.sh` を使う。entrypoint は共有された
+Basis `config.xml` から ticket signing key と transport public key を読み、Go プロセスへ環境変数として渡す。TLS と
+静的 UI は `concierge/adminui` の gateway が担当し、backend は `concierge` service である。systemd の
+`concierge.service.example` は `/opt/concierge/concierge` を直接起動する。
+
+`SsoAdmissionTicket`、`SsoConnectionAuthPayload`、`BasisSsoTransportKeys`、`RequireSso`、3 つの SSO key はゲーム
+サーバー/クライアント間の認証プロトコルなので削除しない。
 
 ## 1. パッケージ構成
 
@@ -149,9 +165,8 @@ phase 2 で Agones 対応の `Manager` を実装する際は、`RoomProvisioner`
 
 ## 5. AdminUi の配信と Concierge 対応
 
-`Basis/Tools/BasisSsoBroker/AdminUi/` は元来 C# broker の Docker/Nginx gateway とともに配布される既存 UI である。
-C# broker は単体 Basis Server の子プロセス運用と Compose 運用で現役のため、concierge の導入に伴って削除・移動は
-していない。現在はこの UI の管理画面部分を concierge API に暫定再利用し、次を提供する。
+`concierge/adminui/` は元来 C# broker 用だった Cloudscape UI を Concierge 配下へ移管したもの。C# broker の
+Docker/Nginx gateway は廃止し、Concierge API と組み合わせて次を提供する。
 
 - `sessionStorage` の admin token を `Authorization: Bearer` として全 `/api/*` 管理 API に送信
 - 会議室の作成・削除・招待 URL 発行、provisioning/ready/error の表示と 5 秒 polling
@@ -159,14 +174,12 @@ C# broker は単体 Basis Server の子プロセス運用と Compose 運用で�
 - 静的サーバーの追加・編集・削除、登録リンク発行
 - WebSocket URI / Server Info URI のペア検証と API error の画面表示
 
-これは C# broker と concierge の完全互換を意味しない。`join.tsx` と C# 側の Nginx は `/join/{token}/details`、
-`/join/{token}/web-config`、`/join/{token}/web-manifest`、`/web-oidc` を使用する一方、concierge は
-`/join/{token}/config` と `/join/{token}/manifest` 等の別契約を提供する。したがって参加者向け join/OAuth
-画面は C# backend 専用として扱い、concierge 管理画面の暫定再利用範囲と混同しない。
+Concierge は管理 API だけでなく、C# broker 互換の `/join/{token}/details`、`/join/{token}/web-config`、
+`/join/{token}/web-manifest`、`/web-oidc` を提供する。native client 向けの `/join/{token}/config` と
+`/join/{token}/manifest` も維持するため、同じ招待 token から native/WebGL の両方へ接続できる。
 
-将来 concierge 専用 UI が必要になった場合は `concierge/adminui` へ分離し、Concierge の Dockerfile/deploy に
-Node/Vite build と `ADMIN_UI_DIR` の同梱・設定を追加する。現状の `concierge/Dockerfile` は Go バイナリのみを
-生成し、Deployment も `ADMIN_UI_DIR` を設定しないため、UI は外部で `vp build` して指定する必要がある。
+`concierge/Dockerfile` は Node/Vite build と Go build を同梱し、runtime に `/adminui` を配置する。Deployment の
+`ADMIN_UI_DIR` 既定値も同じパスで、外部 UI build を要求しない。ローカル開発では `ADMIN_UI_DIR` を差し替えられる。
 
 コミットされた `dist/` は生成物のため、ソース変更後にローカルで `vp build` して生成する。
 
@@ -497,6 +510,22 @@ listen を必要としない `internal/config`/`internal/kube`/`internal/api` �
 
 実際に minikube + Agones 環境へデプロイして上記を確認した記録(環境情報・実行コマンド・検証項目ごとの結果・
 検証中に見つかった不具合とその修正)は `docs/concierge/verification.md`(phase 3)にまとめてある。
+
+### 9.12 Web/OIDC broker API parity
+
+Concierge now owns the browser-facing broker contract as well as native admission. The OpenAPI
+specification and generated router include `/web-client-config/{serverId}`, CORS preflight and
+`POST /web-oidc/{serverId}/{providerId}/token`, plus `/join/{token}/details`, `/web-config`, and
+`/web-manifest`. Provider settings persist the broker-side `WebClientId`, `WebClientSecret`, and
+`TokenEndpoint`; these secrets are used only by the token relay and are never included in WebGL
+client configuration.
+
+The token relay accepts only authorization-code and refresh-token grants, forwards only the
+required form fields, injects the configured provider credentials, validates `/sso-callback`
+redirect origins against `Broker.AllowedWebOrigins`, and applies `Cache-Control: no-store`.
+Admission and browser configuration endpoints enforce exact-origin CORS with `Vary: Origin`.
+Native and browser client configuration both emit provider authorization parameters (`hd`,
+`access_type=offline`, and `prompt=consent`) and browser configuration uses the broker relay URL.
 
 ### 9.11 stacked PR の親ブランチと Admin UI の保全
 

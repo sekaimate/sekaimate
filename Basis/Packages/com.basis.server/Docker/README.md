@@ -29,8 +29,8 @@ Docker/
 ├── config/
 ├── initialresources/
 └── sso/
-    ├── docker-compose.yml   # broker + Nginx + React管理画面
-    ├── broker/              # broker設定と配布用クライアント設定
+    ├── docker-compose.yml   # Concierge + Nginx + React管理画面
+    ├── broker/              # Concierge設定と配布用クライアント設定
     └── nginx/certs/         # ローカルTLS証明書（Git管理外）
 ```
 
@@ -57,12 +57,12 @@ reveal the value with the eye icon, and copy the full `did:key:...` value. When 
 obtain it after signing into the same Google/Okta identity you will use to administer the server.
 
 SSO はゲームサーバーと別 Compose で起動する。Nginx が `https://localhost` を担当し、
-broker の HTTP ポートはホストへ公開しない。詳しい設定・ローカル CA の信頼・管理画面の使い方は
-[`sso/README.md`](sso/README.md) を参照する。
+Concierge の HTTP ポートはホストへ公開しない。Compose の実体はリポジトリルートの
+`Basis Server/Docker/sso/docker-compose.yml` にあり、管理画面の使い方は `concierge/adminui/README.md` を参照する。
 
 ### Browser-managed SSO client configuration
 
-The broker can configure a running client without embedding `basis-sso.json` into its build. Start
+Concierge can configure a running client without embedding `basis-sso.json` into its build. Start
 the SSO Compose stack and open `https://localhost/admin/`; the local-only development gateway does
 not require an admin token. Configure the organization settings, then use a meeting invitation.
 Opening that URL on the same machine while Basis is running applies the configuration only to that
@@ -176,24 +176,24 @@ services:
 
 ## SSO broker
 
-ゲームサーバーと OIDC broker は別 Compose で起動する。先にゲームサーバーを起動し、
+ゲームサーバーと OIDC Concierge は別 Compose で起動する。先にゲームサーバーを起動し、
 次に SSO stack を起動する。
 
 ```sh
 docker compose up -d --build
 
-cd sso
+cd "../../../Basis Server/Docker/sso"
 docker compose up -d --build
-docker compose logs -f basis-sso-broker basis-sso-admin
+docker compose logs -f concierge basis-sso-admin
 ```
 
-broker はゲームサーバーの `config/config.xml` に生成される鍵を待機して読み取る。平文の
-broker ポートは Docker network 内部だけで、Nginx が `https://localhost` の唯一の入口となる。
+Concierge はゲームサーバーの `config/config.xml` に生成される鍵を待機して読み取る。平文の
+Concierge ポートは Docker network 内部だけで、Nginx が `https://localhost` の唯一の入口となる。
 `https://localhost/admission/local` をクライアント設定へ配布する。Google/Okta と管理画面、
-ローカル CA の信頼登録は [`sso/README.md`](sso/README.md) を参照する。
+ローカル CA の信頼登録は `tools/sso-ca.sh` と `tools/sso-trust-ca.sh` を参照する。
 
 For a non-Docker standalone server, the server can instead start and stop a published local
-broker automatically through `RequireSso=true` and `AutoStartSsoBroker=true` in `config.xml`.
+Concierge automatically through `RequireSso=true` and the legacy-compatible `AutoStartSsoBroker=true` in `config.xml`.
 
 ## Customizing Configuration
 

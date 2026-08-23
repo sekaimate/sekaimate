@@ -54,8 +54,8 @@ namespace Basis
                 Api = new BasisRestApiHandler(config);
 #endif
 
-            var ssoBroker = new BasisSsoBrokerProcess();
-            ssoBroker.Start(config, baseDir);
+            var concierge = new ConciergeProcess();
+            concierge.Start(config, baseDir);
 
             NetworkServer.StartServer(config);
             
@@ -99,7 +99,7 @@ namespace Basis
 #if !UNITY_2017_1_OR_NEWER
                 Api?.Dispose();
 #endif
-                ssoBroker.Dispose();
+                concierge.Dispose();
                 BasisPersistentDatabase.Shutdown();
                 BasisServerReductionSystemEvents.Shutdown();
                 if (config.EnableStatistics) BasisStatistics.StopWorkerThread();
