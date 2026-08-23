@@ -524,6 +524,9 @@ The token relay accepts only authorization-code and refresh-token grants, forwar
 required form fields, injects the configured provider credentials, validates `/sso-callback`
 redirect origins against `Broker.AllowedWebOrigins`, and applies `Cache-Control: no-store`.
 Admission and browser configuration endpoints enforce exact-origin CORS with `Vary: Origin`.
+Admin provider read models and stored client-config inspection redact `ClientSecret` and
+`WebClientSecret`; submitting a redacted provider without a replacement preserves the existing
+credential so the Admin UI can safely edit non-secret fields.
 Native and browser client configuration both emit provider authorization parameters (`hd`,
 `access_type=offline`, and `prompt=consent`) and browser configuration uses the broker relay URL.
 

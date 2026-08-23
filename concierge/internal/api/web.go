@@ -10,9 +10,15 @@ import (
 	"time"
 
 	"github.com/sekaimate/sekaimate/concierge/internal/config"
+	"github.com/sekaimate/sekaimate/concierge/internal/security"
 )
 
-var webOIDCHTTPClient = &http.Client{Timeout: 10 * time.Second}
+var webOIDCHTTPClient = security.NewRestrictedHTTPClient(10 * time.Second)
+
+// webOIDCAllowUnsafeEndpoints is test-only injection. Production code never
+// enables it; httptest's loopback TLS listener cannot satisfy the public-IP
+// policy used by the real outbound transport.
+var webOIDCAllowUnsafeEndpoints bool
 
 func webProviders(organization config.OrganizationConfig, server config.ServerConfig) []config.ProviderConfig {
 	providers := organization.Providers
@@ -164,6 +170,7 @@ func (a *serverAPI) WebOidcToken(w http.ResponseWriter, r *http.Request, serverI
 		writeError(w, http.StatusBadRequest, "form_encoded_request_required")
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, security.MaxOIDCRequestBytes)
 	server, ok := a.deps.Config.FindServer(serverId)
 	if !ok {
 		w.WriteHeader(http.StatusNotFound)
@@ -225,6 +232,12 @@ func (a *serverAPI) WebOidcToken(w http.ResponseWriter, r *http.Request, serverI
 	}
 	forwarded.Set("client_id", provider.WebClientId)
 	forwarded.Set("client_secret", provider.WebClientSecret)
+	if !webOIDCAllowUnsafeEndpoints {
+		if err := security.ValidateHTTPSURL(r.Context(), provider.TokenEndpoint); err != nil {
+			writeProblem(w, http.StatusServiceUnavailable, "Web SSO provider credentials are incomplete.")
+			return
+		}
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, provider.TokenEndpoint, strings.NewReader(forwarded.Encode()))
@@ -243,8 +256,13 @@ func (a *serverAPI) WebOidcToken(w http.ResponseWriter, r *http.Request, serverI
 	if contentType := response.Header.Get("Content-Type"); contentType != "" {
 		w.Header().Set("Content-Type", contentType)
 	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, security.MaxOIDCResponseBytes+1))
+	if err != nil || int64(len(body)) > security.MaxOIDCResponseBytes {
+		writeProblem(w, http.StatusBadGateway, "Web SSO token exchange response is too large.")
+		return
+	}
 	w.WriteHeader(response.StatusCode)
-	_, _ = io.Copy(w, response.Body)
+	_, _ = w.Write(body)
 }
 
 func allowedWebRedirect(store *config.Store, value string) bool {

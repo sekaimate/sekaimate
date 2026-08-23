@@ -41,24 +41,27 @@ mise run server:logs   # Serverログを表示
 mise run server:down   # Serverを停止
 ```
 
-SSOのBrokerとAdmin gatewayをDockerで起動する場合は、先に`Basis Server/Docker/sso/.env`とBroker設定を用意してから次を実行します。
+Concierge と HTTPS Admin gateway を Docker で起動する場合は、先に
+`Basis Server/Docker/sso/.env` と `broker/appsettings.json` を用意します。fresh clone からの完全な
+手順、standalone/minikube/TLS/OIDC の検証は [`docs/concierge/operations.md`](docs/concierge/operations.md) を参照してください。
 
 ```sh
 mise run sso:up
 ```
 
-管理画面は`https://127.0.0.1:5081/admin/`です。停止・ログ確認は次のタスクを使います。
+管理画面は`https://127.0.0.1:5081/admin/`です。Admin token は `.env` の
+`BASIS_SSO_ADMIN_TOKEN` に生成した値を設定します。停止・ログ確認は次のタスクを使います。
 
 ```sh
 mise run sso:logs
 mise run sso:down
 ```
 
-Admin Consoleだけを開発サーバーで起動する場合は`mise run sso:dev`を使い、`http://localhost:5173/`を開きます。必要なpnpm依存関係とBroker/HTTPS gatewayはタスクが先に起動します。
+Admin Consoleだけを開発サーバーで起動する場合は`mise run sso:dev`を使い、`http://localhost:5173/admin/`を開きます。必要なpnpm依存関係とConcierge/HTTPS gatewayはタスクが先に起動します。
 
 全部を起動する場合は`mise run local:up`を使用します。WebGL成果物が最新ならビルドをスキップし、変更がある場合だけ再ビルドします。配信中はそのターミナルを終了せず、ブラウザーで`http://127.0.0.1:4173/`を開いてください。
 
-`sso:dev` はBrokerとHTTPS Admin gatewayも自動起動します。終了時は`mise run local:down`でSSOとBasis Serverを停止できます。Web配信のターミナルは`Ctrl-C`で終了してください。
+`sso:dev` はConciergeとHTTPS Admin gatewayも自動起動します。終了時は`mise run local:down`でConciergeとBasis Serverを停止できます。Web配信のターミナルは`Ctrl-C`で終了してください。
 
 開発用の出力先は`Build/WebDev`です。既存の出力を削除せずに再利用し、ワールドBEEはGit管理外の`local/BEE/world.BEE`から自動的に配置します。BEEをビルド出力の外に置くため、通常のリリース用ビルドでも失われません。通常のリリース用ビルドは従来どおり`./tools/build-web.sh`を使用します。
 

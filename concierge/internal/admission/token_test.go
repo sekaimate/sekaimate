@@ -56,6 +56,7 @@ func newTestKeySet(t *testing.T) *testKeySet {
 func (ks *testKeySet) validator() *Validator {
 	v := NewValidator()
 	v.http = ks.srv.Client()
+	v.allowUnsafeEndpoints = true
 	return v
 }
 

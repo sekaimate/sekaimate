@@ -2,8 +2,7 @@
 
 Concierge の管理画面と参加者向け参加ページです。Admin 画面は `/api/*` 経由で同じ
 Concierge の管理 API を呼び出し、参加ページは Concierge の `/join/{token}/manifest`
-契約だけを使用します。C# broker 固有の `/details`、`/web-config`、`/web-manifest`、
-`/web-oidc` エンドポイントには依存しません。
+契約だけを使用します。旧 broker 実装の内部構造や専用 runtime には依存しません。
 
 ## 開発
 

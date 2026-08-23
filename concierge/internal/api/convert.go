@@ -19,14 +19,11 @@ func providerConfigToAPI(p config.ProviderConfig) ProviderOptions {
 	if p.Label != "" {
 		out.Label = strPtr(p.Label)
 	}
-	if p.ClientSecret != "" {
-		out.ClientSecret = strPtr(p.ClientSecret)
-	}
+	// Admin/read representations intentionally never carry native or web
+	// client secrets. Update handlers merge blank secret fields with the
+	// persisted value so the UI can safely round-trip masked settings.
 	if p.WebClientId != "" {
 		out.WebClientId = strPtr(p.WebClientId)
-	}
-	if p.WebClientSecret != "" {
-		out.WebClientSecret = strPtr(p.WebClientSecret)
 	}
 	if p.TokenEndpoint != "" {
 		out.TokenEndpoint = strPtr(p.TokenEndpoint)
@@ -80,6 +77,29 @@ func apiToOrganization(o OrganizationOptions) config.OrganizationConfig {
 		DefaultProviderId: derefStr(o.DefaultProviderId),
 		Providers:         providers,
 	}
+}
+
+// preserveProviderSecrets makes redacted admin GET representations safe to
+// submit back. An omitted/blank secret means "leave unchanged"; only an
+// explicit non-blank value replaces the stored credential.
+func preserveProviderSecrets(existing, incoming []config.ProviderConfig) []config.ProviderConfig {
+	byID := make(map[string]config.ProviderConfig, len(existing))
+	for _, provider := range existing {
+		byID[strings.ToLower(provider.Id)] = provider
+	}
+	for i := range incoming {
+		old, ok := byID[strings.ToLower(incoming[i].Id)]
+		if !ok {
+			continue
+		}
+		if strings.TrimSpace(incoming[i].ClientSecret) == "" {
+			incoming[i].ClientSecret = old.ClientSecret
+		}
+		if strings.TrimSpace(incoming[i].WebClientSecret) == "" {
+			incoming[i].WebClientSecret = old.WebClientSecret
+		}
+	}
+	return incoming
 }
 
 func adminServerInfo(s config.ServerConfig) AdminServerInfo {

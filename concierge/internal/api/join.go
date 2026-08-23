@@ -126,6 +126,7 @@ func (a *serverAPI) JoinOpenPage(w http.ResponseWriter, r *http.Request, token T
 // JoinManifest implements GET /join/{token}/manifest: the only endpoint
 // that returns the plaintext join password.
 func (a *serverAPI) JoinManifest(w http.ResponseWriter, r *http.Request, token Token) {
+	w.Header().Set("Cache-Control", "no-store, private")
 	meeting, ok := a.deps.Meetings.FindInvite(token)
 	if !ok {
 		w.WriteHeader(http.StatusNotFound)

@@ -296,6 +296,7 @@ func (o OrganizationConfig) IsStructurallyValid() (bool, string) {
 type BrokerConfig struct {
 	PublicBaseUrl                 string              `json:"PublicBaseUrl,omitempty"`
 	AllowedWebOrigins             []string            `json:"AllowedWebOrigins,omitempty"`
+	TrustedProxyCIDRs             []string            `json:"TrustedProxyCIDRs,omitempty"`
 	ClientConfigDirectory         string              `json:"ClientConfigDirectory,omitempty"`
 	AdminTokenEnvironmentVariable string              `json:"AdminTokenEnvironmentVariable,omitempty"`
 	AllowUnauthenticatedAdmin     bool                `json:"AllowUnauthenticatedAdmin,omitempty"`
@@ -337,12 +338,20 @@ func Load(path string) (*Store, error) {
 		return nil, fmt.Errorf("config: parse %s: %w", path, err)
 	}
 	for _, server := range wrapper.Broker.Servers {
+		if !isValidServerID(server.Id) {
+			return nil, fmt.Errorf("config: server %q has an invalid ID", server.Id)
+		}
 		if err := ValidateBrowserEndpoints(strings.TrimSpace(server.WebSocketUri), strings.TrimSpace(server.ServerInfoUri)); err != nil {
 			return nil, fmt.Errorf("config: server %q browser endpoints: %w", server.Id, err)
 		}
 	}
 	if err := ValidateBrowserEndpointTemplates(wrapper.Broker.ManagedWebSocketUriTemplate, wrapper.Broker.ManagedServerInfoUriTemplate); err != nil {
 		return nil, fmt.Errorf("config: managed browser endpoint templates: %w", err)
+	}
+	for _, raw := range wrapper.Broker.TrustedProxyCIDRs {
+		if _, _, err := net.ParseCIDR(strings.TrimSpace(raw)); err != nil {
+			return nil, fmt.Errorf("config: invalid trusted proxy CIDR %q: %w", raw, err)
+		}
 	}
 	s.cfg = wrapper.Broker
 	return s, nil
@@ -562,6 +571,9 @@ func (s *Store) ClientConfigDirectory() string {
 // file, and whether the directory is configured and serverId is a known
 // server.
 func (s *Store) ClientConfigPath(serverId string) (string, bool) {
+	if !isValidServerID(serverId) {
+		return "", false
+	}
 	s.mu.Lock()
 	dir := s.cfg.ClientConfigDirectory
 	_, known := s.findServerLocked(serverId)
@@ -569,7 +581,16 @@ func (s *Store) ClientConfigPath(serverId string) (string, bool) {
 	if strings.TrimSpace(dir) == "" || !known {
 		return "", false
 	}
-	return filepath.Join(dir, serverId+".json"), true
+	base, err := filepath.Abs(dir)
+	if err != nil {
+		return "", false
+	}
+	candidate := filepath.Join(base, serverId+".json")
+	rel, err := filepath.Rel(base, candidate)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", false
+	}
+	return candidate, true
 }
 
 // PublicBaseUrl returns the configured public base URL, or "".
@@ -577,6 +598,15 @@ func (s *Store) PublicBaseUrl() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.cfg.PublicBaseUrl
+}
+
+// TrustedProxyCIDRs returns the configured networks whose forwarded headers
+// may be used when generating public links. An empty list deliberately means
+// that client-supplied X-Forwarded-* headers are ignored.
+func (s *Store) TrustedProxyCIDRs() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.cfg.TrustedProxyCIDRs...)
 }
 
 // AllowedWebOrigins returns a copy of the exact origins permitted for browser

@@ -570,6 +570,52 @@ func TestPutOrganization_InvalidBody(t *testing.T) {
 	}
 }
 
+func TestAdminOrganizationRedactsSecretsAndPreservesBlankUpdates(t *testing.T) {
+	deps := newTestDepsAdminBypassed(t)
+	if ok, msg := deps.Config.SetOrganization(config.OrganizationConfig{Providers: []config.ProviderConfig{{
+		Id: "google", Issuer: "https://issuer.example", Audience: "aud", JwksUri: "https://issuer.example/jwks",
+		ClientSecret: "native-secret", WebClientId: "web", WebClientSecret: "web-secret", TokenEndpoint: "https://issuer.example/token",
+	}}}); !ok {
+		t.Fatal(msg)
+	}
+	mux := NewMux(deps)
+	rec := doRequest(t, mux, http.MethodGet, "/admin/organization", nil, nil)
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "native-secret") || strings.Contains(rec.Body.String(), "web-secret") {
+		t.Fatalf("admin organization leaked secret: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	providerID := "google"
+	issuer, audience, jwks := "https://issuer.example", "new-aud", "https://issuer.example/jwks"
+	providers := []ProviderOptions{{Id: &providerID, Issuer: &issuer, Audience: &audience, JwksUri: &jwks, WebClientId: strPtr("web"), TokenEndpoint: strPtr("https://issuer.example/token")}}
+	rec = doRequest(t, mux, http.MethodPut, "/admin/organization", OrganizationOptions{Providers: &providers}, nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("admin organization update: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	org := deps.Config.GetOrganization()
+	if got := org.Providers[0].ClientSecret; got != "native-secret" {
+		t.Fatalf("native secret was not preserved: %q", got)
+	}
+	if got := org.Providers[0].WebClientSecret; got != "web-secret" {
+		t.Fatalf("web secret was not preserved: %q", got)
+	}
+}
+
+func TestRemoveSecretsJSONRedactsNativeAndWebCredentialsRecursively(t *testing.T) {
+	raw := []byte(`{"providers":[{"clientSecret":"native","webClientSecret":"web","nested":{"CLIENTSECRET":"nested"}}]}`)
+	cleaned, err := removeSecretsJSON(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(cleaned)
+	for _, secret := range []string{"native", "web"} {
+		if strings.Contains(body, secret) {
+			t.Fatalf("redacted JSON contains %q: %s", secret, body)
+		}
+	}
+	if strings.Contains(strings.ToLower(body), "clientsecret") {
+		t.Fatalf("redacted JSON contains a client secret key: %s", body)
+	}
+}
+
 func TestJoinManifest_UnknownToken(t *testing.T) {
 	mux := NewMux(newTestDeps(t))
 	rec := doRequest(t, mux, http.MethodGet, "/join/does-not-exist/manifest", nil, nil)

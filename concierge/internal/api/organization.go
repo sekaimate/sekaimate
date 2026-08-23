@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/sekaimate/sekaimate/concierge/internal/config"
@@ -37,11 +36,12 @@ func (a *serverAPI) PutOrganization(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body OrganizationOptions
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(w, r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid organization payload")
 		return
 	}
 	organization := apiToOrganization(body)
+	organization.Providers = preserveProviderSecrets(a.deps.Config.GetOrganization().Providers, organization.Providers)
 	if ok, msg := a.deps.Config.SetOrganization(organization); !ok {
 		writeError(w, http.StatusBadRequest, msg)
 		return
@@ -57,7 +57,7 @@ func (a *serverAPI) PutAdminServer(w http.ResponseWriter, r *http.Request, serve
 		return
 	}
 	var body AdminServerWrite
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(w, r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid server payload")
 		return
 	}
@@ -76,6 +76,8 @@ func (a *serverAPI) PutAdminServer(w http.ResponseWriter, r *http.Request, serve
 		}
 		if body.Providers == nil {
 			server.Providers = existing.Providers
+		} else {
+			server.Providers = preserveProviderSecrets(existing.Providers, server.Providers)
 		}
 		if body.WebSocketUri == nil {
 			server.WebSocketUri = existing.WebSocketUri

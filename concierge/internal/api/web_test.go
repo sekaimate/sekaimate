@@ -142,8 +142,13 @@ func TestWebOidcRelayForwardsOnlyAllowedFieldsAndServerSecret(t *testing.T) {
 	}))
 	defer upstream.Close()
 	oldClient := webOIDCHTTPClient
+	oldAllowUnsafe := webOIDCAllowUnsafeEndpoints
 	webOIDCHTTPClient = upstream.Client()
-	t.Cleanup(func() { webOIDCHTTPClient = oldClient })
+	webOIDCAllowUnsafeEndpoints = true
+	t.Cleanup(func() {
+		webOIDCHTTPClient = oldClient
+		webOIDCAllowUnsafeEndpoints = oldAllowUnsafe
+	})
 	deps := newWebDepsAt(t, upstream.URL+"/token")
 	mux := NewMux(deps)
 	form := "grant_type=authorization_code&code=code-value&redirect_uri=https%3A%2F%2Fweb.example%2Fsso-callback&code_verifier=verifier&scope=should-not-forward"

@@ -196,6 +196,23 @@ func TestStore_AddServer_DuplicateRejected(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsInvalidServerID(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "appsettings.json")
+	if err := os.WriteFile(path, []byte(`{"Broker":{"Servers":[{"Id":"../escape"}]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatal("Load accepted a path-traversal server ID")
+	}
+}
+
+func TestClientConfigPathRejectsInvalidServerID(t *testing.T) {
+	s := &Store{cfg: BrokerConfig{ClientConfigDirectory: filepath.Join(t.TempDir(), "configs"), Servers: []ServerConfig{{Id: "valid"}}}}
+	if path, ok := s.ClientConfigPath("../escape"); ok || path != "" {
+		t.Fatalf("ClientConfigPath accepted traversal: path=%q ok=%v", path, ok)
+	}
+}
+
 func TestStore_PersistenceRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "appsettings.json")
 	s1, err := Load(path)

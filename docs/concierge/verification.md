@@ -47,9 +47,10 @@ kubectl apply --server-side --force-conflicts -f agones-install-fixed.yaml
 cd concierge
 minikube image build -t concierge:dev .
 
-# basis-server スタブのビルド(§6 参照。ソースはリポジトリ外、スクラッチ領域に置いた)
-cd <scratch>/basis-server-stub
-minikube image build -t basis-server-stub:dev .
+# 実 Basis Server image の build（現在の再現手順。過去の stub は使用しない）
+cd "../Basis Server"
+minikube image build -t basis-server:dev -f Docker/Dockerfile .
+cd ..
 
 # 名前空間・Secret・RBAC・Service を適用
 kubectl apply -f concierge/deploy/00-namespace.yaml
@@ -58,12 +59,11 @@ kubectl create secret generic concierge-admin -n basis --from-literal=token="$(o
 kubectl apply -f concierge/deploy/10-rbac.yaml
 kubectl apply -f concierge/deploy/30-service.yaml
 
-# 20-deployment.yaml は image/imagePullPolicy/BASIS_SERVER_IMAGE を検証用に差し替えて適用
-# (image: concierge:dev, imagePullPolicy: Never, BASIS_SERVER_IMAGE: basis-server-stub:dev,
-#  GAMESERVER_READY_TIMEOUT_SECONDS: "20" を追加。リポジトリのプレースホルダー
-#  image: alc-gitea.kanaru.me/... 自体は変更していない — deploy/ 適用時に運用者が
-#  差し替える前提のプレースホルダーであり、バグではないため)
-kubectl apply -f 20-deployment-dev.yaml
+# committed minikube overlay が image/imagePullPolicy/BASIS_SERVER_IMAGE を設定する。
+kubectl apply -f concierge/deploy/00-namespace.yaml
+kubectl apply -f concierge/deploy/10-rbac.yaml
+kubectl apply -f concierge/deploy/20-deployment-dev.yaml
+kubectl apply -f concierge/deploy/30-service.yaml
 
 kubectl port-forward -n basis svc/concierge 15080:5080
 ```
@@ -216,10 +216,11 @@ client-config、join manifest/config、join deep-link の全てに同一の `wss
 5. **`basisdemo://` deep link が `html/template` の URL サニタイズで `#ZgotmplZ` になっていた。** WebGL URI を含む
    join deep link の実環境確認で発見し、生成値を `template.URL` として href/JavaScript fallback に渡すよう修正した。
 
-## 6. basis-server スタブによる初期検証と、その限界
+## 6. 初期 stub 検証の位置付けと、その限界
 
-初期の phase-3 検証では、実イメージのビルドを待たずスクラッチ領域(リポジトリ外)に置いた最小限の Go 製 UDP エコー
-リスナーを `basis-server-stub:dev` としてビルドし、`BASIS_SERVER_IMAGE` に指定した。
+初期の phase-3 検証では、実イメージのビルドを待たず一時的な最小限の Go 製 UDP エコーリスナーを
+`basis-server-stub:dev` として使った。これは検証時限りの代替で、ソースや build 定義はリポジトリに含めていない。
+現在の再現手順は `docs/concierge/operations.md` に統一し、実 Basis Server image を使う。
 
 - 動作: `SetPort` 環境変数(既定 4296)で UDP リッスンし、受信したデータグラムに `"echo: "` を付けて送り返すのみ。
   起動時に `RequireSso`/`AutoStartSsoBroker` の値をログ出力する(§4 の b で、Secret 経由の値が正しく注入されて
@@ -256,10 +257,10 @@ kubectl delete -f concierge/deploy/00-namespace.yaml   # 上と同義
 
 ## 8. 未検証の項目
 
-- 実際の Basis Server イメージによる SSO 事前認証ハンドシェイク・UDP ゲームプロトコルの疎通(§6)。
+- 実際の Basis Server イメージによる有効な SSO admission ticket を使った認証済み UDP ゲームプロトコルの疎通。
 - ノード外部 IP/Ingress を経由した WebSocket listener の到達性。§4.2 の実サーバー検証は Pod port-forward 経路であり、
   Podman ネットワーク外から `Status.Address` の TCP port へ直接到達できることまでは確認していない。
-- 実際の OIDC プロバイダ(Google/Auth0 等)に対する `POST /admission/{serverId}` の入場審査
-  (`appsettings.json` はダミーの `Issuer`/`JwksUri` を使用しており、JWKS 取得も ID トークン検証も行っていない)。
+- 実際の OIDC プロバイダ(Google/Auth0 等)に対する browser OAuth redirect を含む `POST /admission/{serverId}` の入場審査。
+  OIDC の署名検証・web token relay は `operations.md §6` の Go test fixture で再現する。
 - 複数ノードクラスタでの Agones GameServer スケジューリング(minikube は単一ノード)。
 - concierge Pod の水平スケールやローリングアップデート時の挙動(design.md §11 のとおり non-goal のため未検証)。

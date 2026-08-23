@@ -14,6 +14,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/sekaimate/sekaimate/concierge/internal/security"
 )
 
 // Provider is one OIDC identity provider's admission policy — the fields
@@ -58,13 +60,14 @@ var (
 // matching TokenValidator. JWKS are fetched fresh on every call (no cache),
 // exactly like the C# broker (research-sso-broker.md §2.2 step 10).
 type Validator struct {
-	http *http.Client
+	http                 *http.Client
+	allowUnsafeEndpoints bool // only test injection may set this
 }
 
 // NewValidator returns a Validator using a 10-second HTTP timeout for JWKS
 // fetches, matching TokenValidator's HttpClient.
 func NewValidator() *Validator {
-	return &Validator{http: &http.Client{Timeout: 10 * time.Second}}
+	return &Validator{http: security.NewRestrictedHTTPClient(10 * time.Second)}
 }
 
 type jwtHeader struct {
@@ -158,6 +161,11 @@ func (v *Validator) Validate(ctx context.Context, idToken string, providers []Pr
 }
 
 func (v *Validator) findSigningKey(ctx context.Context, jwksURI, kid string) (*rsa.PublicKey, error) {
+	if !v.allowUnsafeEndpoints {
+		if err := security.ValidateHTTPSURL(ctx, jwksURI); err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrJWKSFetch, err)
+		}
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, jwksURI, nil)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrJWKSFetch, err)
@@ -170,9 +178,12 @@ func (v *Validator) findSigningKey(ctx context.Context, jwksURI, kid string) (*r
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%w: status %d", ErrJWKSFetch, resp.StatusCode)
 	}
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, security.MaxOIDCResponseBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrJWKSFetch, err)
+	}
+	if int64(len(body)) > security.MaxOIDCResponseBytes {
+		return nil, fmt.Errorf("%w: response too large", ErrJWKSFetch)
 	}
 	var set jwks
 	if err := json.Unmarshal(body, &set); err != nil {

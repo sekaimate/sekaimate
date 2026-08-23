@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/sekaimate/sekaimate/concierge/internal/admission"
@@ -23,8 +22,9 @@ func (a *serverAPI) Admit(w http.ResponseWriter, r *http.Request, serverId Serve
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 	var req AdmissionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSON(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "idToken and did are required")
 		return
 	}

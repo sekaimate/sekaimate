@@ -11,9 +11,9 @@ RUN pnpm run build
 FROM nginx:1.27-alpine
 RUN apk add --no-cache openssl
 COPY nginx.conf /etc/nginx/nginx.conf
-COPY nginx-entrypoint.sh /usr/local/bin/basis-sso-gateway
-RUN chmod 755 /usr/local/bin/basis-sso-gateway
+COPY nginx-entrypoint.sh /usr/local/bin/concierge-gateway
+RUN chmod 755 /usr/local/bin/concierge-gateway
 COPY --from=build /src/dist /usr/share/nginx/html/admin
 COPY --from=build /src/dist/join.html /usr/share/nginx/html/join.html
 EXPOSE 443
-ENTRYPOINT ["/usr/local/bin/basis-sso-gateway"]
+ENTRYPOINT ["/usr/local/bin/concierge-gateway"]

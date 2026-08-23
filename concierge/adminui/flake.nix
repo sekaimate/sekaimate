@@ -1,5 +1,5 @@
 {
-  description = "Basis SSO Broker admin UI";
+  description = "Concierge Admin UI";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";

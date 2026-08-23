@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"log"
 	"net/http"
 	"os"
@@ -64,7 +63,7 @@ func (a *serverAPI) CreateMeeting(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req CreateMeetingRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSON(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}

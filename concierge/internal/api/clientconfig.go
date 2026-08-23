@@ -31,6 +31,10 @@ func (a *serverAPI) GetClientConfig(w http.ResponseWriter, r *http.Request, serv
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
+	if int64(len(raw)) > maxClientConfigBytes {
+		writeProblem(w, http.StatusRequestEntityTooLarge, "Client configuration is too large.")
+		return
+	}
 	cleaned, err := removeSecretsJSON(raw)
 	if err != nil {
 		// RemoveSecrets falls back to "{}" if the stored document does not
@@ -76,12 +80,12 @@ func (a *serverAPI) GetClientConfigTemplate(w http.ResponseWriter, r *http.Reque
 		}
 	}
 	origin := a.deps.Config.RequestOrigin(r)
-	writeJSONIndent(w, http.StatusOK, clientConfiguration(origin, server.Id, publicKey, webSocketURI, serverInfoURI, providers, organization.DefaultProviderId))
+	writeJSONIndent(w, http.StatusOK, redactClientConfiguration(clientConfiguration(origin, server.Id, publicKey, webSocketURI, serverInfoURI, providers, organization.DefaultProviderId)))
 }
 
-// GetAdminClientConfig implements GET /admin/client-config/{serverId}: the
-// raw stored file bytes, unmodified (admin-only, so clientSecret is not
-// stripped).
+// GetAdminClientConfig implements GET /admin/client-config/{serverId} for
+// admin inspection. Secret fields are stripped even for administrators; the
+// endpoint remains available for callers that need the stored public shape.
 func (a *serverAPI) GetAdminClientConfig(w http.ResponseWriter, r *http.Request, serverId ServerId) {
 	if !a.deps.Config.AdminAuthorized(r) {
 		unauthorized(w)
@@ -101,9 +105,28 @@ func (a *serverAPI) GetAdminClientConfig(w http.ResponseWriter, r *http.Request,
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
+	if int64(len(raw)) > maxClientConfigBytes {
+		writeProblem(w, http.StatusRequestEntityTooLarge, "Client configuration is too large.")
+		return
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(raw)
+	cleaned, err := removeSecretsJSON(raw)
+	if err != nil {
+		cleaned = []byte("{}")
+	}
+	_, _ = w.Write(cleaned)
+}
+
+func redactClientConfiguration(out ClientConfiguration) ClientConfiguration {
+	if out.Providers != nil {
+		providers := *out.Providers
+		for i := range providers {
+			providers[i].ClientSecret = nil
+		}
+		out.Providers = &providers
+	}
+	return out
 }
 
 // PutAdminClientConfig implements PUT /admin/client-config/{serverId}:
@@ -169,10 +192,11 @@ func (a *serverAPI) PutAdminClientConfig(w http.ResponseWriter, r *http.Request,
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// removeSecretsJSON parses raw as JSON and recursively removes any object
-// key equal to "clientSecret" (case-insensitive), including inside nested
-// objects and arrays, then re-serializes it pretty-printed — matching
-// ClientConfig.RemoveSecrets (research-sso-broker.md §7-10).
+// removeSecretsJSON parses raw as JSON and recursively removes credential
+// fields (case-insensitive), including inside nested objects and arrays, then
+// re-serializes it pretty-printed. The legacy public contract called out
+// clientSecret; webClientSecret is also removed so a stored admin document
+// cannot accidentally expose the server-side browser credential.
 func removeSecretsJSON(raw []byte) ([]byte, error) {
 	var value any
 	if err := json.Unmarshal(raw, &value); err != nil {
@@ -186,7 +210,7 @@ func removeSecretsValue(value any) any {
 	case map[string]any:
 		out := make(map[string]any, len(v))
 		for key, child := range v {
-			if strings.EqualFold(key, "clientSecret") {
+			if strings.EqualFold(key, "clientSecret") || strings.EqualFold(key, "webClientSecret") {
 				continue
 			}
 			out[key] = removeSecretsValue(child)

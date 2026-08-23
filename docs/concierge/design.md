@@ -237,8 +237,10 @@ Agones 管理下の部屋で WebGL を有効にする場合は、`BASIS_SERVER_W
 9. **チケット署名鍵**: 32 文字以上の任意の文字列であれば「設定済み」とみなす(`HasTicketSigningKey`)が、新規生成する
    鍵は 48 バイトのランダム値を base64url エンコードしたもの(約 64 文字)にする(`BasisSsoTransportKeys.Ensure`の
    サーバー側生成器との一貫性のため)。
-10. **`RemoveSecrets` の再帰的除去**: JSON オブジェクトキー名が(大文字小文字を区別せず)`"clientSecret"` に一致する
-    ものを、ネストしたオブジェクト・配列も含めて再帰的に取り除く(`GET /client-config/{serverId}` の出力)。
+10. **秘密情報の再帰的除去**: JSON オブジェクトキー名が(大文字小文字を区別せず)`"clientSecret"` または
+    `"webClientSecret"` に一致するものを、ネストしたオブジェクト・配列も含めて再帰的に取り除く
+    (`GET /client-config/{serverId}` と管理者の stored-config 表示)。管理 API の provider read model も秘密値を返さず、
+    空欄の update は既存値を維持する。
 11. **アトミックなファイル書き込み**: 永続化するファイルはすべて `path + ".tmp"` へ書いてからリネームする。
 12. **`control-plane.json` は PascalCase フィールド名を使う**(既存デプロイのファイルを読む場合)。
     `Id`、`Title`、`Status`、`StatusDetail`、`Host`、`Port`、`Password`、`InviteToken`、`TicketSigningKey`、
@@ -284,7 +286,8 @@ basis-k8s の `/servers`(`POST`/`GET`/`GET {name}`/`DELETE`)相当の操作は�
 
 | 現行(C# broker) | concierge での扱い |
 |---|---|
-| `appsettings.json` `Broker.PublicBaseUrl` | 設定ファイルの同名相当キー。挙動(HTTPS 限定、非 HTTPS は無視)を維持。 |
+| `appsettings.json` `Broker.PublicBaseUrl` | 設定ファイルの同名相当キー。絶対 `http`/`https` の scheme+authority を生成リンクに使用し、それ以外は受信リクエストへフォールバックする。 |
+| `appsettings.json` `Broker.TrustedProxyCIDRs` | `X-Forwarded-Host`/`X-Forwarded-Proto` を信頼してよい reverse proxy の CIDR。空欄では forwarded header を無視し、クライアントが偽装した公開 URL を生成しない。 |
 | `appsettings.json` `Broker.ClientConfigDirectory` | 同左。 |
 | `appsettings.json` `Broker.AdminTokenEnvironmentVariable` | 同左(環境変数名を指す設定は維持。concierge プロセス自身が読む)。 |
 | `appsettings.json` `Broker.AllowUnauthenticatedAdmin` | 同左。 |
@@ -315,8 +318,7 @@ basis-k8s の `/servers`(`POST`/`GET`/`GET {name}`/`DELETE`)相当の操作は�
 
 ## 9. AdminUi
 
-Cloudscape AdminUi は runtime 完全移行に伴い `concierge/adminui` を正規ソースとする。旧
-`Basis/Tools/BasisSsoBroker/AdminUi` は残さず、Concierge 対応として、この UI の管理画面部分を
+Cloudscape AdminUi は runtime 完全移行に伴い `concierge/adminui` を正規ソースとする。旧 UI は残さず、Concierge 対応として、この UI の管理画面部分を
 拡張し、Go API の認証ヘッダー、会議室ライフサイクル、health/status polling、静的サーバー管理、
 WebGL endpoint 検証を追加している。これは両 backend の完全互換や、concierge の正規共有ソースであることを
 意味しない。
@@ -358,7 +360,7 @@ refresh token の必要フィールドだけを upstream へ転送する。CORS 
   フィールド名・ネスト構造についても、既知の入力に対する出力 JSON をスナップショット比較する。
 - 管理者認証(`AdminAuthorized` 相当)の定数時間比較・32 文字最小長・大文字小文字を区別しない `Bearer` プレフィックスを
   テストする。
-- `RemoveSecrets`(`clientSecret` の再帰除去)を、ネストしたオブジェクト・配列を含む JSON でテストする。
+- `RemoveSecrets`(`clientSecret`/`webClientSecret` の再帰除去)を、ネストしたオブジェクト・配列を含む JSON でテストする。
 - `ValidateBrowserEndpoints` の scheme、loopback、userinfo/fragment、ペア必須ルールをテーブル駆動でテストし、静的
   server と会議作成の browser endpoint が manifest/client-config/deep link へ伝播することを検証する。
 
@@ -411,20 +413,18 @@ basis-k8s の手法をそのまま踏襲する。`internal/kube` は Agones の�
    自動登録ロジック(`MeetingStore.EnsureSingleComposeMeeting` 相当)を `concierge` の起動シーケンスにそのまま移植する
    (`cmd/server/main.go` の `bootstrapLocalMeeting`)。既存の Compose デプロイとの後方互換性を優先し、
    `Servers[]`/`Organization` の明示設定のみへの一本化は行わない。
-2. **source of truth は Kubernetes API とする。** concierge 起動時に Agones `GameServer`/`Secret` と
+2. **source of truth は Kubernetes API とする。** Concierge 起動時に Agones `GameServer`/`Secret` と
    `MeetingRecord`(`control-plane.json`)を突き合わせ、不整合(例: `MeetingRecord` はあるが `GameServer` がない、
-   またはその逆)を検出する処理を phase 2 で実装する。phase 1 には Kubernetes 統合そのものがないため、この整合性
-   チェックは未実装(`internal/kube.RoomProvisioner` はまだ Kubernetes と通信しない)。
+   またはその逆)を検出する。これは `internal/kube.Manager.Reconcile` として実装済みで、欠落した managed meeting は
+   `failed` へ遷移する。静的 server と Concierge が作った meeting の同一 ID は `FromMeeting` で区別する。
 3. **GameServer の `Ready` 待ちはタイムアウト(既定 120 秒、設定可能)で会議を `failed` 状態にし、自動リトライしない。**
-   この挙動も phase 2(実際に GameServer を作成するようになった時点)で実装する。phase 1 は `POST /admin/meetings` が
-   同期的にレスポンスを返す現行 C# broker と同じ動作(host 指定時は即座に `ready`、未指定なら `provisioning` のまま)
-   のままであり、待機・タイムアウトという概念自体がまだ発生しない。
+   `Manager.watchReady` がこの挙動を実装している。`POST /admin/meetings` は GameServer 作成後に
+   `provisioning` を返し、Ready 後に host/port/browser URI を更新する。host を明示した外部 server は即座に `ready` になる。
 4. **単体 Basis サーバーの child process も Concierge を起動する。** `ConciergeProcess.cs` は既存の XML 設定名を
    読み、`concierge/concierge` と `appsettings.json` を同居起動する。Compose/systemd は同じ Go binary を直接起動する。
 
-### phase 1 のスコープ外(上記の決定を実装するのは phase 2)
+### phase 1 記録について
 
-- 決定 2(Kubernetes API との整合性チェック)、決定 3(Ready 待ちタイムアウト)は、`internal/kube` に実際の
-  Agones/Kubernetes クライアントが入る phase 2 で実装する。phase 1 の `internal/kube.RoomProvisioner` は
-  `NoopProvisioner` のみを提供し、`POST`/`DELETE /admin/meetings` から呼び出されるが何も行わない
-  (`docs/concierge/implementation.md` 参照)。
+初期設計時の phase 1 では Kubernetes 統合をスコープ外としていたが、現在の実装では phase 2/3 の
+Agones integration まで完了している。phase 1 の未実装項目を記録した履歴は `implementation.md` に残すが、
+現行のセットアップ・検証手順には `docs/concierge/operations.md` と `verification.md` を使用する。

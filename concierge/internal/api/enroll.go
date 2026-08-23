@@ -6,6 +6,7 @@ import (
 
 // EnrollLanding implements GET /enroll/{token}.
 func (a *serverAPI) EnrollLanding(w http.ResponseWriter, r *http.Request, token Token) {
+	w.Header().Set("Cache-Control", "no-store, private")
 	if !a.deps.Enrollments.Exists(token) {
 		writeText(w, http.StatusGone, "This Basis SSO setup link has expired.")
 		return
@@ -25,6 +26,7 @@ func (a *serverAPI) EnrollLanding(w http.ResponseWriter, r *http.Request, token 
 // the token via Enrollments.Take regardless of the eventual response
 // (matching enrollments.Take being called unconditionally in Program.cs).
 func (a *serverAPI) EnrollConfig(w http.ResponseWriter, r *http.Request, token Token) {
+	w.Header().Set("Cache-Control", "no-store, private")
 	serverID, ok := a.deps.Enrollments.Take(token)
 	if !ok {
 		writeText(w, http.StatusGone, "This Basis SSO setup link has expired or was already used.")

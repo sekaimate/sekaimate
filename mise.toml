@@ -31,11 +31,11 @@ description = "ローカルBasis Serverのログを表示"
 run = 'docker compose -f "Basis Server/Docker/docker-compose.yml" -f "Basis Server/Docker/docker-compose.local-web.yml" logs -f basis-server'
 
 [tasks."sso:up"]
-description = "ローカルHTTPSのSSO gatewayをビルド・起動し、readyまで待機"
+description = "ローカルHTTPSのConcierge gatewayをビルド・起動し、readyまで待機"
 run = "bash ./tools/sso-local-up.sh"
 
 [tasks."sso:health"]
-description = "ローカルSSO gatewayの状態を確認"
+description = "ローカルConcierge gatewayの状態を確認"
 run = "bash ./tools/sso-health.sh"
 
 [tasks."sso:ca"]
@@ -60,16 +60,16 @@ dir = "concierge/adminui"
 run = "pnpm install --frozen-lockfile"
 
 [tasks."sso:dev"]
-description = "SSO gatewayを起動し、Admin Consoleの開発サーバーを実行"
+description = "Concierge gatewayを起動し、Admin Consoleの開発サーバーを実行"
 depends = ["sso:up", "sso:install"]
 dir = "concierge/adminui"
 run = "pnpm run dev"
 
 [tasks."local:up"]
-description = "WebGL・SSO・Basis Server・Web配信をまとめて起動"
+description = "WebGL・Concierge・Basis Server・Web配信をまとめて起動"
 depends = ["web:prepare", "sso:up", "server:up"]
 run = "exec ./tools/serve-web.sh --dev"
 
 [tasks."local:down"]
-description = "ローカルSSO gatewayとBasis Serverを停止"
+description = "ローカルConcierge gatewayとBasis Serverを停止"
 run = "mise run sso:down && mise run server:down"

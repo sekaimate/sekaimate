@@ -2,8 +2,30 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 )
+
+const maxJSONBodyBytes int64 = 1 << 20
+
+// decodeJSON bounds all structured request bodies. Individual endpoints apply
+// a smaller limit where their wire contract is naturally small (admission and
+// OIDC form exchange).
+func decodeJSON(w http.ResponseWriter, r *http.Request, destination any) error {
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxJSONBodyBytes))
+	if err := decoder.Decode(destination); err != nil {
+		return err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return errors.New("multiple JSON values")
+		}
+		return err
+	}
+	return nil
+}
 
 // writeJSON writes v as compact JSON with the given status, matching
 // Results.Ok/Results.Json's default (non-indented) output.
