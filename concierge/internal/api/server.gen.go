@@ -72,14 +72,16 @@ type ClientConfiguration struct {
 
 // ClientProviderConfig defines model for ClientProviderConfig.
 type ClientProviderConfig struct {
-	Access            *AccessConfig `json:"access,omitempty"`
-	ClientId          *string       `json:"clientId,omitempty"`
-	ClientSecret      *string       `json:"clientSecret,omitempty"`
-	DisplayNameClaims *[]string     `json:"displayNameClaims,omitempty"`
-	Id                *string       `json:"id,omitempty"`
-	Issuer            *string       `json:"issuer,omitempty"`
-	Label             *string       `json:"label,omitempty"`
-	Scopes            *[]string     `json:"scopes,omitempty"`
+	Access            *AccessConfig      `json:"access,omitempty"`
+	ClientId          *string            `json:"clientId,omitempty"`
+	ClientSecret      *string            `json:"clientSecret,omitempty"`
+	DisplayNameClaims *[]string          `json:"displayNameClaims,omitempty"`
+	ExtraAuthParams   *map[string]string `json:"extraAuthParams,omitempty"`
+	Id                *string            `json:"id,omitempty"`
+	Issuer            *string            `json:"issuer,omitempty"`
+	Label             *string            `json:"label,omitempty"`
+	Scopes            *[]string          `json:"scopes,omitempty"`
+	TokenEndpoint     *string            `json:"tokenEndpoint,omitempty"`
 }
 
 // CreateMeetingRequest defines model for CreateMeetingRequest.
@@ -151,6 +153,13 @@ type JoinManifestMeeting struct {
 	Title *string `json:"title,omitempty"`
 }
 
+// MeetingDetails defines model for MeetingDetails.
+type MeetingDetails struct {
+	NativeBridgeUrl string `json:"nativeBridgeUrl"`
+	Title           string `json:"title"`
+	WebJoinUrl      string `json:"webJoinUrl"`
+}
+
 // MeetingView defines model for MeetingView.
 type MeetingView struct {
 	CreatedAt       time.Time `json:"createdAt"`
@@ -192,6 +201,9 @@ type ProviderOptions struct {
 	Issuer               *string   `json:"issuer,omitempty"`
 	JwksUri              *string   `json:"jwksUri,omitempty"`
 	Label                *string   `json:"label,omitempty"`
+	TokenEndpoint        *string   `json:"tokenEndpoint,omitempty"`
+	WebClientId          *string   `json:"webClientId,omitempty"`
+	WebClientSecret      *string   `json:"webClientSecret,omitempty"`
 }
 
 // RedirectConfig defines model for RedirectConfig.
@@ -211,8 +223,19 @@ type ServerTransportConfig struct {
 	WebSocketUri                      *string `json:"webSocketUri,omitempty"`
 }
 
+// WebMeetingManifest defines model for WebMeetingManifest.
+type WebMeetingManifest struct {
+	ConfigUrl    string `json:"configUrl"`
+	Password     string `json:"password"`
+	UserName     string `json:"userName"`
+	WebsocketUri string `json:"websocketUri"`
+}
+
 // MeetingId defines model for MeetingId.
 type MeetingId = string
+
+// ProviderId defines model for ProviderId.
+type ProviderId = string
 
 // ServerId defines model for ServerId.
 type ServerId = string
@@ -222,6 +245,10 @@ type Token = string
 
 // PutAdminClientConfigJSONBody defines parameters for PutAdminClientConfig.
 type PutAdminClientConfigJSONBody = map[string]interface{}
+
+// WebOidcTokenFormdataBody defines parameters for WebOidcToken.
+type WebOidcTokenFormdataBody struct {
+}
 
 // PutAdminClientConfigJSONRequestBody defines body for PutAdminClientConfig for application/json ContentType.
 type PutAdminClientConfigJSONRequestBody = PutAdminClientConfigJSONBody
@@ -237,6 +264,9 @@ type PutAdminServerJSONRequestBody = AdminServerWrite
 
 // AdmitJSONRequestBody defines body for Admit for application/json ContentType.
 type AdmitJSONRequestBody = AdmissionRequest
+
+// WebOidcTokenFormdataRequestBody defines body for WebOidcToken for application/x-www-form-urlencoded ContentType.
+type WebOidcTokenFormdataRequestBody WebOidcTokenFormdataBody
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -280,6 +310,9 @@ type ServerInterface interface {
 	// (PUT /admin/servers/{serverId})
 	PutAdminServer(w http.ResponseWriter, r *http.Request, serverId ServerId)
 
+	// (OPTIONS /admission/{serverId})
+	AdmissionOptions(w http.ResponseWriter, r *http.Request, serverId ServerId)
+
 	// (POST /admission/{serverId})
 	Admit(w http.ResponseWriter, r *http.Request, serverId ServerId)
 
@@ -301,11 +334,29 @@ type ServerInterface interface {
 	// (GET /join/{token}/config)
 	JoinConfig(w http.ResponseWriter, r *http.Request, token Token)
 
+	// (GET /join/{token}/details)
+	JoinDetails(w http.ResponseWriter, r *http.Request, token Token)
+
 	// (GET /join/{token}/manifest)
 	JoinManifest(w http.ResponseWriter, r *http.Request, token Token)
 
 	// (GET /join/{token}/open)
 	JoinOpenPage(w http.ResponseWriter, r *http.Request, token Token)
+
+	// (GET /join/{token}/web-config)
+	JoinWebConfig(w http.ResponseWriter, r *http.Request, token Token)
+
+	// (GET /join/{token}/web-manifest)
+	JoinWebManifest(w http.ResponseWriter, r *http.Request, token Token)
+
+	// (GET /web-client-config/{serverId})
+	GetWebClientConfig(w http.ResponseWriter, r *http.Request, serverId ServerId)
+
+	// (OPTIONS /web-oidc/{serverId}/{providerId}/token)
+	WebOidcOptions(w http.ResponseWriter, r *http.Request, serverId ServerId, providerId ProviderId)
+
+	// (POST /web-oidc/{serverId}/{providerId}/token)
+	WebOidcToken(w http.ResponseWriter, r *http.Request, serverId ServerId, providerId ProviderId)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -595,6 +646,32 @@ func (siw *ServerInterfaceWrapper) PutAdminServer(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// AdmissionOptions operation middleware
+func (siw *ServerInterfaceWrapper) AdmissionOptions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "serverId" -------------
+	var serverId ServerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "serverId", r.PathValue("serverId"), &serverId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "serverId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AdmissionOptions(w, r, serverId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // Admit operation middleware
 func (siw *ServerInterfaceWrapper) Admit(w http.ResponseWriter, r *http.Request) {
 
@@ -765,6 +842,32 @@ func (siw *ServerInterfaceWrapper) JoinConfig(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// JoinDetails operation middleware
+func (siw *ServerInterfaceWrapper) JoinDetails(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "token" -------------
+	var token Token
+
+	err = runtime.BindStyledParameterWithOptions("simple", "token", r.PathValue("token"), &token, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.JoinDetails(w, r, token)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // JoinManifest operation middleware
 func (siw *ServerInterfaceWrapper) JoinManifest(w http.ResponseWriter, r *http.Request) {
 
@@ -808,6 +911,154 @@ func (siw *ServerInterfaceWrapper) JoinOpenPage(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.JoinOpenPage(w, r, token)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// JoinWebConfig operation middleware
+func (siw *ServerInterfaceWrapper) JoinWebConfig(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "token" -------------
+	var token Token
+
+	err = runtime.BindStyledParameterWithOptions("simple", "token", r.PathValue("token"), &token, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.JoinWebConfig(w, r, token)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// JoinWebManifest operation middleware
+func (siw *ServerInterfaceWrapper) JoinWebManifest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "token" -------------
+	var token Token
+
+	err = runtime.BindStyledParameterWithOptions("simple", "token", r.PathValue("token"), &token, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.JoinWebManifest(w, r, token)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetWebClientConfig operation middleware
+func (siw *ServerInterfaceWrapper) GetWebClientConfig(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "serverId" -------------
+	var serverId ServerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "serverId", r.PathValue("serverId"), &serverId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "serverId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetWebClientConfig(w, r, serverId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// WebOidcOptions operation middleware
+func (siw *ServerInterfaceWrapper) WebOidcOptions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "serverId" -------------
+	var serverId ServerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "serverId", r.PathValue("serverId"), &serverId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "serverId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "providerId" -------------
+	var providerId ProviderId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "providerId", r.PathValue("providerId"), &providerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "providerId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.WebOidcOptions(w, r, serverId, providerId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// WebOidcToken operation middleware
+func (siw *ServerInterfaceWrapper) WebOidcToken(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "serverId" -------------
+	var serverId ServerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "serverId", r.PathValue("serverId"), &serverId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "serverId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "providerId" -------------
+	var providerId ProviderId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "providerId", r.PathValue("providerId"), &providerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "providerId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.WebOidcToken(w, r, serverId, providerId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -938,11 +1189,18 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	}
 
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/client-config/{serverId}", wrapper.GetClientConfig)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/web-client-config/{serverId}", wrapper.GetWebClientConfig)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/health", wrapper.Health)
+	m.HandleFunc(http.MethodOptions+" "+options.BaseURL+"/admission/{serverId}", wrapper.AdmissionOptions)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/admission/{serverId}", wrapper.Admit)
+	m.HandleFunc(http.MethodOptions+" "+options.BaseURL+"/web-oidc/{serverId}/{providerId}/token", wrapper.WebOidcOptions)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/web-oidc/{serverId}/{providerId}/token", wrapper.WebOidcToken)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/enroll/{token}", wrapper.EnrollLanding)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/enroll/{token}/config", wrapper.EnrollConfig)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/join/{token}/config", wrapper.JoinConfig)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/join/{token}/web-config", wrapper.JoinWebConfig)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/join/{token}/web-manifest", wrapper.JoinWebManifest)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/join/{token}/details", wrapper.JoinDetails)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/join/{token}", wrapper.JoinPage)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/join/{token}/open", wrapper.JoinOpenPage)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/join/{token}/manifest", wrapper.JoinManifest)

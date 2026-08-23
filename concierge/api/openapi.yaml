@@ -4,7 +4,7 @@ info:
   version: "1.0.0"
   description: >
     Wire-compatible Go rewrite of the Basis SSO admission broker
-    (Basis/Tools/BasisSsoBroker). Endpoint paths, JSON field names, and
+    (the former Basis SSO broker). Endpoint paths, JSON field names, and
     status codes are load-bearing: they are consumed by unmodified C# Unity
     clients and the unmodified C# UDP game server. See
     docs/concierge/research-sso-broker.md and docs/concierge/design.md for
@@ -28,6 +28,26 @@ paths:
                 type: object
         "404":
           description: Server unknown or no client-config file stored.
+  /web-client-config/{serverId}:
+    get:
+      operationId: getWebClientConfig
+      parameters:
+        - $ref: "#/components/parameters/ServerId"
+      responses:
+        "200":
+          description: Browser client configuration with broker token relay endpoints.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientConfiguration"
+        "404":
+          description: Unknown server.
+        "503":
+          description: Web SSO is not configured.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /health:
     get:
       operationId: health
@@ -45,6 +65,15 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthResponse"
   /admission/{serverId}:
+    options:
+      operationId: admissionOptions
+      parameters:
+        - $ref: "#/components/parameters/ServerId"
+      responses:
+        "204":
+          description: CORS preflight accepted.
+        "403":
+          description: Origin is not allowed.
     post:
       operationId: admit
       parameters:
@@ -74,6 +103,49 @@ paths:
           description: Unknown serverId.
         "503":
           description: Server is not configured (not ready).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /web-oidc/{serverId}/{providerId}/token:
+    options:
+      operationId: webOidcOptions
+      parameters:
+        - $ref: "#/components/parameters/ServerId"
+        - $ref: "#/components/parameters/ProviderId"
+      responses:
+        "204":
+          description: CORS preflight accepted.
+        "403":
+          description: Origin is not allowed.
+    post:
+      operationId: webOidcToken
+      parameters:
+        - $ref: "#/components/parameters/ServerId"
+        - $ref: "#/components/parameters/ProviderId"
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties:
+                type: string
+      responses:
+        "200":
+          description: Upstream OIDC token response.
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Invalid or unsupported grant request.
+        "403":
+          description: Origin or redirect URI is not allowed.
+        "404":
+          description: Unknown server/provider.
+        "503":
+          description: Web provider credentials are incomplete.
           content:
             application/problem+json:
               schema:
@@ -136,6 +208,58 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /join/{token}/web-config:
+    get:
+      operationId: joinWebConfig
+      parameters:
+        - $ref: "#/components/parameters/Token"
+      responses:
+        "200":
+          description: Browser client configuration for the invited meeting.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientConfiguration"
+        "404":
+          description: Unknown invite token.
+        "403":
+          description: Origin is not allowed.
+        "503":
+          description: Web SSO configuration incomplete.
+  /join/{token}/web-manifest:
+    get:
+      operationId: joinWebManifest
+      parameters:
+        - $ref: "#/components/parameters/Token"
+      responses:
+        "200":
+          description: WebGL meeting manifest.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebMeetingManifest"
+        "403":
+          description: Origin is not allowed.
+        "404":
+          description: Unknown invite token.
+        "409":
+          description: Meeting is not ready.
+  /join/{token}/details:
+    get:
+      operationId: joinDetails
+      parameters:
+        - $ref: "#/components/parameters/Token"
+      responses:
+        "200":
+          description: Participant page details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeetingDetails"
+        "404":
+          description: Unknown invite token.
+        "409":
+          description: Meeting is not ready.
   /join/{token}:
     get:
       operationId: joinPage
@@ -450,6 +574,12 @@ components:
       required: true
       schema:
         type: string
+    ProviderId:
+      name: providerId
+      in: path
+      required: true
+      schema:
+        type: string
     MeetingId:
       name: meetingId
       in: path
@@ -525,6 +655,12 @@ components:
         audience:
           type: string
         clientSecret:
+          type: string
+        webClientId:
+          type: string
+        webClientSecret:
+          type: string
+        tokenEndpoint:
           type: string
         jwksUri:
           type: string
@@ -703,6 +839,12 @@ components:
           type: string
         clientSecret:
           type: string
+        tokenEndpoint:
+          type: string
+        extraAuthParams:
+          type: object
+          additionalProperties:
+            type: string
         scopes:
           type: array
           items:
@@ -729,6 +871,28 @@ components:
       properties:
         allowOfflineWithinTokenValidity:
           type: boolean
+    MeetingDetails:
+      type: object
+      required: [title, webJoinUrl, nativeBridgeUrl]
+      properties:
+        title:
+          type: string
+        webJoinUrl:
+          type: string
+        nativeBridgeUrl:
+          type: string
+    WebMeetingManifest:
+      type: object
+      required: [configUrl, websocketUri, userName, password]
+      properties:
+        configUrl:
+          type: string
+        websocketUri:
+          type: string
+        userName:
+          type: string
+        password:
+          type: string
     ClientConfiguration:
       type: object
       properties:

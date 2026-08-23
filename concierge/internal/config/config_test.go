@@ -87,6 +87,41 @@ func TestServerConfig_ReadyAndEffectiveKeys(t *testing.T) {
 	}
 }
 
+func TestProviderConfig_WebOnlyAndRoundTrip(t *testing.T) {
+	provider := ProviderConfig{
+		Id: "web", Issuer: "https://issuer.example", WebClientId: "web-client",
+		WebClientSecret: "server-secret", TokenEndpoint: "https://issuer.example/token",
+		JwksUri: "https://issuer.example/jwks",
+	}
+	if !provider.IsWebConfigured() || !provider.IsStructurallyValid() {
+		t.Fatalf("web-only provider should be valid: %+v", provider)
+	}
+	copy := provider.Copy()
+	if copy.WebClientId != provider.WebClientId || copy.WebClientSecret != provider.WebClientSecret || copy.TokenEndpoint != provider.TokenEndpoint {
+		t.Fatalf("web fields lost by Copy: %+v", copy)
+	}
+}
+
+func TestStore_WebProviderPersists(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "appsettings.json")
+	s, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := ProviderConfig{Id: "web", Issuer: "https://issuer.example", WebClientId: "web-client", WebClientSecret: "server-secret", TokenEndpoint: "https://issuer.example/token", JwksUri: "https://issuer.example/jwks"}
+	if ok, msg := s.SetOrganization(OrganizationConfig{Providers: []ProviderConfig{provider}}); !ok {
+		t.Fatalf("SetOrganization: %s", msg)
+	}
+	reloaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	org := reloaded.GetOrganization()
+	if len(org.Providers) != 1 || org.Providers[0].WebClientId != "web-client" || org.Providers[0].WebClientSecret != "server-secret" || org.Providers[0].TokenEndpoint != provider.TokenEndpoint {
+		t.Fatalf("reloaded web provider = %+v", org.Providers)
+	}
+}
+
 func TestValidateBrowserEndpoints(t *testing.T) {
 	cases := []struct {
 		name, websocket, info string

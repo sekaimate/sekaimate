@@ -27,7 +27,7 @@ func constantTimeStringsEqual(a, b string) bool {
 // honored unconditionally here too rather than silently dropped.
 func (s *Store) RequestOrigin(r *http.Request) string {
 	if configured := s.PublicBaseUrl(); configured != "" {
-		if u, err := url.ParseRequestURI(configured); err == nil && u.IsAbs() && u.Scheme == "https" {
+		if u, err := url.ParseRequestURI(configured); err == nil && u.IsAbs() && (u.Scheme == "https" || u.Scheme == "http") {
 			return u.Scheme + "://" + u.Host
 		}
 	}

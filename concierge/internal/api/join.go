@@ -18,6 +18,11 @@ func (a *serverAPI) JoinConfig(w http.ResponseWriter, r *http.Request, token Tok
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
+	if !applyWebCors(w, r, a.deps.Config) {
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
 	server, serverKnown := a.deps.Config.FindServer(meeting.Id)
 	webSocketURI, serverInfoURI := meetingBrowserEndpoints(meeting, server, serverKnown)
 	organization := a.deps.Config.GetOrganization()

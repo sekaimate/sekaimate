@@ -22,6 +22,7 @@ type Provider struct {
 	ID                   string
 	Issuer               string
 	Audience             string
+	WebClientID          string
 	JwksURI              string
 	AllowedHostedDomains []string
 	AllowedGroups        []string
@@ -122,10 +123,10 @@ func (v *Validator) Validate(ctx context.Context, idToken string, providers []Pr
 	if !ok {
 		return nil, ErrUnknownIssuer
 	}
-	if strings.TrimSpace(provider.Audience) == "" || !strings.HasPrefix(provider.JwksURI, "https://") {
+	if (strings.TrimSpace(provider.Audience) == "" && strings.TrimSpace(provider.WebClientID) == "") || !strings.HasPrefix(provider.JwksURI, "https://") {
 		return nil, ErrProviderMisconfigured
 	}
-	if !audienceMatches(payload, provider.Audience) {
+	if !audienceMatchesAny(payload, provider.Audience, provider.WebClientID) {
 		return nil, ErrAudienceMismatch
 	}
 	if isExpired(payload) {
@@ -225,6 +226,15 @@ func audienceMatches(payload map[string]any, expected string) bool {
 			if s, ok := v.(string); ok && s == expected {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func audienceMatchesAny(payload map[string]any, expected ...string) bool {
+	for _, candidate := range expected {
+		if strings.TrimSpace(candidate) != "" && audienceMatches(payload, candidate) {
+			return true
 		}
 	}
 	return false

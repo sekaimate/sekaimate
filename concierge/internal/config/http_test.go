@@ -18,7 +18,7 @@ func TestRequestOrigin(t *testing.T) {
 		{"no public base url, plain request", "", "example.com", "", "", "http://example.com"},
 		{"honors X-Forwarded-Host/Proto", "", "internal:8080", "public.example.com", "https", "https://public.example.com"},
 		{"https public base url wins", "https://auth.example.com", "internal:8080", "", "", "https://auth.example.com"},
-		{"non-https public base url ignored", "http://auth.example.com", "example.com", "", "", "http://example.com"},
+		{"http public base url wins", "http://auth.example.com", "example.com", "", "", "http://auth.example.com"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

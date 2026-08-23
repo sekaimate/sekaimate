@@ -22,6 +22,15 @@ func providerConfigToAPI(p config.ProviderConfig) ProviderOptions {
 	if p.ClientSecret != "" {
 		out.ClientSecret = strPtr(p.ClientSecret)
 	}
+	if p.WebClientId != "" {
+		out.WebClientId = strPtr(p.WebClientId)
+	}
+	if p.WebClientSecret != "" {
+		out.WebClientSecret = strPtr(p.WebClientSecret)
+	}
+	if p.TokenEndpoint != "" {
+		out.TokenEndpoint = strPtr(p.TokenEndpoint)
+	}
 	out.AllowedHostedDomains = strSlicePtr(p.AllowedHostedDomains)
 	out.AllowedGroups = strSlicePtr(p.AllowedGroups)
 	return out
@@ -34,6 +43,9 @@ func apiProviderToConfig(p ProviderOptions) config.ProviderConfig {
 		Issuer:               derefStr(p.Issuer),
 		Audience:             derefStr(p.Audience),
 		ClientSecret:         derefStr(p.ClientSecret),
+		WebClientId:          derefStr(p.WebClientId),
+		WebClientSecret:      derefStr(p.WebClientSecret),
+		TokenEndpoint:        derefStr(p.TokenEndpoint),
 		JwksUri:              derefStr(p.JwksUri),
 		AllowedHostedDomains: derefStrSlice(p.AllowedHostedDomains),
 		AllowedGroups:        derefStrSlice(p.AllowedGroups),
@@ -211,6 +223,7 @@ func clientConfiguration(origin, serverID, publicKey, webSocketURI, serverInfoUR
 				AllowedGroups: strSlicePtr(p.AllowedGroups),
 				AllowedClaims: &claims,
 			},
+			ExtraAuthParams: mapPtr(authorizationParameters(p.AllowedHostedDomains)),
 		}
 		if p.ClientSecret != "" {
 			cp.ClientSecret = strPtr(p.ClientSecret)
@@ -218,6 +231,74 @@ func clientConfiguration(origin, serverID, publicKey, webSocketURI, serverInfoUR
 		clientProviders[i] = cp
 	}
 	out.Providers = &clientProviders
+	return out
+}
+
+func authorizationParameters(allowedDomains []string) map[string]string {
+	params := map[string]string{"access_type": "offline", "prompt": "consent"}
+	clean := make([]string, 0, len(allowedDomains))
+	seen := make(map[string]struct{})
+	for _, domain := range allowedDomains {
+		domain = strings.TrimSpace(domain)
+		if domain == "" {
+			continue
+		}
+		key := strings.ToLower(domain)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		clean = append(clean, domain)
+	}
+	if len(clean) == 1 {
+		params["hd"] = clean[0]
+	} else if len(clean) > 1 {
+		params["hd"] = "*"
+	}
+	return params
+}
+
+func mapPtr(value map[string]string) *map[string]string { return &value }
+
+func webClientConfiguration(origin, serverID, publicKey, webSocketURI, serverInfoURI string, providers []config.ProviderConfig, defaultProviderID string) ClientConfiguration {
+	out := clientConfiguration(origin, serverID, publicKey, webSocketURI, serverInfoURI, providers, defaultProviderID)
+	out.Redirect = &RedirectConfig{Mode: strPtr("browser"), Path: strPtr("/sso-callback")}
+	webProviders := make([]ClientProviderConfig, 0, len(providers))
+	for _, p := range providers {
+		if !p.IsWebConfigured() {
+			continue
+		}
+		label := p.Label
+		if label == "" {
+			label = p.Id
+		}
+		claims := make([]ClaimRule, 0, len(p.AllowedHostedDomains))
+		for _, domain := range p.AllowedHostedDomains {
+			claims = append(claims, ClaimRule{Claim: strPtr("hd"), Values: &[]string{domain}})
+		}
+		tokenEndpoint := origin + "/web-oidc/" + escapeDataString(serverID) + "/" + escapeDataString(p.Id) + "/token"
+		webProviders = append(webProviders, ClientProviderConfig{
+			Id: strPtr(p.Id), Label: strPtr(label), Issuer: strPtr(p.Issuer), ClientId: strPtr(p.WebClientId),
+			TokenEndpoint: strPtr(tokenEndpoint), Scopes: &[]string{"openid", "email", "profile"},
+			ExtraAuthParams:   mapPtr(authorizationParameters(p.AllowedHostedDomains)),
+			DisplayNameClaims: &[]string{"name", "preferred_username", "email"},
+			Access:            &AccessConfig{AllowedGroups: strSlicePtr(p.AllowedGroups), AllowedClaims: &claims},
+		})
+	}
+	out.Providers = &webProviders
+	if len(webProviders) > 0 {
+		selected := ""
+		for _, provider := range webProviders {
+			if provider.Id != nil && *provider.Id == defaultProviderID {
+				selected = defaultProviderID
+				break
+			}
+		}
+		if selected == "" && webProviders[0].Id != nil {
+			selected = *webProviders[0].Id
+		}
+		out.DefaultProviderId = strPtr(selected)
+	}
 	return out
 }
 

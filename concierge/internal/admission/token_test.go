@@ -127,6 +127,18 @@ func TestValidator_Validate_AudienceArray(t *testing.T) {
 	}
 }
 
+func TestValidator_Validate_WebClientAudience(t *testing.T) {
+	ks := newTestKeySet(t)
+	token := signToken(t, ks,
+		map[string]any{"alg": "RS256", "kid": ks.kid},
+		map[string]any{"iss": "https://issuer.example", "aud": "web-client", "sub": "user-1", "exp": time.Now().Add(time.Hour).Unix()},
+	)
+	providers := []Provider{{Issuer: "https://issuer.example", WebClientID: "web-client", JwksURI: ks.srv.URL}}
+	if _, err := ks.validator().Validate(context.Background(), token, providers); err != nil {
+		t.Fatalf("Validate web audience: %v", err)
+	}
+}
+
 func TestValidator_Validate_Failures(t *testing.T) {
 	ks := newTestKeySet(t)
 	validExp := time.Now().Add(time.Hour).Unix()

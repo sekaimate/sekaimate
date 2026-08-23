@@ -18,6 +18,10 @@ const (
 // handler does (research-sso-broker.md §1.3/§7-4).
 func (a *serverAPI) Admit(w http.ResponseWriter, r *http.Request, serverId ServerId) {
 	w.Header().Set("Cache-Control", "no-store")
+	if !applyAdmissionCors(w, r, a.deps.Config) {
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
 
 	var req AdmissionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -48,7 +52,7 @@ func (a *serverAPI) Admit(w http.ResponseWriter, r *http.Request, serverId Serve
 	providers := make([]admission.Provider, len(server.Providers))
 	for i, p := range server.Providers {
 		providers[i] = admission.Provider{
-			ID: p.Id, Issuer: p.Issuer, Audience: p.Audience, JwksURI: p.JwksUri,
+			ID: p.Id, Issuer: p.Issuer, Audience: p.Audience, WebClientID: p.WebClientId, JwksURI: p.JwksUri,
 			AllowedHostedDomains: p.AllowedHostedDomains, AllowedGroups: p.AllowedGroups,
 		}
 	}
@@ -64,4 +68,13 @@ func (a *serverAPI) Admit(w http.ResponseWriter, r *http.Request, serverId Serve
 		return
 	}
 	writeJSON(w, http.StatusOK, AdmissionResponse{Ticket: ticket})
+}
+
+// AdmissionOptions handles browser preflight for the admission endpoint.
+func (a *serverAPI) AdmissionOptions(w http.ResponseWriter, r *http.Request, serverId ServerId) {
+	if !applyAdmissionCors(w, r, a.deps.Config) {
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

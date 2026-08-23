@@ -40,6 +40,9 @@ type ProviderConfig struct {
 	Issuer               string   `json:"Issuer"`
 	Audience             string   `json:"Audience"`
 	ClientSecret         string   `json:"ClientSecret,omitempty"`
+	WebClientId          string   `json:"WebClientId,omitempty"`
+	WebClientSecret      string   `json:"WebClientSecret,omitempty"`
+	TokenEndpoint        string   `json:"TokenEndpoint,omitempty"`
 	JwksUri              string   `json:"JwksUri"`
 	AllowedHostedDomains []string `json:"AllowedHostedDomains,omitempty"`
 	AllowedGroups        []string `json:"AllowedGroups,omitempty"`
@@ -59,17 +62,22 @@ func (p ProviderConfig) Copy() ProviderConfig {
 	return out
 }
 
+// IsWebConfigured mirrors the C# broker's web credential check. Web secrets
+// remain broker-side and are never emitted in client configuration.
+func (p ProviderConfig) IsWebConfigured() bool {
+	return p.WebClientId != "" && p.WebClientSecret != "" && isAbsoluteHTTPS(p.TokenEndpoint)
+}
+
 // IsStructurallyValid mirrors ProviderOptions.IsStructurallyValid: non-blank
-// id, absolute-HTTPS issuer, non-blank audience, absolute-HTTPS JWKS URI.
+// id, absolute-HTTPS issuer/JWKS URI, and either a native audience or a
+// complete browser provider credential.
 func (p ProviderConfig) IsStructurallyValid() bool {
-	return p.Id != "" && isAbsoluteHTTPS(p.Issuer) && p.Audience != "" && isAbsoluteHTTPS(p.JwksUri)
+	return p.Id != "" && isAbsoluteHTTPS(p.Issuer) && (p.Audience != "" || p.IsWebConfigured()) && isAbsoluteHTTPS(p.JwksUri)
 }
 
 func isAbsoluteHTTPS(raw string) bool {
-	if raw == "" {
-		return false
-	}
-	return strings.HasPrefix(raw, "https://")
+	u, err := url.ParseRequestURI(raw)
+	return err == nil && u.IsAbs() && strings.EqualFold(u.Scheme, "https") && u.Host != ""
 }
 
 // ServerConfig is one Basis game server's admission configuration, matching
@@ -287,6 +295,7 @@ func (o OrganizationConfig) IsStructurallyValid() (bool, string) {
 // BrokerConfig is the top-level "Broker" section of appsettings.json.
 type BrokerConfig struct {
 	PublicBaseUrl                 string              `json:"PublicBaseUrl,omitempty"`
+	AllowedWebOrigins             []string            `json:"AllowedWebOrigins,omitempty"`
 	ClientConfigDirectory         string              `json:"ClientConfigDirectory,omitempty"`
 	AdminTokenEnvironmentVariable string              `json:"AdminTokenEnvironmentVariable,omitempty"`
 	AllowUnauthenticatedAdmin     bool                `json:"AllowUnauthenticatedAdmin,omitempty"`
@@ -568,6 +577,14 @@ func (s *Store) PublicBaseUrl() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.cfg.PublicBaseUrl
+}
+
+// AllowedWebOrigins returns a copy of the exact origins permitted for browser
+// CORS and redirect callbacks.
+func (s *Store) AllowedWebOrigins() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.cfg.AllowedWebOrigins...)
 }
 
 // ManagedBrowserEndpointTemplates returns the explicit endpoint templates
