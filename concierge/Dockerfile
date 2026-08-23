@@ -7,6 +7,12 @@
 
 FROM node:24-bookworm-slim AS admin-ui
 WORKDIR /src/adminui
+# Vite+ uses a native HTTP client during its test/build steps. The slim Node
+# image does not include the system CA bundle, so install it explicitly for a
+# reproducible image build (the runtime image remains distroless).
+RUN apt-get update \
+    && apt-get install --no-install-recommends --yes ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 RUN npm install --global pnpm@11.7.0
 COPY adminui/package.json adminui/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile

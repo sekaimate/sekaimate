@@ -29,7 +29,15 @@ var errPrivateAddress = errors.New("outbound URL resolves to a non-public addres
 // the request is made.  The transport below repeats the address check at dial
 // time, closing the DNS-rebinding window between validation and connection.
 func ValidateHTTPSURL(ctx context.Context, raw string) error {
-	u, err := url.ParseRequestURI(strings.TrimSpace(raw))
+	raw = strings.TrimSpace(raw)
+	// ParseRequestURI intentionally accepts a fragment-like suffix as part of
+	// the request URI. Reject it before parsing because fragments are never
+	// sent to an HTTPS endpoint and accepting them makes validation differ from
+	// the URL that the HTTP client actually requests.
+	if strings.Contains(raw, "#") {
+		return fmt.Errorf("URL must be an absolute HTTPS URL without user info or fragment")
+	}
+	u, err := url.ParseRequestURI(raw)
 	if err != nil || !u.IsAbs() || !strings.EqualFold(u.Scheme, "https") || u.Host == "" || u.User != nil || u.Fragment != "" {
 		return fmt.Errorf("URL must be an absolute HTTPS URL without user info or fragment")
 	}

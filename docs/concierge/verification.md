@@ -182,6 +182,30 @@ Podman の minikube ネットワークではホストから `192.168.49.2:7612` 
 client-config、join manifest/config、join deep-link の全てに同一の `wss://192.168.49.2:7918/basis` /
 `https://192.168.49.2:7918/server-info` が伝播した。検証会議と GameServer は削除し、Deployment は元の stub 構成へ復元した。
 
+### 4.3 現 HEAD の Admin UI/API smoke E2E (2026-08-23)
+
+現 HEAD `c9b1380b7` から Concierge image (`concierge:e2e-c9b1380-fix`) を
+`minikube image build` し、`basis/concierge` Deployment に反映した。image build の Admin UI stage で
+Vite+ の native HTTP client が必要とする CA bundle が `node:24-bookworm-slim` に無かったため、
+`concierge/Dockerfile` に build-stage 専用の `ca-certificates` 導入を追加した。runtime image は引き続き
+distroless のままである。
+
+以下を port-forward (`localhost:5080`) 経由で確認した。
+
+- `/health` は会議なしで `503 not_ready`、`/admin/` と全参照 asset は `200`、Admin API は token 無しで `401`。
+- Admin bearer token で static server の PUT/GET/DELETE を行い、`ready`、WebSocket/server-info URI の保存・取得を確認。
+  GET レスポンスには ticket signing key / transport public key の実値が含まれないことも確認した。
+- meeting を作成し `provisioning` → Agones GameServer `Ready` → `ready` の遷移、動的 host/port、
+  `GET /admin/servers` への反映、invitation 発行、DELETE と GameServer の非同期削除を確認した。
+- invitation の `details`、`config`、`manifest`、`web-config`、`web-manifest`、`open`、join HTML を `200` で確認。
+  `web-config` には Web client secret が含まれず、`Cache-Control: no-store`、許可されない Origin は `403` となった。
+- OIDC token relay の authorization-code/refresh-token forwarding、redirect allowlist、secret 非露出は
+  `internal/api/web_test.go` の HTTPS fake upstream fixture で再確認した。実クラスタでは fake upstream を
+  production の outbound public-HTTPS 制約へ持ち込まず、browser config/route/CORS までを確認した。
+
+検証用 meeting、GameServer、Web provider credential は終了時に削除・復元し、他の既存 meeting は削除していない。
+ユーザーのブラウザ確認用に minikube と Concierge Deployment、`localhost:5080` port-forward は維持している。
+
 ## 5. 検証中に見つかった不具合と修正
 
 いずれもコードまたは `deploy/` マニフェストを修正し、コミットして再デプロイ・再検証した。
