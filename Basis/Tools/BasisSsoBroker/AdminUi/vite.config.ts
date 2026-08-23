@@ -23,6 +23,11 @@ export default defineConfig(({ command }) => ({
         changeOrigin: true,
         secure: false,
       },
+      "/health": {
+        target: broker,
+        changeOrigin: true,
+        secure: false,
+      },
     },
   },
 }));
