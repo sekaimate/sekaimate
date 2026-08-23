@@ -144,7 +144,7 @@ DELETE /admin/meetings/{meetingId}
    | `SsoTransportPrivateKey` | string | base64url X25519 秘密鍵。サーバーのみが保持する。 |
    | `SsoTransportPublicKey` | string | base64url X25519 公開鍵。クライアントの `basis-sso.json` にも配布される。 |
    | `SsoAdmissionTicketSigningKey` | string | チケット HMAC 署名鍵。HTTPS broker(concierge)とのみ共有する。 |
-   | `AutoStartSsoBroker` | bool | `RequireSso` 有効時、同居プロセスとして C# broker を自動起動するかどうか。既定 `true`。 |
+   | `AutoStartSsoBroker` | bool | 旧 XML 名を維持した Concierge 同居プロセスの自動起動フラグ。既定 `true`。 |
    | `SsoBrokerBindUrl` | string | 同居 broker のバインド URL。既定 `http://127.0.0.1:5080`。 |
 
    `SsoProviders`(`List<SsoProviderConfiguration>`)はこのリフレクション機構では**環境変数から設定できない**
@@ -164,7 +164,7 @@ DELETE /admin/meetings/{meetingId}
    `envFrom.secretRef`(またはキーごとの `valueFrom.secretKeyRef`)で注入し、**フィールド名と同じ環境変数名**
    (`SsoAdmissionTicketSigningKey`/`SsoTransportPrivateKey`/`SsoTransportPublicKey`)で公開する。あわせて
    `RequireSso=true`、`AutoStartSsoBroker=false` も環境変数として注入する(`AutoStartSsoBroker=false` は、
-   ゲームサーバー本体が自分自身の子プロセスとして別の C# broker を起動しようとするのを防ぐため。
+   ゲームサーバー本体が自身の同居 Concierge を起動しようとするのを防ぐため。
    `Basis/Packages/com.basis.server/Docker/docker-compose.yml` がすでに `RequireSso`/`AutoStartSsoBroker: false` を
    個別の環境変数として渡す運用実績があり、同じパターンを踏襲する)。
 4. concierge 自身は、その会議向けにチケットを発行する際に必要な署名鍵の値を、Secret 作成時に自身のメモリ内
@@ -315,19 +315,15 @@ basis-k8s の `/servers`(`POST`/`GET`/`GET {name}`/`DELETE`)相当の操作は�
 
 ## 9. AdminUi
 
-Cloudscape AdminUi は元来 C# broker 用に `Basis/Tools/BasisSsoBroker/AdminUi` に実装された資産だが、runtime 完全移行に
-伴い `concierge/adminui` へ移管する。Concierge 対応として、この UI の管理画面部分を
+Cloudscape AdminUi は runtime 完全移行に伴い `concierge/adminui` を正規ソースとする。旧
+`Basis/Tools/BasisSsoBroker/AdminUi` は残さず、Concierge 対応として、この UI の管理画面部分を
 拡張し、Go API の認証ヘッダー、会議室ライフサイクル、health/status polling、静的サーバー管理、
 WebGL endpoint 検証を追加している。これは両 backend の完全互換や、concierge の正規共有ソースであることを
 意味しない。
 
-特に `join.tsx` と旧 Nginx の participant flow は C# broker の `/join/{token}/details`、`/web-config`、
-`/web-manifest`、`/web-oidc` 契約に依存する。concierge の参加導線は `/join/{token}`、`/config`、`/manifest`
-という別契約であり、join/OAuth の UI を共通利用できる状態ではない。将来 concierge 専用 UI にする場合は
-`concierge/adminui` へ分離し、Concierge の Dockerfile/deploy に frontend build と静的資産同梱を追加する。
-Compose と standalone の現役導線を維持するため、gateway の TLS 契約と `/api` prefix は保つが、backend は Concierge
-だけにする。参加者向け web join/OIDC も Concierge 側の互換 endpoint を使う。
-ビルド済み静的アセットは concierge が `ADMIN_UI_DIR` から配信する。
+参加者向け UI は Concierge の `/join/{token}/manifest` 契約を使い、browser join/OIDC も Concierge 側の互換 endpoint
+を使う。Compose の TLS gateway は配信境界として残せるが、backend は Concierge だけであり、旧 C# broker は実行しない。
+ビルド済み静的アセットは Concierge の Dockerfile で生成して runtime image の `/adminui` に同梱する。
 
 - AdminUi は Vite で `base: "/admin/"` としてビルドされ、`fetch('/api' + path)` で API を呼ぶ(`api.ts`)。
 - concierge は次の 2 つを提供する。

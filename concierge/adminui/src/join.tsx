@@ -9,9 +9,14 @@ import SpaceBetween from "@cloudscape-design/components/space-between";
 import "./join.css";
 
 type MeetingDetails = {
-  title: string;
-  webJoinUrl: string;
-  nativeBridgeUrl: string;
+  meeting?: { id?: string; title?: string };
+  connection?: {
+    host?: string;
+    port?: number;
+    password?: string;
+    webSocketUri?: string;
+    serverInfoUri?: string;
+  };
 };
 
 function JoinPage() {
@@ -26,7 +31,7 @@ function JoinPage() {
       setError("参加リンクが正しくありません。");
       return;
     }
-    fetch(`/join/${encodeURIComponent(token)}/details`, { cache: "no-store" })
+    fetch(`/join/${encodeURIComponent(token)}/manifest`, { cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) throw new Error(await response.text());
         return response.json() as Promise<MeetingDetails>;
@@ -43,26 +48,47 @@ function JoinPage() {
     return () => removeEventListener("message", onMessage);
   }, []);
 
+  const nativeBridgeUrl = () => {
+    if (!details?.connection || !details.meeting?.id) return "";
+    const { host, port, password, webSocketUri } = details.connection;
+    if (!host || !port || !password) return "";
+    const query = new URLSearchParams({
+      password,
+      meeting: details.meeting.id,
+    });
+    if (webSocketUri) query.set("websocketUri", webSocketUri);
+    const deepLinkHost = host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
+    const deepLink = `basisdemo://${deepLinkHost}:${port}?${query.toString()}`;
+    const manifest = `${window.location.origin}/join/${encodeURIComponent(token)}/manifest`;
+    return `http://127.0.0.1:56831/basis-join?config=${encodeURIComponent(manifest)}&link=${encodeURIComponent(deepLink)}`;
+  };
+
   const openNative = () => {
-    if (!details) return;
+    const bridge = nativeBridgeUrl();
+    if (!bridge) {
+      setError("この参加リンクには Basis アプリ用の接続情報がありません。");
+      return;
+    }
     setStatus("Basisに会議情報を渡しています…");
     const frame = document.getElementById("basis-join") as HTMLIFrameElement | null;
-    if (frame) frame.src = details.nativeBridgeUrl;
+    if (frame) frame.src = bridge;
     window.setTimeout(() => setStatus("Basisが起動していることを確認してください。"), 2500);
   };
+
+  const webJoinUrl = details?.connection?.webSocketUri && details.connection.serverInfoUri
+    ? `${import.meta.env.VITE_WEB_CLIENT_ORIGIN || window.location.origin}/?basisMeeting=1&meetingUrl=${encodeURIComponent(`${window.location.origin}/join/${encodeURIComponent(token)}/manifest`)}`
+    : "";
 
   return (
     <main className="join-shell">
       <section className="join-card">
         <Container>
           <SpaceBetween size="l">
-            <Header variant="h1">{details?.title ?? "会議に参加"}</Header>
+            <Header variant="h1">{details?.meeting?.title ?? "会議に参加"}</Header>
             {error ? <Box color="text-status-error">{error}</Box> : <Box>{status}</Box>}
             {!error && details && (
               <SpaceBetween size="s">
-                <Button variant="primary" href={details.webJoinUrl || undefined} fullWidth>
-                  Webで参加
-                </Button>
+                {webJoinUrl && <Button variant="primary" href={webJoinUrl} fullWidth>Webで参加</Button>}
                 <Button onClick={openNative} fullWidth>
                   Basisアプリで参加
                 </Button>

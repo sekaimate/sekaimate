@@ -5,12 +5,9 @@
 // fallback under "/admin/", and a prefix-stripped passthrough from
 // "/api/*" to the same handler that already serves "/admin/..." directly.
 //
-// The AdminUi source (Basis/Tools/BasisSsoBroker/AdminUi) ships only as
-// source in this repository — there is no committed Vite build output to
-// copy in. Rather than invent a build step outside concierge's scope, this
-// package serves a configurable directory (ADMIN_UI_DIR) that an operator
-// points at `pnpm build`'s dist/ output; if unset, "/admin/" answers 404
-// with a clear message instead of silently serving nothing.
+// The AdminUi source (concierge/adminui) is built into the Concierge image.
+// ADMIN_UI_DIR remains configurable for local development and custom builds;
+// if unset, "/admin/" answers 404 with a clear message.
 package adminui
 
 import (

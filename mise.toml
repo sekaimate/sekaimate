@@ -52,7 +52,7 @@ run = 'docker compose -f "Basis Server/Docker/sso/docker-compose.yml" down'
 
 [tasks."sso:logs"]
 description = "ConciergeとAdmin gatewayのログを表示"
-run = 'docker compose -f "Basis Server/Docker/sso/docker-compose.yml" logs -f'
+run = 'docker compose -f "Basis Server/Docker/sso/docker-compose.yml" logs -f concierge concierge-gateway'
 
 [tasks."sso:install"]
 description = "Admin Consoleの依存関係をインストール"

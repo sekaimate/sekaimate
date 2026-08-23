@@ -165,8 +165,8 @@ phase 2 で Agones 対応の `Manager` を実装する際は、`RoomProvisioner`
 
 ## 5. AdminUi の配信と Concierge 対応
 
-`concierge/adminui/` は元来 C# broker 用だった Cloudscape UI を Concierge 配下へ移管したもの。C# broker の
-Docker/Nginx gateway は廃止し、Concierge API と組み合わせて次を提供する。
+`concierge/adminui/` は Concierge が所有する Cloudscape UI の正規ソースである。旧 C# broker の
+Docker/Nginx runtime は廃止し、必要な TLS gateway はこの UI の nginx 設定から Concierge API へ接続する。
 
 - `sessionStorage` の admin token を `Authorization: Bearer` として全 `/api/*` 管理 API に送信
 - 会議室の作成・削除・招待 URL 発行、provisioning/ready/error の表示と 5 秒 polling
@@ -180,8 +180,7 @@ Concierge は管理 API だけでなく、C# broker 互換の `/join/{token}/det
 
 `concierge/Dockerfile` は Node/Vite build と Go build を同梱し、runtime に `/adminui` を配置する。Deployment の
 `ADMIN_UI_DIR` 既定値も同じパスで、外部 UI build を要求しない。ローカル開発では `ADMIN_UI_DIR` を差し替えられる。
-
-コミットされた `dist/` は生成物のため、ソース変更後にローカルで `vp build` して生成する。
+`dist/` と `node_modules/` は生成物なので Git には追加せず、イメージ build または `pnpm run build` で生成する。
 
 Concierge 側では、`internal/adminui.Mount` が環境変数 `ADMIN_UI_DIR` で指定した任意のディレクトリ(オペレーターが
 `pnpm build` 等で生成した `dist/` を指す想定)を `/admin/` 以下に配信する。`ADMIN_UI_DIR` 未設定時は `/admin/` への
@@ -213,7 +212,8 @@ Concierge 側では、`internal/adminui.Mount` が環境変数 `ADMIN_UI_DIR` �
 ## 7. 設計からの逸脱・注記
 
 - **`strict-server` を使わない**(§3 参照)。
-- **AdminUi はビルド成果物を同梱せず、`ADMIN_UI_DIR` で配信先を指定する運用にした**(§5 参照)。
+- **AdminUi は Concierge の runtime image に `/adminui` として同梱する。** `ADMIN_UI_DIR` はローカル開発や
+  カスタムビルドで上書きする場合だけ使用する(§5 参照)。
 - **`appsettings.json` を 0600 に chmod するようにした**(C# 版は `control-plane.json` のみ chmod し、
   `appsettings.json` は chmod していない。`research-sso-broker.md` §8 がこれを是正すべき欠陥として明示的に
   指摘しているため、サイレントに再現せず修正した)。

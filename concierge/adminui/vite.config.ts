@@ -1,7 +1,7 @@
 import { defineConfig } from "vite-plus";
 import react from "@vitejs/plugin-react";
 
-const broker = process.env.BASIS_SSO_BROKER_URL ?? "https://localhost";
+const concierge = process.env.CONCIERGE_URL ?? "http://127.0.0.1:5080";
 
 export default defineConfig(({ command }) => ({
   base: command === "build" ? "/admin/" : "/",
@@ -19,12 +19,17 @@ export default defineConfig(({ command }) => ({
     strictPort: true,
     proxy: {
       "/api": {
-        target: broker,
+        target: concierge,
         changeOrigin: true,
         secure: false,
       },
       "/health": {
-        target: broker,
+        target: concierge,
+        changeOrigin: true,
+        secure: false,
+      },
+      "/join": {
+        target: concierge,
         changeOrigin: true,
         secure: false,
       },

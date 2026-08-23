@@ -184,7 +184,7 @@ docker compose up -d --build
 
 cd "../../../Basis Server/Docker/sso"
 docker compose up -d --build
-docker compose logs -f concierge basis-sso-admin
+docker compose logs -f concierge concierge-gateway
 ```
 
 Concierge はゲームサーバーの `config/config.xml` に生成される鍵を待機して読み取る。平文の

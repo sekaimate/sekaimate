@@ -1,5 +1,5 @@
 {
-  "name": "@basis/sso-broker-admin-ui",
+  "name": "@sekaimate/concierge-admin-ui",
   "private": true,
   "version": "0.1.0",
   "type": "module",

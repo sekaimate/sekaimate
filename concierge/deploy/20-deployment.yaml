@@ -104,6 +104,8 @@ spec:
               value: /data/appsettings.json
             - name: BASIS_CONTROL_PLANE_STORE_PATH
               value: /data/control-plane.json
+            - name: ADMIN_UI_DIR
+              value: /adminui
             - name: BASIS_CONTROL_PLANE_ALLOW_MANUAL_MEETINGS
               value: "true"
             # basis-server image the Agones GameServers run — replace with

@@ -29,6 +29,7 @@ type OrganizationForm = {
   googleEnabled: boolean;
   googleWebClientId: string;
   googleWebClientSecret: string;
+  googleTokenEndpoint: string;
   googleNativeClientId: string;
   googleNativeClientSecret: string;
   googleDomains: string;
@@ -36,6 +37,7 @@ type OrganizationForm = {
   oktaIssuer: string;
   oktaClientId: string;
   oktaClientSecret: string;
+  oktaTokenEndpoint: string;
   oktaJwksUri: string;
   oktaGroups: string;
 };
@@ -52,6 +54,7 @@ const blankForm = (): OrganizationForm => ({
   googleEnabled: true,
   googleWebClientId: "",
   googleWebClientSecret: "",
+  googleTokenEndpoint: "https://oauth2.googleapis.com/token",
   googleNativeClientId: "",
   googleNativeClientSecret: "",
   googleDomains: "",
@@ -59,6 +62,7 @@ const blankForm = (): OrganizationForm => ({
   oktaIssuer: "",
   oktaClientId: "",
   oktaClientSecret: "",
+  oktaTokenEndpoint: "",
   oktaJwksUri: "",
   oktaGroups: "",
 });
@@ -71,6 +75,7 @@ const formFromOrganization = (organization: Organization): OrganizationForm => {
     googleEnabled: Boolean(google?.webClientId),
     googleWebClientId: google?.webClientId ?? "",
     googleWebClientSecret: google?.webClientSecret ?? "",
+    googleTokenEndpoint: google?.tokenEndpoint ?? "https://oauth2.googleapis.com/token",
     googleNativeClientId: google?.audience ?? "",
     googleNativeClientSecret: google?.clientSecret ?? "",
     googleDomains: (google?.allowedHostedDomains ?? []).join(", "),
@@ -78,6 +83,7 @@ const formFromOrganization = (organization: Organization): OrganizationForm => {
     oktaIssuer: okta?.issuer ?? "",
     oktaClientId: okta?.audience ?? "",
     oktaClientSecret: okta?.clientSecret ?? "",
+    oktaTokenEndpoint: okta?.tokenEndpoint ?? "",
     oktaJwksUri: okta?.jwksUri ?? "",
     oktaGroups: (okta?.allowedGroups ?? []).join(", "),
   };
@@ -94,7 +100,7 @@ const organizationFromForm = (form: OrganizationForm): Organization => {
       clientSecret: form.googleNativeClientSecret || undefined,
       webClientId: form.googleWebClientId.trim(),
       webClientSecret: form.googleWebClientSecret || undefined,
-      tokenEndpoint: "https://oauth2.googleapis.com/token",
+      tokenEndpoint: form.googleTokenEndpoint.trim() || undefined,
       jwksUri: "https://www.googleapis.com/oauth2/v3/certs",
       allowedHostedDomains: csv(form.googleDomains),
       allowedGroups: [],
@@ -106,6 +112,9 @@ const organizationFromForm = (form: OrganizationForm): Organization => {
       issuer: form.oktaIssuer.trim(),
       audience: form.oktaClientId.trim(),
       clientSecret: form.oktaClientSecret,
+      webClientId: form.oktaClientId.trim(),
+      webClientSecret: form.oktaClientSecret,
+      tokenEndpoint: form.oktaTokenEndpoint.trim() || undefined,
       jwksUri: form.oktaJwksUri.trim(),
       allowedHostedDomains: [],
       allowedGroups: csv(form.oktaGroups),
@@ -122,11 +131,14 @@ const validateOrganizationForm = (form: OrganizationForm): string | null => {
     return "Google organization account または Okta を少なくとも一つ有効にしてください。";
   if (form.googleEnabled && !form.googleWebClientId.trim())
     return "Google Web OAuth Client ID を入力してください。";
+  if (form.googleEnabled && !form.googleTokenEndpoint.trim())
+    return "Google OAuth token endpoint を入力してください。";
   if (
     form.oktaEnabled &&
     (!form.oktaIssuer.trim() ||
       !form.oktaClientId.trim() ||
-      !form.oktaJwksUri.trim())
+      !form.oktaJwksUri.trim() ||
+      !form.oktaTokenEndpoint.trim())
   )
     return "Okta の Issuer、OAuth Client ID、JWKS URL を入力してください。";
   return null;
@@ -384,6 +396,13 @@ function OrganizationSettings({
                       placeholder="…apps.googleusercontent.com"
                     />
                   </FormField>
+                  <FormField label="Token endpoint" description="Authorization Code / refresh token の交換先です。">
+                    <Input
+                      value={form.googleTokenEndpoint}
+                      onChange={({ detail }) => update("googleTokenEndpoint", detail.value)}
+                      placeholder="https://oauth2.googleapis.com/token"
+                    />
+                  </FormField>
                   <FormField
                     label="許可ドメイン"
                     description="カンマ区切り。*はGoogle組織アカウントを必須にします。空欄なら全Googleアカウントを許可します。"
@@ -461,6 +480,13 @@ function OrganizationSettings({
                         update("oktaJwksUri", detail.value)
                       }
                       placeholder="https://YOUR_OKTA_DOMAIN/oauth2/default/v1/keys"
+                    />
+                  </FormField>
+                  <FormField label="Token endpoint" description="Authorization Code / refresh token の交換先です。">
+                    <Input
+                      value={form.oktaTokenEndpoint}
+                      onChange={({ detail }) => update("oktaTokenEndpoint", detail.value)}
+                      placeholder="https://YOUR_OKTA_DOMAIN/oauth2/default/v1/token"
                     />
                   </FormField>
                   <FormField label="許可グループ" description="カンマ区切り。">

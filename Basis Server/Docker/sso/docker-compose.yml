@@ -22,7 +22,7 @@ services:
       - ./broker:/state
     networks: [sso]
 
-  basis-sso-admin:
+  concierge-gateway:
     build:
       context: ../../../concierge/adminui
     image: concierge-gateway:local
