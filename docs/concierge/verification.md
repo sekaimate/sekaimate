@@ -240,6 +240,42 @@ distroless のままである。
 環境変数という現行実装の経路を minikube で再現できることを確認した。検証用 meeting/GameServer、専用 Concierge
 Deployment/PVC/Secret、port-forward は検証後に削除し、既存のブラウザ確認用 Concierge Deployment/port-forward は維持した。
 
+### 4.4 参加 URL の自動表示 (2026-08-23)
+
+会議室の作成直後に Admin UI が WebGL と Basis の参加 URL を表示する変更を、minikube + Agones で検証した。
+再現手順は `operations.md §7.1` にある。Concierge image `concierge:joinlinks-dev` を
+`minikube image build` し、`basis/concierge` Deployment へ反映した。`/data` は §4.1 の `emptyDir` へ
+切り替え、毎回まっさらな状態から起動した。`appsettings.json` は
+`PublicBaseUrl=http://127.0.0.1:15080`、`AllowedWebOrigins=["http://127.0.0.1:4173"]` を設定した。
+
+`host` を指定しない managed 会議室で確認した結果は次のとおり。
+
+| 項目 | 結果 |
+|---|---|
+| 作成時 201 の `webJoinUrl` | Pass。`status=provisioning`、`invitationReady=false` の時点で `joinUrl` と `webJoinUrl` の両方が入っていた。 |
+| `ready` 遷移後の `GET /admin/meetings` | Pass。GameServer `Ready` 後に `invitationReady=true`、`host=192.168.49.2` と動的 port が入り、`webJoinUrl` は不変だった。 |
+| `/join/{token}/details` との一致 | Pass。`details.webJoinUrl` が `/admin/meetings` の `webJoinUrl` と完全一致した。 |
+| concierge 側エンドポイントの到達性 | Pass。参加ページと `web-manifest` (`Origin: http://127.0.0.1:4173`) がともに `200` を返した。 |
+| WebGL origin (`http://127.0.0.1:4173`) の到達性 | 未検証。`webJoinUrl` の前半は `AllowedWebOrigins` の設定値で、concierge はそこに WebGL クライアントが配信されているかを検証しない。本検証では 4173 へ何も配信していない。 |
+| Admin UI カードの待機表示 | Pass。`provisioning` の間はカードが「サーバーの起動を待っています。準備が完了すると参加 URL を表示します。」を表示した。 |
+| Admin UI カードの自動切り替え | Pass。5 秒 polling で、再読み込みなしに WebGL と Basis の 2 つの URL へ切り替わった。 |
+| 一覧の参加 URL 列 | Pass。`provisioning` は「起動待ち」、`ready` は「WebGL で参加」「Basis で参加」の 2 リンクで、`href` がカードの URL と一致した。 |
+| Console エラー | Pass。0 件。 |
+| `AllowedWebOrigins` が空の構成 | Pass。カードが「Web 版の配信元を appsettings.json の AllowedWebOrigins に設定すると表示されます。」、一覧が「WebGL: 未設定」となり、Basis の参加 URL は表示され続けた。 |
+
+Admin UI の操作は、Chrome を `--headless=new --remote-debugging-port` で起動し、Node の組み込み
+WebSocket から CDP を呼ぶ方式で行った。ブラウザ自動化のための依存関係はリポジトリへ追加していない。
+
+WebGL 用の browser endpoint も同時に確認した。`BASIS_SERVER_WEBSOCKET_ENABLED=true`、
+`BASIS_SERVER_WEBSOCKET_USE_TLS=true`、`wss://{host}:{port}/basis` と `https://{host}:{port}/server-info`
+の template、および §5.1 の Secret `basis-web-tls` を設定した状態で、managed 会議室に
+`webSocketUri=wss://192.168.49.2:<port>/basis` と `serverInfoUri=https://192.168.49.2:<port>/server-info`
+が入り、GameServer に `/run/basis-web-tls` の read-only mount と
+`WebSocketCertificatePath`/`WebSocketCertificateKeyPath` が生成されることを確認した。
+
+検証用の会議室、GameServer、Secret は終了時に削除した。Deployment は `BASIS_SSO_ADMIN_TOKEN` を
+Secret `concierge-admin` 参照へ戻し、`concierge:joinlinks-dev` と `emptyDir` の構成で起動したままにしている。
+
 ## 5. 検証中に見つかった不具合と修正
 
 いずれもコードまたは `deploy/` マニフェストを修正し、コミットして再デプロイ・再検証した。
@@ -273,6 +309,19 @@ Deployment/PVC/Secret、port-forward は検証後に削除し、既存のブラ�
    オブジェクト参照に適用して解消した(会議 ID 自体と admission のキーは元の値を保持する)。
 5. **`basisdemo://` deep link が `html/template` の URL サニタイズで `#ZgotmplZ` になっていた。** WebGL URI を含む
    join deep link の実環境確認で発見し、生成値を `template.URL` として href/JavaScript fallback に渡すよう修正した。
+6. **`operations.md §4` の WebGL 用 template が起動不能な値だった(ドキュメント側の不具合)。** 記載されていた
+   `BASIS_SERVER_WEBSOCKET_URI_TEMPLATE='ws://{host}:{port}/basis'` と
+   `BASIS_SERVER_INFO_URI_TEMPLATE='http://{host}:{port}/server-info'` を設定すると、Concierge は
+   `managed WebSocket URI template: ws:// is only allowed for loopback endpoints` で `log.Fatalf` し起動しない。
+   `ValidateBrowserEndpointTemplates` は `{host}` を非ループバックの検証用ホスト名へ置換してから URI を検査するため、
+   この template は実際の割り当て先に関係なく必ず失敗する。managed GameServer のアドレスは常に非ループバックであり、
+   `wss://`/`https://` を使うのが正しい。コードは仕様どおりのため、§4 の記載を `wss://`/`https://` と
+   §5.1 の Secret 作成手順への参照に修正した。
+7. **`checkNoStaticMeetingIDCollision` の衝突が、稼働中の pod では検知されず再起動時にだけ表面化する。**
+   §5-3 の `FromMeeting` 修正後も、会議を API 以外の経路で消すと PVC 上に静的 `Servers[]` エントリと会議レコードが
+   同じ id で残り、次の pod 起動が CrashLoopBackOff になる。起動時にしか検査しないため、稼働中の pod は正常なままで、
+   image 入れ替え時に初めて失敗する。解消手順(稼働中 pod の API から該当会議を DELETE する方法と、検証用に
+   `/data` を `emptyDir` にする方法)を `operations.md §4.1` に追記した。コードの変更は行っていない。
 
 ## 6. 初期 stub 検証の位置付けと、その限界
 

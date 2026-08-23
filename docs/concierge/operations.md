@@ -145,17 +145,24 @@ kubectl rollout status deployment/concierge -n basis --timeout=180s
 ```
 
 minikube の overlay は `concierge:dev`、`basis-server:dev`、`imagePullPolicy: Never` を設定します。
-WebGL transport も確認する場合は、Concierge Deployment に次の環境変数を追加して再起動します。
+WebGL transport も確認する場合は、先に §5.1 の手順で Secret `basis-web-tls` を作成してから、Concierge
+Deployment に次の環境変数を追加して再起動します。
 
 ```sh
 kubectl -n basis set env deployment/concierge \
   BASIS_SERVER_WEBSOCKET_ENABLED=true \
-  BASIS_SERVER_WEBSOCKET_USE_TLS=false \
+  BASIS_SERVER_WEBSOCKET_USE_TLS=true \
   BASIS_SERVER_WEBSOCKET_ALLOWED_ORIGINS=http://127.0.0.1:4173 \
-  BASIS_SERVER_WEBSOCKET_URI_TEMPLATE='ws://{host}:{port}/basis' \
-  BASIS_SERVER_INFO_URI_TEMPLATE='http://{host}:{port}/server-info'
+  BASIS_SERVER_WEBSOCKET_URI_TEMPLATE='wss://{host}:{port}/basis' \
+  BASIS_SERVER_INFO_URI_TEMPLATE='https://{host}:{port}/server-info'
 kubectl rollout status deployment/concierge -n basis --timeout=180s
 ```
+
+managed GameServer の template には `ws://`・`http://` を指定できません。
+`ValidateBrowserEndpointTemplates` は `{host}` を非ループバックの検証用ホスト名へ置換してから URI を
+検査するため、`ws://{host}:{port}/basis` は実際の割り当て先に関係なく
+`managed WebSocket URI template: ws:// is only allowed for loopback endpoints` で起動に失敗します。
+managed GameServer のアドレスは常に非ループバックなので、`wss://` と `https://` を使用してください。
 
 Concierge の API と Admin UI を localhost へ forward します。
 
@@ -186,6 +193,50 @@ curl --fail -H "Authorization: Bearer $ADMIN_TOKEN" \
 
 GameServer が `Ready` になり、`kubectl -n basis get gameservers,secrets`、`/admin/meetings`、
 `/join/<token>/manifest` に同じ host/port と browser URI が出ることを確認します。
+
+### 4.1 起動時の ID 衝突を解消して image を入れ替える
+
+image を入れ替えたあと新しい pod が次のログで CrashLoopBackOff になる場合があります。
+
+```text
+concierge: meeting id "<id>" is registered both as a static Servers[] entry and as a control-plane meeting
+```
+
+`checkNoStaticMeetingIDCollision` は起動時にしか走りません。稼働中の pod は衝突が発生しても動き続け、
+次に再起動したときだけ落ちます。原因は PVC 上に残った `/data/appsettings.json` の静的 `Servers[]`
+エントリと `/data/control-plane.json` の会議レコードが同じ ID を持つことです。会議を API 以外の経路で
+消すと発生します。
+
+正規の解消手順は、稼働中の pod の API から該当会議を削除することです。`DELETE` は会議レコード、静的
+`Servers[]` エントリ、GameServer、Secret をまとめて削除します。
+
+```sh
+curl --fail -X DELETE -H "Authorization: Bearer $ADMIN_TOKEN" \
+  "http://127.0.0.1:15080/admin/meetings/<id>"
+```
+
+検証用に `/data` を毎回まっさらな状態から始める場合は、PVC ではなく `emptyDir` を使います。pod が
+起動するたびに init container が Secret `concierge-config` から `appsettings.json` を seed し直すため、
+前回の検証で残った状態を引き継ぎません。
+
+```sh
+kubectl -n basis scale deployment/concierge --replicas=0
+kubectl -n basis patch deployment concierge --type=json \
+  -p '[{"op":"replace","path":"/spec/template/spec/volumes/1","value":{"name":"data","emptyDir":{}}}]'
+kubectl -n basis scale deployment/concierge --replicas=1
+```
+
+PVC `concierge-data` は削除されずに残ります。永続状態へ戻す場合は同じ path を
+`{"name":"data","persistentVolumeClaim":{"claimName":"concierge-data"}}` に戻してください。
+
+`emptyDir` にすると、pod を再起動した時点で会議レコードが消える一方、その会議の GameServer と Secret は
+cluster に残ります。API から削除しようとしても会議が存在しないため `404` になります。再起動する前に
+検証用の会議を `DELETE /admin/meetings/{id}` で削除するか、再起動後に label 指定でまとめて削除してください。
+
+```sh
+kubectl -n basis delete gameservers -l app=basis-server --ignore-not-found
+kubectl -n basis delete secrets -l app=basis-server --ignore-not-found
+```
 
 ## 5. 実 Basis TLS、CORS、WebSocket
 
@@ -315,6 +366,91 @@ Compose では `https://127.0.0.1:5081/admin/`、minikube port-forward では
 3. invite URL を発行し、join page が manifest と browser endpoint を表示する。
 4. WebGL client を `mise run web:build && mise run web:serve` で別 origin に配信し、join link の auto-join を確認する。
 5. server-info と WebSocket の Origin 制限がブラウザの Network/Console でも一致する。
+
+### 7.1 参加 URL の自動表示を minikube で検証する
+
+会議室を作成すると Admin UI が WebGL と Basis の参加 URL を自動表示します。この節は、その挙動を
+minikube + Agones の managed 会議室で再現する手順です。§4 の cluster が起動済みであることが前提です。
+
+`webJoinUrl` は `Broker.AllowedWebOrigins` の先頭にある、ブラウザーが実際に読み込める origin
+(HTTPS、またはループバックの HTTP)から生成します。空の場合は Admin UI が URL の代わりに未設定の
+理由を表示します。検証前に Secret `concierge-config` の `appsettings.json` へ次を含めてください。
+
+```json
+{
+  "Broker": {
+    "PublicBaseUrl": "http://127.0.0.1:15080",
+    "AllowedWebOrigins": ["http://127.0.0.1:4173"]
+  }
+}
+```
+
+`PublicBaseUrl` は port-forward のアドレスに合わせます。ここが実際のアクセス先と違うと、生成される
+参加 URL がブラウザーから開けません。
+
+image を入れ替え、§4.1 の `emptyDir` でまっさらな `/data` から起動します。
+
+```sh
+minikube image build -t concierge:joinlinks-dev ./concierge
+kubectl -n basis set image deployment/concierge concierge=concierge:joinlinks-dev
+kubectl -n basis set env deployment/concierge BASIS_SERVER_IMAGE=basis-server-stub:dev
+kubectl rollout status deployment/concierge -n basis --timeout=180s
+kubectl -n basis port-forward svc/concierge 15080:5080
+```
+
+別ターミナルで `ADMIN_TOKEN` を §4 の手順で取得し、`host` を指定せずに会議室を作成します。`host` を
+省略すると Kubernetes が GameServer をプロビジョニングするため、`provisioning` から `ready` への遷移を
+そのまま観察できます。
+
+```sh
+curl --fail --silent -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"Join links verification"}' \
+  http://127.0.0.1:15080/admin/meetings
+```
+
+201 の時点で `status` が `provisioning`、`invitationReady` が `false`、`joinUrl` と `webJoinUrl` の
+両方が入っていることを確認します。GameServer が `Ready` になったあと、同じ会議室が `ready` と
+`invitationReady: true` へ変わることを確認します。
+
+```sh
+until [ "$(kubectl -n basis get gameservers \
+  -o jsonpath='{.items[0].status.state}')" = Ready ]; do sleep 3; done
+curl --fail --silent -H "Authorization: Bearer $ADMIN_TOKEN" \
+  http://127.0.0.1:15080/admin/meetings
+```
+
+参加ページと、`webJoinUrl` のクエリ `meetingUrl` が指す concierge 側のエンドポイントを確認します。
+`<token>` は `joinUrl` の末尾です。
+
+`webJoinUrl` の前半の origin は `AllowedWebOrigins` の設定値であり、concierge はそこに WebGL
+クライアントが配信されているかを検証しません。origin が実際に応答するかは、この手順の対象外です。
+配信まで含めて確認する場合は、`./tools/serve-web.sh` で WebGL ビルドを同じ origin へ配信してから
+ブラウザーで開いてください。
+
+```sh
+curl --fail --silent -o /dev/null -w '%{http_code}\n' \
+  "http://127.0.0.1:15080/join/<token>"
+curl --fail --silent -o /dev/null -w '%{http_code}\n' \
+  -H 'Origin: http://127.0.0.1:4173' \
+  "http://127.0.0.1:15080/join/<token>/web-manifest"
+curl --fail --silent "http://127.0.0.1:15080/join/<token>/details"
+```
+
+参加ページと web manifest がどちらも `200` を返し、`details` の `webJoinUrl` が `/admin/meetings` の
+`webJoinUrl` と一致することが合格条件です。この 2 つは同じ生成関数を使うため、値がずれた場合は
+片方の経路だけが更新されています。
+
+Admin UI では `http://127.0.0.1:15080/admin/` を開き、`host` を空欄のまま会議室を作成して次を確認します。
+
+1. 作成直後、一覧の参加 URL 列が「起動待ち」になり、カードが「サーバーの起動を待っています。準備が完了すると参加 URL を表示します。」を表示する。
+2. GameServer が `Ready` になると、5 秒ごとの polling でカードが WebGL と Basis の 2 つの URL へ切り替わる。ページの再読み込みは不要です。
+3. 一覧の参加 URL 列に「WebGL で参加」「Basis で参加」の 2 つのリンクが出て、`href` がカードの URL と一致する。
+4. ブラウザーの Console にエラーが出ない。
+
+`AllowedWebOrigins` を空にして pod を再起動すると、カードが「Web 版の配信元を appsettings.json の
+AllowedWebOrigins に設定すると表示されます。」、一覧が「WebGL: 未設定」に変わります。Basis の参加 URL は
+`AllowedWebOrigins` に依存しないため、この構成でも表示されます。
 
 ## 8. cleanup と restore
 
