@@ -147,12 +147,18 @@ phase 2 で Agones 対応の `Manager` を実装する際は、`RoomProvisioner`
 `cmd/server/main.go` の `kube.NoopProvisioner{}` を差し替えるだけでよく、`internal/api` 側のハンドラ・ロールバック
 ロジックは変更不要になるように設計してある。
 
-## 5. AdminUi の配信について(設計からの逸脱)
+## 5. AdminUi の配信と Concierge 対応
 
-`design.md` §9 は「既存の Cloudscape AdminUi のビルド済み静的アセットを concierge が配信する」ことを想定しているが、
-このリポジトリの `Basis/Tools/BasisSsoBroker/AdminUi/` には **ソースのみ**が存在し、コミットされたビルド成果物
-(`dist/` 等)は存在しない。concierge の実装スコープには Node.js/Vite のビルドパイプラインは含まれないため、
-ビルド成果物をこの phase で新規に生成・コミットすることはしなかった。
+`Basis/Tools/BasisSsoBroker/AdminUi/` は C# broker と共有する UI の正規ソースディレクトリである。concierge 用に
+別のコピーを作らず、Go API の契約に合わせて同じ UI を拡張した。UI は次を提供する。
+
+- `sessionStorage` の admin token を `Authorization: Bearer` として全 `/api/*` 管理 API に送信
+- 会議室の作成・削除・招待 URL 発行、provisioning/ready/error の表示と 5 秒 polling
+- `/health` の status 表示
+- 静的サーバーの追加・編集・削除、登録リンク発行
+- WebSocket URI / Server Info URI のペア検証と API error の画面表示
+
+コミットされた `dist/` は生成物のため、ソース変更後にローカルで `vp build` して生成する。
 
 代わりに、`internal/adminui.Mount` は環境変数 `ADMIN_UI_DIR` で指定した任意のディレクトリ(オペレーターが
 `pnpm build` 等で生成した `dist/` を指す想定)を `/admin/` 以下に配信する。`ADMIN_UI_DIR` 未設定時は `/admin/` への
@@ -229,9 +235,8 @@ phase 2 で何を実装したか(この節で「未実装」としていた項�
   ここでは「新規作成時に重複させない」側のみ実装済み。**起動時の突き合わせ検証(既存の静的設定ファイルと
   control-plane.json の間で id が重複していたら拒否する)はまだ実装していない** — 追加が必要であれば phase 2 の
   スコープに含めるか、ユーザーに確認すること。
-- **`AdminUi` の `Authorization` ヘッダー未送信問題は解消していない。** `research-sso-broker.md` §4.3/§8-3 で
-  指摘されている既知の問題で、AdminUi 自体のコード改修が必要なため、concierge の実装スコープからは意図的に
-  切り離している(`design.md` §9 の記載どおり)。
+- **`AdminUi` の `Authorization` ヘッダー未送信問題は解消済み。** UI が入力したトークンを Bearer token として
+  管理 API に送信し、401/4xx/5xx の応答は Flashbar に表示する。
 
 ## 9. phase 2: Kubernetes/Agones 統合
 

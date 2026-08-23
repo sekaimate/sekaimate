@@ -18,7 +18,7 @@ import Table from "@cloudscape-design/components/table";
 import TopNavigation from "@cloudscape-design/components/top-navigation";
 import Toggle from "@cloudscape-design/components/toggle";
 import { createRoot } from "react-dom/client";
-import { ControlPlaneApi, Meeting, Organization, Provider, Server } from "./api";
+import { ControlPlaneApi, Health, Meeting, Organization, Provider, Server } from "./api";
 import { validateBrowserEndpoints } from "./validation";
 import "./styles.css";
 
@@ -495,8 +495,27 @@ function Meetings({
   const [notice, setNotice] = useState<Notice>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [health, setHealth] = useState<Health | null>(null);
+  const [createTitle, setCreateTitle] = useState("");
+  const [createHost, setCreateHost] = useState("");
+  const [createPort, setCreatePort] = useState("4296");
+  const [createWebSocketUri, setCreateWebSocketUri] = useState("");
+  const [createServerInfoUri, setCreateServerInfoUri] = useState("");
+  const [creating, setCreating] = useState(false);
+  const load = async () => {
+    try {
+      await refresh();
+    } catch (error) {
+      setNotice({ type: "error", text: error instanceof Error ? error.message : "会議室を読み込めませんでした。" });
+    }
+    try {
+      setHealth(await api.health());
+    } catch (error) {
+      setNotice({ type: "error", text: error instanceof Error ? error.message : "ヘルス状態を取得できませんでした。" });
+    }
+  };
   useEffect(() => {
-    void refresh()
+    void load()
       .catch((error) =>
         setNotice({
           type: "error",
@@ -507,7 +526,9 @@ function Meetings({
         }),
       )
       .finally(() => setLoading(false));
-  }, []);
+    const timer = window.setInterval(() => { void load(); }, 5000);
+    return () => window.clearInterval(timer);
+  }, [api]);
   const invite = async (meeting: Meeting) => {
     setBusy(meeting.id);
     try {
@@ -525,6 +546,53 @@ function Meetings({
             ? error.message
             : "参加リンクを発行できませんでした。",
       });
+    } finally {
+      setBusy(null);
+    }
+  };
+  const create = async () => {
+    const title = createTitle.trim();
+    if (!title) {
+      setNotice({ type: "error", text: "会議室名を入力してください。" });
+      return;
+    }
+    const port = Number(createPort);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      setNotice({ type: "error", text: "UDP ポートは 1〜65535 の整数で入力してください。" });
+      return;
+    }
+    const endpointError = validateBrowserEndpoints(createWebSocketUri, createServerInfoUri);
+    if (endpointError) {
+      setNotice({ type: "error", text: endpointError });
+      return;
+    }
+    setCreating(true);
+    try {
+      await api.createMeeting({
+        title,
+        ...(createHost.trim() ? { host: createHost.trim() } : {}),
+        port,
+        ...(createWebSocketUri.trim() ? { webSocketUri: createWebSocketUri.trim(), serverInfoUri: createServerInfoUri.trim() } : {}),
+      });
+      setCreateTitle("");
+      setCreateHost("");
+      setNotice({ type: "success", text: `会議室「${title}」を作成しました。起動中は自動更新します。` });
+      await load();
+    } catch (error) {
+      setNotice({ type: "error", text: error instanceof Error ? error.message : "会議室を作成できませんでした。" });
+    } finally {
+      setCreating(false);
+    }
+  };
+  const remove = async (meeting: Meeting) => {
+    if (!window.confirm(`会議室「${meeting.title}」を削除しますか？`)) return;
+    setBusy(meeting.id);
+    try {
+      await api.deleteMeeting(meeting.id);
+      setNotice({ type: "success", text: `会議室「${meeting.title}」を削除しました。` });
+      await load();
+    } catch (error) {
+      setNotice({ type: "error", text: error instanceof Error ? error.message : "会議室を削除できませんでした。" });
     } finally {
       setBusy(null);
     }
@@ -553,13 +621,7 @@ function Meetings({
             {
               id: "status",
               header: "状態",
-              cell: (meeting) => (
-                <StatusIndicator
-                  type={meeting.invitationReady ? "success" : "warning"}
-                >
-                  {meeting.invitationReady ? "参加可能" : "起動待ち"}
-                </StatusIndicator>
-              ),
+              cell: (meeting) => <SpaceBetween size="xxs"><StatusIndicator type={meeting.invitationReady ? "success" : meeting.status === "error" ? "error" : "warning"}>{meeting.invitationReady ? "参加可能" : meeting.status || "起動待ち"}</StatusIndicator><Box variant="small">{meeting.statusDetail}</Box></SpaceBetween>,
             },
             {
               id: "endpoint",
@@ -580,14 +642,7 @@ function Meetings({
               id: "actions",
               header: "",
               cell: (meeting) => (
-                <Button
-                  variant="primary"
-                  disabled={!meeting.invitationReady}
-                  loading={busy === meeting.id}
-                  onClick={() => void invite(meeting)}
-                >
-                  参加リンクをコピー
-                </Button>
+                <SpaceBetween size="xs"><Button variant="primary" disabled={!meeting.invitationReady} loading={busy === meeting.id} onClick={() => void invite(meeting)}>参加リンクをコピー</Button><Button variant="link" loading={busy === meeting.id} onClick={() => void remove(meeting)}>削除</Button></SpaceBetween>
               ),
             },
           ]}
@@ -639,6 +694,12 @@ function Meetings({
             </Header>
           }
         />
+        {health && <Container header={<Header variant="h2">Concierge の状態</Header>}>
+          <SpaceBetween size="s"><StatusIndicator type={health.status === "ready" ? "success" : "warning"}>{health.status === "ready" ? "正常" : "準備中"}</StatusIndicator>{health.error && <Box color="text-status-warning">{health.error}</Box>}<Box variant="small">対象サーバー: {health.servers.length}（準備完了 {health.servers.filter((server) => server.ready).length}）</Box></SpaceBetween>
+        </Container>}
+        <Form header={<Header variant="h2" description="BASIS_CONTROL_PLANE_ALLOW_MANUAL_MEETINGS=true の環境で利用できます。">会議室を作成</Header>} actions={<Button variant="primary" loading={creating} onClick={() => void create()}>作成する</Button>}>
+          <ColumnLayout columns={2}><FormField label="会議室名"><Input value={createTitle} onChange={({ detail }) => setCreateTitle(detail.value)} placeholder="Team room" /></FormField><FormField label="接続先ホスト（任意）" description="空欄なら Kubernetes でプロビジョニングします。"><Input value={createHost} onChange={({ detail }) => setCreateHost(detail.value)} placeholder="room.example.com" /></FormField><FormField label="UDP ポート"><Input value={createPort} onChange={({ detail }) => setCreatePort(detail.value)} inputMode="numeric" /></FormField><FormField label="WebSocket URI（任意）"><Input value={createWebSocketUri} onChange={({ detail }) => setCreateWebSocketUri(detail.value)} placeholder="wss://room.example/basis" /></FormField><FormField label="Server Info URI（任意）"><Input value={createServerInfoUri} onChange={({ detail }) => setCreateServerInfoUri(detail.value)} placeholder="https://room.example/server-info" /></FormField></ColumnLayout>
+        </Form>
       </SpaceBetween>
     </Page>
   );
@@ -653,6 +714,11 @@ function ServerSettings({ api }: { api: ControlPlaneApi }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
+  const [newServerId, setNewServerId] = useState("");
+  const [newTicketKeyEnv, setNewTicketKeyEnv] = useState("");
+  const [newTransportKeyEnv, setNewTransportKeyEnv] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [enrollment, setEnrollment] = useState<{ serverId: string; url: string; expiresInSeconds: number } | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -704,6 +770,66 @@ function ServerSettings({ api }: { api: ControlPlaneApi }) {
     }
   };
 
+  const create = async () => {
+    const id = newServerId.trim();
+    if (!id || !newTicketKeyEnv.trim() || !newTransportKeyEnv.trim()) {
+      setNotice({ type: "error", text: "サーバー ID と二つのキー環境変数名を入力してください。" });
+      return;
+    }
+    setCreating(true);
+    try {
+      const organization = await api.organization();
+      const server: Server = {
+        id,
+        ticketSigningKeyEnvironmentVariable: newTicketKeyEnv.trim(),
+        transportPublicKeyEnvironmentVariable: newTransportKeyEnv.trim(),
+        providers: organization.providers,
+        ready: false,
+        hasTicketSigningKey: false,
+        hasTransportPublicKey: false,
+      };
+      await api.saveServer(server);
+      setNewServerId("");
+      setNewTicketKeyEnv("");
+      setNewTransportKeyEnv("");
+      setNotice({ type: "success", text: `サーバー「${id}」を作成しました。` });
+      await load();
+    } catch (error) {
+      setNotice({ type: "error", text: error instanceof Error ? error.message : "サーバーを作成できませんでした。" });
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const remove = async (server: Server) => {
+    if (!window.confirm(`静的サーバー「${server.id}」を削除しますか？`)) return;
+    setBusy(true);
+    try {
+      await api.deleteServer(server.id);
+      setNotice({ type: "success", text: `サーバー「${server.id}」を削除しました。` });
+      if (selected?.id === server.id) setSelected(null);
+      await load();
+    } catch (error) {
+      setNotice({ type: "error", text: error instanceof Error ? error.message : "サーバーを削除できませんでした。" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const issueEnrollment = async (server: Server) => {
+    setBusy(true);
+    try {
+      const result = await api.issueEnrollment(server.id);
+      setEnrollment({ serverId: server.id, ...result });
+      await navigator.clipboard?.writeText(result.url);
+      setNotice({ type: "success", text: `「${server.id}」の登録リンクを発行してコピーしました。` });
+    } catch (error) {
+      setNotice({ type: "error", text: error instanceof Error ? error.message : "登録リンクを発行できませんでした。" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <Page notifications={<NoticeView notice={notice} onDismiss={() => setNotice(null)} />}>
       <SpaceBetween size="l">
@@ -717,11 +843,15 @@ function ServerSettings({ api }: { api: ControlPlaneApi }) {
             { id: "ready", header: "状態", cell: (server) => <StatusIndicator type={server.ready ? "success" : "warning"}>{server.ready ? "利用可能" : "未準備"}</StatusIndicator> },
             { id: "websocket", header: "WebSocket URI", cell: (server) => server.webSocketUri ?? "未設定" },
             { id: "server-info", header: "Server Info URI", cell: (server) => server.serverInfoUri ?? "未設定" },
-            { id: "actions", header: "", cell: (server) => <Button onClick={() => edit(server)}>編集</Button> },
+            { id: "actions", header: "操作", cell: (server) => <SpaceBetween size="xs"><Button onClick={() => edit(server)}>編集</Button><Button onClick={() => void issueEnrollment(server)} loading={busy}>登録リンク</Button><Button variant="link" onClick={() => void remove(server)} loading={busy}>削除</Button></SpaceBetween> },
           ]}
           header={<Header variant="h2" actions={<Button onClick={() => void load()}>更新</Button>}>静的サーバー</Header>}
           empty={<Box textAlign="center">サーバーがありません。</Box>}
         />
+        {enrollment && <IssuedLinkCard title="サーバー登録リンク" description={`「${enrollment.serverId}」を Basis Server に登録するための一回限りのリンクです。`} url={enrollment.url} statusText="発行済み" validityText={`${Math.floor(enrollment.expiresInSeconds / 60)} 分で期限切れになります。`} />}
+        <Form header={<Header variant="h2" description="プロバイダーは組織設定から引き継ぎます。キー環境変数は Concierge の実行環境に設定してください。">静的サーバーを追加</Header>} actions={<Button variant="primary" loading={creating} onClick={() => void create()}>追加する</Button>}>
+          <ColumnLayout columns={2}><FormField label="サーバー ID"><Input value={newServerId} onChange={({ detail }) => setNewServerId(detail.value)} placeholder="production-1" /></FormField><FormField label="チケット署名キー環境変数"><Input value={newTicketKeyEnv} onChange={({ detail }) => setNewTicketKeyEnv(detail.value)} placeholder="BASIS_TICKET_SIGNING_KEY" /></FormField><FormField label="Transport 公開キー環境変数"><Input value={newTransportKeyEnv} onChange={({ detail }) => setNewTransportKeyEnv(detail.value)} placeholder="BASIS_TRANSPORT_PUBLIC_KEY" /></FormField></ColumnLayout>
+        </Form>
         {selected && (
           <Form
             header={<Header variant="h2" description="WebGL ブラウザ接続では両方の URI を設定してください。">「{selected.id}」の WebGL 接続先</Header>}

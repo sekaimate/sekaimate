@@ -1,9 +1,9 @@
 # Basis Control Plane Admin UI
 
-組織共通の SSO 設定と会議の招待リンクを扱う React 管理画面です。認証・admission ticket
-発行は `../` の .NET broker が担当し、このアプリは control-plane API を表示・編集します。
-現行の Docker 開発構成では、Compose が起動する `local` の一会議室を表示し、その参加 URL
-を発行できます。Kubernetes の会議作成・停止・スケールはまだこの UI の対象ではありません。
+組織共通の SSO 設定と会議の招待リンクを扱う React 管理画面です。C# broker と Go Concierge
+の両方で共有し、API の Bearer admin token はブラウザの sessionStorage から送信します。
+Concierge 環境では会議室の作成・削除・provisioning 状態の polling、静的サーバーの管理、
+サーバー登録リンク、WebGL の WebSocket/Server Info URI 設定にも対応します。
 
 ## 開発
 
@@ -31,6 +31,11 @@ vp run build
 
 `dist/` は静的サイトです。Docker では `basis-sso-admin` の Nginx gateway が
 これを `/admin/` に配信し、同じオリジンの `/api/` を broker に転送します。
+
+Go Concierge に同梱して確認する場合は、まず `vp build` を実行し、Concierge 起動時に
+`ADMIN_UI_DIR=$PWD/dist` を指定します。Concierge は `/admin/` で SPA を配信し、
+`/api/*` を管理 API に内部転送します。管理画面のログイン欄には
+`BASIS_SSO_ADMIN_TOKEN` の値を入力してください。
 
 ```sh
 cd Packages/com.basis.server/Docker

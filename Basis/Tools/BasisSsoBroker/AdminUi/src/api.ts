@@ -33,6 +33,18 @@ export type Meeting = {
   serverInfoUri?: string;
 };
 
+export type HealthServer = {
+  id: string;
+  ready: boolean;
+  providers: string[];
+};
+
+export type Health = {
+  status: string;
+  error?: string;
+  servers: HealthServer[];
+};
+
 export type Server = {
   id: string;
   ticketSigningKeyEnvironmentVariable?: string;
@@ -70,6 +82,21 @@ export class ControlPlaneApi {
   }
 
   listMeetings() { return this.request<Meeting[]>("/admin/meetings"); }
+  health() {
+    return fetch("/health", { cache: "no-store" }).then(async (response) => {
+      const body = await response.json() as Health;
+      if (!body || !Array.isArray(body.servers)) throw new Error("Health response was invalid");
+      return body;
+    });
+  }
+  createMeeting(input: { title: string; host?: string; port?: number; webSocketUri?: string; serverInfoUri?: string }) {
+    return this.request<Meeting>("/admin/meetings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+  }
+  deleteMeeting(id: string) { return this.request<void>(`/admin/meetings/${encodeURIComponent(id)}`, { method: "DELETE" }); }
   listServers() { return this.request<Server[]>("/admin/servers"); }
   saveServer(server: Server) {
     return this.request<void>(`/admin/servers/${encodeURIComponent(server.id)}`, {
@@ -85,6 +112,7 @@ export class ControlPlaneApi {
       }),
     });
   }
+  deleteServer(id: string) { return this.request<void>(`/admin/servers/${encodeURIComponent(id)}`, { method: "DELETE" }); }
   organization() { return this.request<Organization>("/admin/organization"); }
   saveOrganization(organization: Organization) {
     return this.request<void>("/admin/organization", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(organization) });

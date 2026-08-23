@@ -315,8 +315,11 @@ basis-k8s の `/servers`(`POST`/`GET`/`GET {name}`/`DELETE`)相当の操作は�
 
 ## 9. AdminUi
 
-既存の Cloudscape AdminUi(`Basis/Tools/BasisSsoBroker/AdminUi`)はコードを変更せず、ビルド済み静的アセットを
-concierge が自ら配信する。
+Cloudscape AdminUi のソースは、C# broker との設定・画面資産の互換性を保つため
+`Basis/Tools/BasisSsoBroker/AdminUi` に置き続ける。concierge 対応として同じ UI に Go API の
+認証ヘッダー、会議室ライフサイクル、health/status polling、静的サーバー管理、WebGL endpoint
+検証を実装する。別ディレクトリへ複製すると C# broker と UI の修正が分岐するため、移動は行わない。
+ビルド済み静的アセットは concierge が `ADMIN_UI_DIR` から配信する。
 
 - AdminUi は Vite で `base: "/admin/"` としてビルドされ、`fetch('/api' + path)` で API を呼ぶ(`api.ts`)。
 - concierge は次の 2 つを提供する。
@@ -328,10 +331,8 @@ concierge が自ら配信する。
 - 既存の TLS 終端専用 Nginx コンテナ(自己署名 CA 生成を含む)は concierge の設計に含めない。TLS 終端は運用環境の
   リバースプロキシ/Ingress に委ねる(現行の「TLS は常に外部で終端する」という前提を維持する。§6 相当の設計はここでは
   変更しない)。
-- `research-sso-broker.md` §4.3・§8-3 で指摘した「AdminUi が `Authorization: Bearer` ヘッダーを送らない」既知の問題は、
-  concierge でも AdminUi のコード自体を変更しない限り解消しない。運用上は `AllowUnauthenticatedAdmin=true` を
-  信頼できるネットワーク内でのみ使うか、リバースプロキシ側でヘッダーを注入する運用を維持する必要がある。この点は
-  AdminUi 自体の改修を伴うため、concierge の実装スコープからは切り離し、必要であれば別途ユーザーに確認する。
+- AdminUi は `sessionStorage` に入力した `BASIS_SSO_ADMIN_TOKEN` を Bearer token として `/api/*` の各管理 API に送る。
+  API が返す JSON/problem detail のエラーを画面上の Flashbar に表示し、401 を握りつぶさない。
 
 ## 10. テスト・検証計画
 
