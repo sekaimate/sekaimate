@@ -623,3 +623,115 @@ func TestJoinManifest_UnknownToken(t *testing.T) {
 		t.Fatalf("status = %d, want 404", rec.Code)
 	}
 }
+
+// TestMeetingView_CarriesWebJoinUrl checks that the admin meeting API hands
+// the operator the WebGL join URL alongside joinUrl, at creation and on the
+// list, so no participant-page round trip is needed to collect both links.
+// The value must be identical to what /join/{token}/details serves.
+func TestMeetingView_CarriesWebJoinUrl(t *testing.T) {
+	t.Setenv("BASIS_CONTROL_PLANE_ALLOW_MANUAL_MEETINGS", "true")
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "appsettings.json")
+	if err := os.WriteFile(cfgPath, []byte(`{"Broker":{"AllowUnauthenticatedAdmin":true,"PublicBaseUrl":"https://broker.example","AllowedWebOrigins":["https://web.example"]}}`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	deps := Deps{
+		Config:      cfg,
+		Meetings:    controlplane.NewStore(filepath.Join(dir, "control-plane.json")),
+		Enrollments: controlplane.NewEnrollmentStore(),
+		Validator:   admission.NewValidator(),
+		Provisioner: kube.NoopProvisioner{},
+	}
+	if ok, msg := deps.Config.SetOrganization(config.OrganizationConfig{
+		Providers: []config.ProviderConfig{{Id: "p", Issuer: "https://issuer.example", Audience: "aud", JwksUri: "https://issuer.example/jwks"}},
+	}); !ok {
+		t.Fatalf("SetOrganization: %s", msg)
+	}
+	mux := NewMux(deps)
+
+	host := "game.example.com"
+	rec := doRequest(t, mux, http.MethodPost, "/admin/meetings", CreateMeetingRequest{Title: "Linked Room", Host: &host}, nil)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: status = %d, want 201, body=%s", rec.Code, rec.Body.String())
+	}
+	var created MeetingView
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !created.InvitationReady {
+		t.Fatalf("invitationReady = false, want true for an explicit-host meeting")
+	}
+	if created.WebJoinUrl == nil {
+		t.Fatalf("webJoinUrl missing from the 201 body: %s", rec.Body.String())
+	}
+	stored, ok := deps.Meetings.Find(created.Id)
+	if !ok {
+		t.Fatalf("meeting %s not found in store", created.Id)
+	}
+	want := "https://web.example/?basisMeeting=1&meetingUrl=" +
+		escapeDataString("https://broker.example/join/"+stored.InviteToken+"/web-manifest")
+	if *created.WebJoinUrl != want {
+		t.Errorf("webJoinUrl = %q, want %q", *created.WebJoinUrl, want)
+	}
+	if created.JoinUrl != "https://broker.example/join/"+stored.InviteToken {
+		t.Errorf("joinUrl = %q, want the participant page URL", created.JoinUrl)
+	}
+
+	rec = doRequest(t, mux, http.MethodGet, "/admin/meetings", nil, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list: status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	var listed []MeetingView
+	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("unmarshal list: %v", err)
+	}
+	if len(listed) != 1 || listed[0].WebJoinUrl == nil || *listed[0].WebJoinUrl != want {
+		t.Fatalf("listed webJoinUrl = %+v, want %q", listed, want)
+	}
+
+	rec = doRequest(t, mux, http.MethodGet, "/join/"+stored.InviteToken+"/details", nil, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("details: status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	var details MeetingDetails
+	if err := json.Unmarshal(rec.Body.Bytes(), &details); err != nil {
+		t.Fatalf("unmarshal details: %v", err)
+	}
+	if details.WebJoinUrl != want {
+		t.Errorf("details webJoinUrl = %q, want %q", details.WebJoinUrl, want)
+	}
+}
+
+// TestMeetingView_OmitsWebJoinUrlWithoutWebOrigin checks that a deployment
+// without a browser-usable allowed web origin reports no WebGL join URL
+// instead of inventing one.
+func TestMeetingView_OmitsWebJoinUrlWithoutWebOrigin(t *testing.T) {
+	t.Setenv("BASIS_CONTROL_PLANE_ALLOW_MANUAL_MEETINGS", "true")
+	deps := newTestDepsAdminBypassed(t)
+	if ok, msg := deps.Config.SetOrganization(config.OrganizationConfig{
+		Providers: []config.ProviderConfig{{Id: "p", Issuer: "https://issuer.example", Audience: "aud", JwksUri: "https://issuer.example/jwks"}},
+	}); !ok {
+		t.Fatalf("SetOrganization: %s", msg)
+	}
+	mux := NewMux(deps)
+
+	host := "game.example.com"
+	rec := doRequest(t, mux, http.MethodPost, "/admin/meetings", CreateMeetingRequest{Title: "No Web Room", Host: &host}, nil)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: status = %d, want 201, body=%s", rec.Code, rec.Body.String())
+	}
+	var created MeetingView
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if created.WebJoinUrl != nil {
+		t.Errorf("webJoinUrl = %q, want it omitted without an allowed web origin", *created.WebJoinUrl)
+	}
+	if strings.Contains(rec.Body.String(), "webJoinUrl") {
+		t.Errorf("201 body carries a webJoinUrl key: %s", rec.Body.String())
+	}
+}

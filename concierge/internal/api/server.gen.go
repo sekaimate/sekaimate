@@ -173,7 +173,10 @@ type MeetingView struct {
 	StatusDetail    string    `json:"statusDetail"`
 	Title           string    `json:"title"`
 	UpdatedAt       time.Time `json:"updatedAt"`
-	WebSocketUri    *string   `json:"webSocketUri,omitempty"`
+
+	// WebJoinUrl Browser (WebGL) join URL, omitted when no allowed web origin can serve the web client.
+	WebJoinUrl   *string `json:"webJoinUrl,omitempty"`
+	WebSocketUri *string `json:"webSocketUri,omitempty"`
 }
 
 // OrganizationOptions defines model for OrganizationOptions.

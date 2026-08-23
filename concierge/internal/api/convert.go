@@ -149,7 +149,10 @@ func apiToServerConfig(serverID string, w AdminServerWrite) config.ServerConfig 
 	}
 }
 
-func meetingToView(m controlplane.MeetingRecord, origin string) MeetingView {
+// meetingToView renders a meeting for the admin API. webJoin is the browser
+// join URL from webJoinURL, passed in so the admin list shows both join URLs
+// without the operator having to open the participant page first.
+func meetingToView(m controlplane.MeetingRecord, origin, webJoin string) MeetingView {
 	return MeetingView{
 		Id:              m.Id,
 		Title:           m.Title,
@@ -160,6 +163,7 @@ func meetingToView(m controlplane.MeetingRecord, origin string) MeetingView {
 		CreatedAt:       m.CreatedAt,
 		UpdatedAt:       m.UpdatedAt,
 		JoinUrl:         origin + "/join/" + m.InviteToken,
+		WebJoinUrl:      strPtrIfNonEmpty(webJoin),
 		InvitationReady: strings.EqualFold(m.Status, "ready") && strings.TrimSpace(m.Host) != "",
 		WebSocketUri:    strPtrIfNonEmpty(m.WebSocketUri),
 		ServerInfoUri:   strPtrIfNonEmpty(m.ServerInfoUri),

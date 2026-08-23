@@ -28,6 +28,7 @@ export type Meeting = {
   createdAt: string;
   updatedAt: string;
   joinUrl: string;
+  webJoinUrl?: string;
   invitationReady: boolean;
   webSocketUri?: string;
   serverInfoUri?: string;

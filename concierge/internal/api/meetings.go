@@ -25,7 +25,7 @@ func (a *serverAPI) ListMeetings(w http.ResponseWriter, r *http.Request) {
 	meetings := a.deps.Meetings.List()
 	out := make([]MeetingView, len(meetings))
 	for i, m := range meetings {
-		out[i] = meetingToView(m, origin)
+		out[i] = meetingToView(m, origin, webJoinURL(a.deps.Config, origin, m.InviteToken))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -199,7 +199,7 @@ func (a *serverAPI) CreateMeeting(w http.ResponseWriter, r *http.Request) {
 
 	origin := a.deps.Config.RequestOrigin(r)
 	w.Header().Set("Location", "/admin/meetings/"+id)
-	writeJSON(w, http.StatusCreated, meetingToView(meeting, origin))
+	writeJSON(w, http.StatusCreated, meetingToView(meeting, origin, webJoinURL(a.deps.Config, origin, meeting.InviteToken)))
 }
 
 // DeleteMeeting implements DELETE /admin/meetings/{meetingId}. As with

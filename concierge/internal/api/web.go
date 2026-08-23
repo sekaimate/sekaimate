@@ -131,26 +131,29 @@ func (a *serverAPI) JoinDetails(w http.ResponseWriter, r *http.Request, token To
 	}
 	origin := a.deps.Config.RequestOrigin(r)
 	manifest := origin + "/join/" + escapeDataString(token) + "/manifest"
-	webOrigin := ""
-	for _, candidate := range a.deps.Config.AllowedWebOrigins() {
+	writeJSON(w, http.StatusOK, MeetingDetails{
+		Title: meeting.Title, WebJoinUrl: webJoinURL(a.deps.Config, origin, token),
+		NativeBridgeUrl: "http://127.0.0.1:56831/basis-join?url=" + escapeDataString(manifest),
+	})
+}
+
+// webJoinURL builds the browser (WebGL) join URL for an invite token: the
+// first allowed web origin that a browser can actually load the web client
+// from, pointed at this meeting's web manifest. HTTP is accepted only for
+// loopback development origins. It returns "" when no allowed web origin
+// qualifies, which callers render as "WebGL join is not configured".
+func webJoinURL(store *config.Store, origin, token string) string {
+	for _, candidate := range store.AllowedWebOrigins() {
 		candidate = strings.TrimRight(strings.TrimSpace(candidate), "/")
 		u, err := url.Parse(candidate)
 		if err != nil || u.Host == "" {
 			continue
 		}
 		if u.Scheme == "https" || (u.Scheme == "http" && isLoopbackHost(u.Hostname())) {
-			webOrigin = candidate
-			break
+			return candidate + "/?basisMeeting=1&meetingUrl=" + escapeDataString(origin+"/join/"+escapeDataString(token)+"/web-manifest")
 		}
 	}
-	webJoin := ""
-	if webOrigin != "" {
-		webJoin = webOrigin + "/?basisMeeting=1&meetingUrl=" + escapeDataString(origin+"/join/"+escapeDataString(token)+"/web-manifest")
-	}
-	writeJSON(w, http.StatusOK, MeetingDetails{
-		Title: meeting.Title, WebJoinUrl: webJoin,
-		NativeBridgeUrl: "http://127.0.0.1:56831/basis-join?url=" + escapeDataString(manifest),
-	})
+	return ""
 }
 
 func (a *serverAPI) WebOidcOptions(w http.ResponseWriter, r *http.Request, serverId ServerId, providerId ProviderId) {

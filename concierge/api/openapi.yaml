@@ -762,6 +762,11 @@ components:
           format: date-time
         joinUrl:
           type: string
+        webJoinUrl:
+          type: string
+          description: >-
+            Browser (WebGL) join URL, omitted when no allowed web origin can
+            serve the web client.
         invitationReady:
           type: boolean
         webSocketUri:

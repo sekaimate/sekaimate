@@ -12,6 +12,7 @@ import FormField from "@cloudscape-design/components/form-field";
 import Flashbar from "@cloudscape-design/components/flashbar";
 import Header from "@cloudscape-design/components/header";
 import Input from "@cloudscape-design/components/input";
+import Link from "@cloudscape-design/components/link";
 import SpaceBetween from "@cloudscape-design/components/space-between";
 import StatusIndicator from "@cloudscape-design/components/status-indicator";
 import Table from "@cloudscape-design/components/table";
@@ -276,6 +277,81 @@ function IssuedLinkCard({
   );
 }
 
+// JoinLinkRow renders one shareable join URL with copy/open actions, or the
+// reason it is unavailable, reusing IssuedLinkCard's layout inside a card
+// that carries more than one URL.
+function JoinLinkRow({
+  label,
+  description,
+  url,
+  emptyText,
+}: {
+  label: string;
+  description: string;
+  url: string;
+  emptyText: string;
+}) {
+  return (
+    <FormField label={label} description={description}>
+      {url ? (
+        <SpaceBetween size="xs">
+          <Input value={url} readOnly />
+          <SpaceBetween direction="horizontal" size="xs">
+            <CopyToClipboard copyButtonText="URL をコピー" copyErrorText="コピーできませんでした" copySuccessText="コピーしました" textToCopy={url} />
+            <Button iconName="external" href={url} target="_blank">URL を開く</Button>
+          </SpaceBetween>
+        </SpaceBetween>
+      ) : (
+        <Box color="text-status-warning">{emptyText}</Box>
+      )}
+    </FormField>
+  );
+}
+
+// MeetingJoinLinks shows both join URLs for a just-created meeting. A managed
+// meeting starts as "provisioning", so the card tracks the polled meeting
+// record and swaps the waiting indicator for the URLs once it is joinable.
+function MeetingJoinLinks({
+  meeting,
+  onDismiss,
+}: {
+  meeting: Meeting;
+  onDismiss(): void;
+}) {
+  return (
+    <Container
+      header={
+        <Header
+          variant="h2"
+          description="参加者へそのまま共有できる URL です。"
+          actions={<Button onClick={onDismiss}>閉じる</Button>}
+        >
+          会議室「{meeting.title}」の参加 URL
+        </Header>
+      }
+    >
+      {meeting.invitationReady ? (
+        <SpaceBetween size="l">
+          <JoinLinkRow
+            label="WebGL の参加 URL"
+            description="ブラウザで Web 版を開いて参加します。"
+            url={meeting.webJoinUrl ?? ""}
+            emptyText="Web 版の配信元を appsettings.json の AllowedWebOrigins に設定すると表示されます。"
+          />
+          <JoinLinkRow
+            label="Basis の参加 URL"
+            description="参加ページを開き、Basis アプリで参加します。"
+            url={meeting.joinUrl}
+            emptyText="参加ページの URL を取得できませんでした。"
+          />
+        </SpaceBetween>
+      ) : (
+        <StatusIndicator type="in-progress">サーバーの起動を待っています。準備が完了すると参加 URL を表示します。</StatusIndicator>
+      )}
+    </Container>
+  );
+}
+
 function OrganizationSettings({
   api,
   refresh,
@@ -528,6 +604,12 @@ function Meetings({
   const [createWebSocketUri, setCreateWebSocketUri] = useState("");
   const [createServerInfoUri, setCreateServerInfoUri] = useState("");
   const [creating, setCreating] = useState(false);
+  // Holds the meeting returned by create; the polled list entry takes over as
+  // soon as it appears so the card follows the meeting to "参加可能".
+  const [createdMeeting, setCreatedMeeting] = useState<Meeting | null>(null);
+  const createdJoinLinks = createdMeeting
+    ? meetings.find((meeting) => meeting.id === createdMeeting.id) ?? createdMeeting
+    : null;
   const load = async () => {
     try {
       await refresh();
@@ -594,7 +676,7 @@ function Meetings({
     }
     setCreating(true);
     try {
-      await api.createMeeting({
+      const created = await api.createMeeting({
         title,
         ...(createHost.trim() ? { host: createHost.trim() } : {}),
         port,
@@ -602,6 +684,7 @@ function Meetings({
       });
       setCreateTitle("");
       setCreateHost("");
+      setCreatedMeeting(created);
       setNotice({ type: "success", text: `会議室「${title}」を作成しました。起動中は自動更新します。` });
       await load();
     } catch (error) {
@@ -615,6 +698,7 @@ function Meetings({
     setBusy(meeting.id);
     try {
       await api.deleteMeeting(meeting.id);
+      setCreatedMeeting((current) => (current?.id === meeting.id ? null : current));
       setNotice({ type: "success", text: `会議室「${meeting.title}」を削除しました。` });
       await load();
     } catch (error) {
@@ -630,6 +714,7 @@ function Meetings({
       }
     >
       <SpaceBetween size="l">
+        {createdJoinLinks && <MeetingJoinLinks meeting={createdJoinLinks} onDismiss={() => setCreatedMeeting(null)} />}
         <Table
           columnDefinitions={[
             {
@@ -661,6 +746,20 @@ function Meetings({
                 <SpaceBetween size="xxs">
                   <Box variant="small">WebSocket: {meeting.webSocketUri ?? "未設定"}</Box>
                   <Box variant="small">Server Info: {meeting.serverInfoUri ?? "未設定"}</Box>
+                </SpaceBetween>
+              ),
+            },
+            {
+              id: "join-urls",
+              header: "参加 URL",
+              cell: (meeting) => !meeting.invitationReady ? (
+                <Box variant="small" color="text-body-secondary">起動待ち</Box>
+              ) : (
+                <SpaceBetween size="xxs">
+                  {meeting.webJoinUrl
+                    ? <Link external externalIconAriaLabel="新しいタブで開きます" href={meeting.webJoinUrl}>WebGL で参加</Link>
+                    : <Box variant="small" color="text-body-secondary">WebGL: 未設定</Box>}
+                  <Link external externalIconAriaLabel="新しいタブで開きます" href={meeting.joinUrl}>Basis で参加</Link>
                 </SpaceBetween>
               ),
             },
