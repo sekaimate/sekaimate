@@ -1,9 +1,14 @@
 # Basis Control Plane Admin UI
 
-組織共通の SSO 設定と会議の招待リンクを扱う React 管理画面です。C# broker と Go Concierge
-の両方で共有し、API の Bearer admin token はブラウザの sessionStorage から送信します。
-Concierge 環境では会議室の作成・削除・provisioning 状態の polling、静的サーバーの管理、
-サーバー登録リンク、WebGL の WebSocket/Server Info URI 設定にも対応します。
+組織共通の SSO 設定と会議の招待リンクを扱う、元来 C# broker 用の React 管理画面です。
+C# broker は現在も単体 Basis Server/Compose で現役です。Concierge では管理画面部分を暫定再利用し、
+API の Bearer admin token、会議室の作成・削除・provisioning polling、静的サーバー管理、
+サーバー登録リンク、WebGL URI 設定に対応します。
+
+参加者向け `join.tsx` と OAuth の web endpoint は C# broker の契約（`/details`、`/web-config`、
+`/web-manifest`、`/web-oidc`）に依存します。Concierge の join API は別契約のため、UI 全体が両 backend
+で完全互換という意味ではありません。将来 Concierge 専用 UI に分離する場合は `concierge/adminui` へ
+移動し、Go イメージへの build/assets 同梱と `ADMIN_UI_DIR` 設定を追加します。
 
 ## 開発
 

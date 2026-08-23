@@ -315,10 +315,17 @@ basis-k8s の `/servers`(`POST`/`GET`/`GET {name}`/`DELETE`)相当の操作は�
 
 ## 9. AdminUi
 
-Cloudscape AdminUi のソースは、C# broker との設定・画面資産の互換性を保つため
-`Basis/Tools/BasisSsoBroker/AdminUi` に置き続ける。concierge 対応として同じ UI に Go API の
-認証ヘッダー、会議室ライフサイクル、health/status polling、静的サーバー管理、WebGL endpoint
-検証を実装する。別ディレクトリへ複製すると C# broker と UI の修正が分岐するため、移動は行わない。
+Cloudscape AdminUi は元来 C# broker 用に `Basis/Tools/BasisSsoBroker/AdminUi` に実装された資産であり、
+C# broker と concierge は現時点で共存する。concierge 対応として、この既存 UI の管理画面部分を暫定的に
+拡張し、Go API の認証ヘッダー、会議室ライフサイクル、health/status polling、静的サーバー管理、
+WebGL endpoint 検証を追加している。これは両 backend の完全互換や、concierge の正規共有ソースであることを
+意味しない。
+
+特に `join.tsx` と旧 Nginx の participant flow は C# broker の `/join/{token}/details`、`/web-config`、
+`/web-manifest`、`/web-oidc` 契約に依存する。concierge の参加導線は `/join/{token}`、`/config`、`/manifest`
+という別契約であり、join/OAuth の UI を共通利用できる状態ではない。将来 concierge 専用 UI にする場合は
+`concierge/adminui` へ分離し、Concierge の Dockerfile/deploy に frontend build と静的資産同梱を追加する。
+当面は C# Compose の現役導線を壊さないため、ソース移動は行わず、対応範囲を管理画面に限定する。
 ビルド済み静的アセットは concierge が `ADMIN_UI_DIR` から配信する。
 
 - AdminUi は Vite で `base: "/admin/"` としてビルドされ、`fetch('/api' + path)` で API を呼ぶ(`api.ts`)。

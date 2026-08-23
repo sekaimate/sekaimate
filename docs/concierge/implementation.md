@@ -149,8 +149,9 @@ phase 2 で Agones 対応の `Manager` を実装する際は、`RoomProvisioner`
 
 ## 5. AdminUi の配信と Concierge 対応
 
-`Basis/Tools/BasisSsoBroker/AdminUi/` は C# broker と共有する UI の正規ソースディレクトリである。concierge 用に
-別のコピーを作らず、Go API の契約に合わせて同じ UI を拡張した。UI は次を提供する。
+`Basis/Tools/BasisSsoBroker/AdminUi/` は元来 C# broker の Docker/Nginx gateway とともに配布される既存 UI である。
+C# broker は単体 Basis Server の子プロセス運用と Compose 運用で現役のため、concierge の導入に伴って削除・移動は
+していない。現在はこの UI の管理画面部分を concierge API に暫定再利用し、次を提供する。
 
 - `sessionStorage` の admin token を `Authorization: Bearer` として全 `/api/*` 管理 API に送信
 - 会議室の作成・削除・招待 URL 発行、provisioning/ready/error の表示と 5 秒 polling
@@ -158,9 +159,18 @@ phase 2 で Agones 対応の `Manager` を実装する際は、`RoomProvisioner`
 - 静的サーバーの追加・編集・削除、登録リンク発行
 - WebSocket URI / Server Info URI のペア検証と API error の画面表示
 
+これは C# broker と concierge の完全互換を意味しない。`join.tsx` と C# 側の Nginx は `/join/{token}/details`、
+`/join/{token}/web-config`、`/join/{token}/web-manifest`、`/web-oidc` を使用する一方、concierge は
+`/join/{token}/config` と `/join/{token}/manifest` 等の別契約を提供する。したがって参加者向け join/OAuth
+画面は C# backend 専用として扱い、concierge 管理画面の暫定再利用範囲と混同しない。
+
+将来 concierge 専用 UI が必要になった場合は `concierge/adminui` へ分離し、Concierge の Dockerfile/deploy に
+Node/Vite build と `ADMIN_UI_DIR` の同梱・設定を追加する。現状の `concierge/Dockerfile` は Go バイナリのみを
+生成し、Deployment も `ADMIN_UI_DIR` を設定しないため、UI は外部で `vp build` して指定する必要がある。
+
 コミットされた `dist/` は生成物のため、ソース変更後にローカルで `vp build` して生成する。
 
-代わりに、`internal/adminui.Mount` は環境変数 `ADMIN_UI_DIR` で指定した任意のディレクトリ(オペレーターが
+Concierge 側では、`internal/adminui.Mount` が環境変数 `ADMIN_UI_DIR` で指定した任意のディレクトリ(オペレーターが
 `pnpm build` 等で生成した `dist/` を指す想定)を `/admin/` 以下に配信する。`ADMIN_UI_DIR` 未設定時は `/admin/` への
 アクセスは 404 とその理由を返す(サイレントに何も配信しない、という状態を避けるため)。SPA のクライアントサイド
 ルーティングに対応するため、ディスク上に存在しないパスは `index.html` にフォールバックする。
