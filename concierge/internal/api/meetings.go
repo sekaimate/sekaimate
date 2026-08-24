@@ -183,6 +183,7 @@ func (a *serverAPI) CreateMeeting(w http.ResponseWriter, r *http.Request) {
 	}
 	if managed {
 		if err := a.deps.Provisioner.Create(r.Context(), id, kube.RoomKeys{
+			Password:            password,
 			TicketSigningKey:    signingKey,
 			TransportPrivateKey: privateKey,
 			TransportPublicKey:  publicKey,

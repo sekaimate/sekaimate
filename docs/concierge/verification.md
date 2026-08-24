@@ -18,7 +18,7 @@
 | Go | go1.26.5(コンテナビルド内)/ ホスト側 go1.26.5 darwin/arm64 |
 | helm | 未導入。Agones は `kubectl apply`(静的マニフェスト)でインストールした。 |
 
-上表の go/kubectl/minikube のバージョンは、本検証後に追加した `concierge/mise.toml`(mise 設定、詳細は
+上表の go/kubectl/minikube のバージョンは、リポジトリルートの `mise.toml`(mise 設定、詳細は
 `implementation.md` §2.1)にも同一の値で固定している。本検証自体は mise を導入する前に実施したため、
 以下のセットアップ手順は素の CLI コマンドのまま記録している。
 

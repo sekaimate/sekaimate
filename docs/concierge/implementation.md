@@ -98,18 +98,17 @@ go run ./cmd/server
 
 ### 2.1 mise によるツールチェーン管理
 
-`concierge/mise.toml` は、上記のビルド・検証で実際に使用した go/kubectl/minikube のバージョンを固定する
-[mise](https://mise.jdx.dev)(mise-en-place)の設定ファイル。モノレポ全体には適用せず `concierge/` 配下のみに
-スコープしている(リポジトリルートには mise 設定を置かない)。
+リポジトリルートの `mise.toml` は、上記のビルド・検証で実際に使用した go/kubectl/minikube のバージョンを固定する
+[mise](https://mise.jdx.dev)(mise-en-place)の設定ファイル。Concierge のコマンドは `dir = "concierge"` で
+実行ディレクトリを切り替えるため、リポジトリルートから一貫して実行できる。
 
 ```sh
-cd concierge
-mise install        # [tools] に固定したバージョンを取得
-mise run check       # build + test + vet + fmt をまとめて実行
-mise run generate    # api/openapi.yaml 変更時のみ
-mise run image        # minikube image build -t concierge:dev .
-mise run minikube-start   # ローカル minikube クラスタ起動
-mise run agones-install   # Agones v1.60.0 のインストール(§9.8 参照)
+mise install                    # [tools] に固定したバージョンを取得
+mise run concierge:check        # Conciergeのbuild + test + vet + fmt
+mise run concierge:generate     # api/openapi.yaml 変更時のみ
+mise run k8s:image              # minikube image build -t concierge:dev .
+mise run k8s:minikube:start     # ローカル minikube クラスタ起動
+mise run k8s:agones:install     # Agones v1.60.0 のインストール(§9.8 参照)
 ```
 
 固定しているバージョンと理由。

@@ -59,7 +59,10 @@ export type Server = {
 };
 
 export class ControlPlaneApi {
-  constructor(private readonly adminToken: string) {}
+  constructor(
+    private readonly adminToken: string,
+    private readonly onUnauthorized?: () => void,
+  ) {}
 
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const headers = new Headers(init.headers);
@@ -69,6 +72,7 @@ export class ControlPlaneApi {
       headers,
       cache: "no-store",
     });
+    if (response.status === 401) this.onUnauthorized?.();
     if (!response.ok) {
       const raw = await response.text();
       let detail = raw;

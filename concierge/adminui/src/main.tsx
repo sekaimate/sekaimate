@@ -1021,7 +1021,13 @@ function AdminLogin({ onLogin }: { onLogin(token: string): void }) {
 function AdminApp() {
   const [adminToken, setAdminToken] = useState(() => sessionStorage.getItem("basis.sso.adminToken") ?? "");
   const [meetings, setMeetings] = useState<Meeting[]>([]);
-  const api = useMemo(() => new ControlPlaneApi(adminToken), [adminToken]);
+  const api = useMemo(
+    () => new ControlPlaneApi(adminToken, () => {
+      sessionStorage.removeItem("basis.sso.adminToken");
+      setAdminToken("");
+    }),
+    [adminToken],
+  );
   if (!adminToken)
     return <AdminLogin onLogin={(token) => {
       sessionStorage.setItem("basis.sso.adminToken", token);

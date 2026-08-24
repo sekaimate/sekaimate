@@ -9,17 +9,15 @@ Go の `concierge` を起動します。秘密値、OIDC client secret、証明�
 
 macOS では Xcode Command Line Tools、Docker または Podman、`git`、`curl`、`openssl` を用意します。
 Agones 検証には `kubectl`、minikube、少なくとも 6 GiB の minikube memory が必要です。
-Go、Node、pnpm、kubectl、minikube の検証済みバージョンは `concierge/mise.toml` に固定しています。
+Go、Node、pnpm、kubectl、minikube の検証済みバージョンはリポジトリルートの `mise.toml` に固定しています。
 
 ```sh
 git clone <repository-url> sekaimate
 cd sekaimate
 
-# Concierge のツールだけを固定する。mise がない場合は同じバージョンを個別に用意する。
-cd concierge
+# リポジトリ全体のツールを固定する。mise がない場合は同じバージョンを個別に用意する。
 mise install
-mise run check
-cd ..
+mise run concierge:check
 ```
 
 Admin UI の変更を検証する場合は、次も実行します。

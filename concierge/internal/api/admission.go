@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/sekaimate/sekaimate/concierge/internal/admission"
@@ -58,6 +59,9 @@ func (a *serverAPI) Admit(w http.ResponseWriter, r *http.Request, serverId Serve
 	}
 	identity, err := a.deps.Validator.Validate(r.Context(), req.IdToken, providers)
 	if err != nil {
+		// Keep the HTTP contract deliberately opaque, but leave an operator-safe
+		// reason in the Concierge log. Never log the ID token or DID.
+		log.Printf("concierge: admission rejected server=%s reason=%v", serverId, err)
 		unauthorized(w)
 		return
 	}

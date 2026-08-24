@@ -10,10 +10,11 @@ package kube
 
 import "context"
 
-// RoomKeys are the three SSO values a concierge-managed game server needs
-// injected as environment variables (design.md §5): the ticket-signing
-// HMAC key and the X25519 transport keypair generated for the meeting.
+// RoomKeys are the per-meeting values a concierge-managed game server needs
+// injected as environment variables (design.md §5): the join password, the
+// ticket-signing HMAC key, and the X25519 transport keypair.
 type RoomKeys struct {
+	Password            string
 	TicketSigningKey    string
 	TransportPrivateKey string
 	TransportPublicKey  string

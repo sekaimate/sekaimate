@@ -58,6 +58,7 @@ cp -- "${repository_root}/tools/serve-web.mjs" "$build_context/tools/serve-web.m
 cp -- "${repository_root}/concierge/web.Dockerfile" "$build_context/web.Dockerfile"
 
 (cd "$build_context" && minikube image build \
+  -p "${MINIKUBE_PROFILE:-minikube}" \
   -t "$image_tag" \
   -f web.Dockerfile \
   .)

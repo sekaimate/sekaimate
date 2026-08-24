@@ -1,6 +1,11 @@
+min_version = "2024.9.5"
+
 [tools]
 node="latest"
 pnpm = "11"
+go = "1.26.5"
+kubectl = "1.36.4"
+minikube = "1.38.1"
 
 [tasks."web:build"]
 description = "再利用可能なWebGL開発ビルドを作成"
@@ -65,11 +70,59 @@ depends = ["sso:up", "sso:install"]
 dir = "concierge/adminui"
 run = "pnpm run dev"
 
-[tasks."local:up"]
-description = "WebGL・Concierge・Basis Server・Web配信をまとめて起動"
-depends = ["web:prepare", "sso:up", "server:up"]
-run = "exec ./tools/serve-web.sh --dev"
+# --- Concierge / Kubernetes --------------------------------------------
 
-[tasks."local:down"]
-description = "ローカルConcierge gatewayとBasis Serverを停止"
-run = "mise run sso:down && mise run server:down"
+[tasks."concierge:build"]
+description = "Conciergeをビルド"
+dir = "concierge"
+run = "go build ./..."
+
+[tasks."concierge:test"]
+description = "Conciergeのテストを実行"
+dir = "concierge"
+run = "go test ./..."
+
+[tasks."concierge:vet"]
+description = "Conciergeをgo vetで検査"
+dir = "concierge"
+run = "go vet ./..."
+
+[tasks."concierge:fmt"]
+description = "Conciergeのgofmt差分を確認"
+dir = "concierge"
+run = "gofmt -l ."
+
+[tasks."concierge:check"]
+description = "Conciergeのビルド・テスト・vet・整形をまとめて実行"
+depends = ["concierge:build", "concierge:test", "concierge:vet", "concierge:fmt"]
+
+[tasks."concierge:generate"]
+description = "ConciergeのOpenAPIコードを再生成"
+dir = "concierge"
+run = "go generate ./..."
+
+[tasks."k8s:image"]
+description = "ConciergeイメージをMinikube内にビルド"
+dir = "concierge"
+run = "minikube image build -t concierge:dev ."
+
+[tasks."k8s:minikube:start"]
+description = "ローカルMinikubeを起動（MINIKUBE_DRIVERで変更可能）"
+run = "bash ./tools/k8s-up.sh --start-only"
+
+[tasks."k8s:agones:install"]
+description = "Agones v1.60.0をMinikubeへインストール"
+depends = ["k8s:minikube:start"]
+run = "bash ./tools/k8s-agones-install.sh"
+
+[tasks."k8s:up"]
+description = "MinikubeにConcierge・Agones・Basis Server・WebGLをまとめて起動"
+run = "bash ./tools/k8s-up.sh"
+
+[tasks."k8s:down"]
+description = "Minikube上のConcierge環境とport-forwardを停止"
+run = "bash ./tools/k8s-down.sh"
+
+[tasks."k8s:status"]
+description = "Minikube上のConciergeとGameServerの状態を確認"
+run = "bash ./tools/k8s-status.sh"
