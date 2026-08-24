@@ -15,7 +15,7 @@ MonoBehaviour:
   m_DefaultGroup: 37c75a6cf72db324eb01200602299fc8
   m_currentHash:
     serializedVersion: 2
-    Hash: 00000000000000000000000000000000
+    Hash: c4d73fcea1c614cfba98cf7a6f47bdd9
   m_ExtractTypeTreeData: 0
   m_OptimizeCatalogSize: 0
   m_BuildRemoteCatalog: 0
@@ -111,6 +111,7 @@ MonoBehaviour:
     m_LabelNames:
     - default
     - language
+    - basis-ui
   m_SchemaTemplates: []
   m_GroupTemplateObjects:
   - {fileID: 11400000, guid: 91cbea64fd1da0545a9f62b746232edc, type: 2}

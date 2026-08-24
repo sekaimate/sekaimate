@@ -163,9 +163,10 @@ namespace Basis.Integration.Sso
                     return false;
                 }
                 if (!Uri.TryCreate(ServerTransport.AdmissionEndpoint, UriKind.Absolute, out Uri admissionUri)
-                    || admissionUri.Scheme != Uri.UriSchemeHttps)
+                    || (admissionUri.Scheme != Uri.UriSchemeHttps
+                        && !(admissionUri.Scheme == Uri.UriSchemeHttp && IsLoopbackHost(admissionUri.Host))))
                 {
-                    error = "OIDC config: serverTransport.admissionEndpoint must be an absolute HTTPS URL.";
+                    error = "OIDC config: serverTransport.admissionEndpoint must use HTTPS; HTTP is allowed only for localhost or a loopback IP.";
                     return false;
                 }
                 if (ServerTransport.AllowUntrustedLoopbackCertificate && !IsLoopbackHost(admissionUri.Host))

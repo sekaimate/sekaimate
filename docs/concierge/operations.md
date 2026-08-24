@@ -129,19 +129,15 @@ kubectl wait --for=condition=available deployment/agones-controller -n agones-sy
 minikube image build -t concierge:dev ./concierge
 (cd "Basis Server" && minikube image build -t basis-server:dev -f Docker/Dockerfile .)
 
-# 先に seed Secret を作成する。appsettings は検証用にコピーしたローカルファイルを使う。
-cp concierge/appsettings.example.json /tmp/concierge-appsettings.json
-chmod 600 /tmp/concierge-appsettings.json
+# 先に seed Secret を作成する。appsettings は gitignored の local/ に保存し、commit しない。
+./tools/apply-concierge-config.sh --init
 kubectl apply -f concierge/deploy/00-namespace.yaml
 kubectl apply -f concierge/deploy/10-rbac.yaml
 kubectl apply -f concierge/deploy/20-deployment-dev.yaml
 kubectl apply -f concierge/deploy/30-service.yaml
-kubectl -n basis create secret generic concierge-config \
-  --from-file=appsettings.json=/tmp/concierge-appsettings.json
 kubectl -n basis create secret generic concierge-admin \
   --from-literal=token="$(openssl rand -base64 32)"
-kubectl rollout restart deployment/concierge -n basis
-kubectl rollout status deployment/concierge -n basis --timeout=180s
+./tools/apply-concierge-config.sh --yes
 ```
 
 minikube の overlay は `concierge:dev`、`basis-server:dev`、`imagePullPolicy: Never` を設定します。
@@ -339,6 +335,82 @@ TLS が無効な構成ではこの Secret 設定は無視され、既存の UDP-
 
 ## 6. Web OIDC（test fixture と実 IdP）
 
+### 6.1 設定内容
+
+minikube 用の完全な雛形は [`concierge/appsettings.minikube.example.json`](../../concierge/appsettings.minikube.example.json)
+です。秘密値は `replace-*` placeholder のままなので、実 OIDC で検証する場合だけ Google Cloud Console
+で発行した値へ置き換えてください。入力元は gitignored の `local/concierge/appsettings.minikube.json` に統一します。
+
+`concierge/appsettings.example.json` は汎用・production 向けの skeleton で、静的な `Broker.Servers` と
+native client 用の `Audience` を中心にしています。`PublicBaseUrl`/origin は example の HTTPS placeholder
+で、Web OIDC の `WebClientId`、`WebClientSecret`、`TokenEndpoint` は含まれていません。そのまま今回の
+minikube WebGL 検証へ使わず、production で WebGL OIDC を使う場合は必要な Web fields と managed endpoint
+templates を追加してください。
+
+一方、`appsettings.minikube.example.json` は今回の managed Agones/WebGL 専用です。loopback の URL、
+`ManagedWebSocketUriTemplate`/`ManagedServerInfoUriTemplate`、`Organization` provider の Web OIDC fields
+を含み、静的 `Servers` は持たず managed meeting が Organization を継承します。静的 server 用の
+`ClientConfigDirectory` もこの managed-only 雛形では省略しています。`./tools/apply-concierge-config.sh --init`
+がコピーするのはこちらの minikube example です。
+
+| フィールド | 用途 |
+|---|---|
+| `Broker.PublicBaseUrl` | Concierge API の browser 向け origin。minikube port-forward は `http://127.0.0.1:15080`。 |
+| `Broker.AllowedWebOrigins` | CORS、redirect 許可、WebGL URL の生成元。WebGL port-forward は `http://127.0.0.1:4173`。 |
+| `Broker.AdminTokenEnvironmentVariable` | Admin bearer token を読む環境変数（`BASIS_SSO_ADMIN_TOKEN`）。 |
+| `Broker.Kubernetes` | GameServer に mount する `basis-web-tls` Secret の名前、キー、mount path。 |
+| `Organization.Providers[].Audience` | Basis native client の client ID。雛形は WebGL-only 用に空文字で、ネイティブ admission token も使う場合だけ native client ID を設定する。 |
+| `Organization.Providers[].WebClientId` | Google OAuth の Web application client ID。参加ページの OAuth に使う。 |
+| `Organization.Providers[].WebClientSecret` | Concierge の token relay が使う Web client secret。commit・ログ出力禁止。 |
+| `Organization.Providers[].TokenEndpoint` / `JwksUri` | OAuth token relay / JWT 検証の HTTPS endpoint。 |
+| `Organization.Providers[].AllowedHostedDomains` | Google `hd` claim の許可リスト。空配列は hosted-domain 制限なし。 |
+
+この minikube 雛形は managed WebGL 会議室だけを対象にするため、`Audience` は空文字です。コード上は
+`Audience` が空でも `WebClientId`、`WebClientSecret`、HTTPS の `TokenEndpoint` が揃えば provider の構造検証を
+通せます。Basis native client も使う場合、`Audience` を native client ID に置き換えてください。native
+admission token の audience 検証では `Audience` または `WebClientId` が使われます。`WebClientSecret` は
+ブラウザーへ返さず、server-side relay だけが使用します。
+
+Google Cloud Console では OAuth client の JavaScript origin に `http://127.0.0.1:4173` を登録し、redirect
+URI に `http://127.0.0.1:4173/sso-callback` を登録します。次の順で雛形を生成・編集・反映できます。
+
+#### Google OAuth Web client の作成
+
+現行の Google Auth Platform UI では、次の順で Web client を作成します。
+
+1. Google Cloud Console で対象 project を選択するか、新しい project を作成する。
+2. [Google Auth Platform の Get started](https://support.google.com/cloud/answer/15544987) を開く。
+   Branding で app name、user support email、contact information を設定する。
+3. Audience で `External`（外部テスト）または Google Workspace の `Internal` を選ぶ。`External` の
+   `Testing` を使う場合は、実際にログインする Google account を Test users に追加する。
+   [Audience の公式手順](https://support.google.com/cloud/answer/15549945)も参照してください。
+4. `Clients` → `Create client` → Application type `Web application` を選び、client name を入力する。
+5. Authorized JavaScript origins に `http://127.0.0.1:4173` を追加する（path と末尾 `/` は付けない）。
+   Authorized redirect URIs に `http://127.0.0.1:4173/sso-callback` を追加する（この path を含む完全一致）。
+6. `Create` を押し、表示された Client ID と Client secret を、秘密値を commit しないよう
+   `local/concierge/appsettings.minikube.json` の `WebClientId` と `WebClientSecret` へ入力する。
+
+`127.0.0.1` と `localhost` は別 origin なので、ブラウザー、`AllowedWebOrigins`、Google の origin/redirect
+登録で混在させないでください。production では `https://` の実際の Web origin と、その origin の
+`/sso-callback` へ置き換えます。Google の OAuth code model では redirect URI は登録値と scheme、host、path、
+末尾 slash まで完全一致する必要があり、違う場合は `redirect_uri_mismatch` になります（[Web server OAuth の公式説明](https://developers.google.com/identity/protocols/oauth2/web-server)）。
+
+Data Access の追加 scope は通常不要です。Concierge の現在のコードは OAuth 要求で `openid email profile`
+だけを使うため、まずこの基本 scope で動作を確認し、不要な Google API scope を追加しないでください。
+
+```sh
+./tools/apply-concierge-config.sh --init
+# local/concierge/appsettings.minikube.json の placeholder を実際の OIDC 値へ編集する。
+./tools/apply-concierge-config.sh --yes
+```
+
+`--init` は既存の `local/concierge/appsettings.minikube.json` を絶対に上書きしません。既存の設定を反映する場合や
+実 OIDC 用の別保管場所を使う場合は `./tools/apply-concierge-config.sh --yes /secure/path/appsettings.json`
+を使います。`emptyDir` の `/data` を使う検証環境では rollout restart により meeting records が消え、
+GameServer が孤立する可能性があるため、実行前に meeting と GameServer を確認してください。
+旧版の既定ファイル `local/concierge/appsettings.json` が残っている場合、script は自動移動・上書きせず停止します。
+その場合は `mv local/concierge/appsettings.json local/concierge/appsettings.minikube.json` で移行してから再実行してください。
+
 OIDC の署名検証は、外部 IdP の秘密値を共有せずに再現できる Go test fixture を使用します。これは
 `httptest.NewTLSServer` が生成する一時 CA を Validator の HTTP client にだけ信頼させ、RS256 JWKS、issuer、
 audience、expiry、signature を検証するものです。
@@ -350,11 +422,10 @@ go test ./internal/api -run 'TestWebOidcRelayForwardsOnlyAllowedFieldsAndServerS
 cd ..
 ```
 
-この fixture は実ブラウザの OAuth redirect を模倣するものではありません。実 IdP を使う場合は、
-`Basis Server/Docker/sso/broker/appsettings.json` の `WebClientId`、`WebClientSecret`、`TokenEndpoint`、
-`JwksUri` と `AllowedWebOrigins` を IdP の管理画面で発行した値に置き換え、redirect URI を
-`<web-origin>/sso-callback` に登録します。`BASIS_SSO_ADMIN_TOKEN`、client secret、refresh token は
-コマンドライン履歴や commit に残さず、終了後に Compose state を削除してください。
+この fixture は実ブラウザの OAuth redirect を模倣するものではありません。実 IdP の設定内容、Google
+Cloud Console の origin/redirect 登録、`local/concierge/appsettings.minikube.json` への反映方法は §6.1 を参照して
+ください。`BASIS_SSO_ADMIN_TOKEN`、client secret、refresh token はコマンドライン履歴や commit に残さず、
+終了後に Compose state を削除してください。
 
 ## 7. browser/Admin 確認
 
@@ -372,9 +443,31 @@ Compose では `https://127.0.0.1:5081/admin/`、minikube port-forward では
 会議室を作成すると Admin UI が WebGL と Basis の参加 URL を自動表示します。この節は、その挙動を
 minikube + Agones の managed 会議室で再現する手順です。§4 の cluster が起動済みであることが前提です。
 
+この検証では WebGL Service を localhost へ port-forward し、ブラウザーからも同じ origin を使います。
 `webJoinUrl` は `Broker.AllowedWebOrigins` の先頭にある、ブラウザーが実際に読み込める origin
 (HTTPS、またはループバックの HTTP)から生成します。空の場合は Admin UI が URL の代わりに未設定の
-理由を表示します。検証前に Secret `concierge-config` の `appsettings.json` へ次を含めてください。
+理由を表示します。`concierge-web` の Service DNS 名はホストのブラウザーから解決できないため、
+port-forward の URL (`http://127.0.0.1:4173`) を AllowedWebOrigins に設定します。
+
+まず、Unity の Development WebGL ビルドを作成し、成果物を minikube の `concierge-web:dev` image に
+取り込みます。スクリプトは `Build/Web` を入力に使い、Unity の `Library` やリポジトリ全体を image
+builder へ送らない一時 context を作成します。Development build は Addressables と Unity のキャッシュを
+再利用する incremental build であり、`clean_build` は使用しません。
+
+```sh
+./tools/build-web-image.sh
+kubectl apply -f concierge/deploy/40-web-deployment.yaml
+kubectl rollout status deployment/concierge-web -n basis --timeout=180s
+```
+
+別ターミナルで WebGL Service を公開します。検証中はこの port-forward を終了しないでください。
+
+```sh
+kubectl -n basis port-forward svc/concierge-web 4173:4173
+```
+
+Secret `concierge-config` の `appsettings.json` は、次のように Concierge の port-forward と WebGL
+Service の port-forward の両方を指す必要があります。
 
 ```json
 {
@@ -385,8 +478,19 @@ minikube + Agones の managed 会議室で再現する手順です。§4 の clu
 }
 ```
 
-`PublicBaseUrl` は port-forward のアドレスに合わせます。ここが実際のアクセス先と違うと、生成される
-参加 URL がブラウザーから開けません。
+設定ファイルの生成・編集・Secret 反映は §6.1 の手順を使います。この検証では特に
+`PublicBaseUrl=http://127.0.0.1:15080` と `AllowedWebOrigins=["http://127.0.0.1:4173"]` を設定してください。
+`tools/apply-concierge-config.sh` は JSON を検証してから Secret を apply し、Concierge の rollout
+restart/status を実行します。秘密値は表示しません。`--yes` は安全確認のため必須です。`emptyDir` の
+`/data` を使っている場合、再起動で meeting records が消え、既存の GameServer が孤立する可能性があります。
+実行前に検証用 meeting を API から削除し、GameServer/Secret の残存を確認してください。`--yes` を付けない
+実行はこの警告だけ表示して変更せず終了します。
+
+`20-deployment-dev.yaml` を PVC のまま使っている場合、Secret は初回起動時だけ `/data/appsettings.json`
+へコピーされます。検証環境をまっさらにする場合は、§4.1 の `emptyDir` overlay を適用してから Secret
+を更新してください。`PublicBaseUrl` は Concierge の port-forward、`AllowedWebOrigins` は WebGL の
+port-forward とそれぞれ一致させます。どちらかが実際のアクセス先と違うと、生成される参加 URL は
+ブラウザーから開けません。
 
 image を入れ替え、§4.1 の `emptyDir` でまっさらな `/data` から起動します。
 
@@ -397,6 +501,38 @@ kubectl -n basis set env deployment/concierge BASIS_SERVER_IMAGE=basis-server-st
 kubectl rollout status deployment/concierge -n basis --timeout=180s
 kubectl -n basis port-forward svc/concierge 15080:5080
 ```
+
+WebGL Service が実際に必要なレスポンスを返すことを、会議室作成前に確認します。Development build の
+raw `.wasm`/`.data` を標準確認し、Unity の圧縮設定で `.gz` または `.br` が生成されている場合は、
+存在する圧縮ファイルも追加で確認します。`Build/Web` 配下のパスと Service URL のパスは一致しないため、
+次のループで `Build/Web/` を取り除いて URL を組み立てます。
+
+```sh
+curl --fail --silent -o /dev/null http://127.0.0.1:4173/
+for asset_path in \
+  Build/Web/Build/Web.data Build/Web/Build/Web.data.gz Build/Web/Build/Web.data.br \
+  Build/Web/Build/Web.wasm Build/Web/Build/Web.wasm.gz Build/Web/Build/Web.wasm.br; do
+  if [ -f "$asset_path" ]; then
+    asset_url="/${asset_path#Build/Web/}"
+    curl --fail --silent --head "http://127.0.0.1:4173$asset_url" \
+      | tr -d '\r' | grep -E '^(content-type:|content-encoding:|accept-ranges:)'
+  fi
+done
+```
+
+raw と圧縮済みの `Web.wasm*` の `Content-Type` は `application/wasm`、`.data*` は
+`application/octet-stream`、圧縮形式に応じて `Content-Encoding: gzip` または `Content-Encoding: br`、
+全ファイルで `Accept-Ranges: bytes` になれば合格です。BEE は Range 取得を確認します。
+
+```sh
+curl --fail --silent --dump-header /tmp/concierge-web-range.headers \
+  --range 0-15 -o /tmp/concierge-web-range.bin \
+  http://127.0.0.1:4173/BEE/world.BEE
+grep -E '^(HTTP/|content-range:|accept-ranges:)' /tmp/concierge-web-range.headers | tr -d '\r'
+test "$(wc -c < /tmp/concierge-web-range.bin | tr -d ' ')" -eq 16
+```
+
+`HTTP/1.1 206`、`Content-Range: bytes 0-15/...`、`Accept-Ranges: bytes` が必要です。
 
 別ターミナルで `ADMIN_TOKEN` を §4 の手順で取得し、`host` を指定せずに会議室を作成します。`host` を
 省略すると Kubernetes が GameServer をプロビジョニングするため、`provisioning` から `ready` への遷移を
@@ -423,10 +559,10 @@ curl --fail --silent -H "Authorization: Bearer $ADMIN_TOKEN" \
 参加ページと、`webJoinUrl` のクエリ `meetingUrl` が指す concierge 側のエンドポイントを確認します。
 `<token>` は `joinUrl` の末尾です。
 
-`webJoinUrl` の前半の origin は `AllowedWebOrigins` の設定値であり、concierge はそこに WebGL
-クライアントが配信されているかを検証しません。origin が実際に応答するかは、この手順の対象外です。
-配信まで含めて確認する場合は、`./tools/serve-web.sh` で WebGL ビルドを同じ origin へ配信してから
-ブラウザーで開いてください。
+`webJoinUrl` の前半が `http://127.0.0.1:4173` であり、`meetingUrl` が Concierge の
+`/join/<token>/web-manifest` を指すことを確認します。次の curl は Concierge 側の参加ページと
+manifest の到達性を確認します。WebGL origin の到達性は、上記の Service 検査と後述のブラウザー確認で
+検証済みになるため、ここでホスト側の `tools/serve-web.sh` を別途起動する必要はありません。
 
 ```sh
 curl --fail --silent -o /dev/null -w '%{http_code}\n' \
@@ -443,10 +579,53 @@ curl --fail --silent "http://127.0.0.1:15080/join/<token>/details"
 
 Admin UI では `http://127.0.0.1:15080/admin/` を開き、`host` を空欄のまま会議室を作成して次を確認します。
 
+Docker driver の minikube では、GameServer の `status.address`（例: `192.168.49.2`）へ macOS の
+ブラウザーから直接到達できないことがあります。その場合は会議室作成フォームで `host` は空欄のまま、
+次の 2 項目を明示します。これらはブラウザー向け URI だけを上書きし、GameServer の Kubernetes
+プロビジョニングは引き続き実行されます。
+
+```text
+WebSocket URI:   wss://127.0.0.1:4297/basis
+Server Info URI: https://127.0.0.1:4297/server-info
+```
+
+会議室が `Ready` になったら、別ターミナルでその Pod を転送します。`<meeting-id>` は Admin UI の
+会議室 ID です。
+
+```sh
+kubectl -n basis port-forward "pod/basis-<meeting-id>" 4297:4297
+```
+
+ブラウザーで先に `https://127.0.0.1:4297/server-info` を開き、ローカル検証用証明書の警告を確認して
+許可します。証明書の SAN に `127.0.0.1` が必要です。許可しないままでは `fetch` と `wss` の両方が
+ブラウザーに遮断されます。公開環境では警告を回避せず、公開 DNS 名に対する信頼済み証明書を使います。
+
+minikube の `PublicBaseUrl=http://127.0.0.1:15080` から生成される admission endpoint は loopback
+HTTP です。WebGL client は HTTPS を標準としつつ、このローカル検証に限って loopback HTTP を許可します。
+リモートホストの HTTP admission endpoint は引き続き設定検証で拒否されます。
+
 1. 作成直後、一覧の参加 URL 列が「起動待ち」になり、カードが「サーバーの起動を待っています。準備が完了すると参加 URL を表示します。」を表示する。
 2. GameServer が `Ready` になると、5 秒ごとの polling でカードが WebGL と Basis の 2 つの URL へ切り替わる。ページの再読み込みは不要です。
 3. 一覧の参加 URL 列に「WebGL で参加」「Basis で参加」の 2 つのリンクが出て、`href` がカードの URL と一致する。
-4. ブラウザーの Console にエラーが出ない。
+4. 「WebGL で参加」をクリックし、`http://127.0.0.1:4173/?basisMeeting=1&meetingUrl=...` を開く。
+   Unity のローディング画面から manifest と `web-config` の取得まで進み、ブラウザーの Console に WebGL、
+   CORS、Range のエラーが出ない。
+
+Admin UI に表示された `webJoinUrl` を直接別タブへ貼り付けても同じ確認ができます。Network では
+`meetingUrl` の manifest、`/web-config`、`server-info`、WebSocket の順にリクエストが成功し、WebGL
+クライアントが実際に managed GameServer へ接続できることを、実 OIDC 設定を用いた場合の合格条件とします。
+
+初期状態の minikube Secret は `verification-*` の placeholder OIDC 設定です。この状態でも WebGL URL は
+開き、manifest と `web-config` を取得できます。これらの取得後に WebGL の
+`BasisSsoAuthController.IsSignedIn` が `true` になるのを待ちますが、placeholder のままでは `false` が
+続き、admission、server-info、WebSocket より前で停止するため、実 peer の入室は完了しません。実入室を確認する場合は、§6 の
+実 Web OIDC 設定（有効な `WebClientId`、`WebClientSecret`、`TokenEndpoint`、`JwksUri` および許可ユーザー）
+を設定し、認証完了後に GameServer の server log の peer 接続も確認してください。placeholder のままでは
+「WebGL 起動・manifest/web-config 確認」として記録し、「入室合格」とは扱いません。
+
+この検証では `AllowedWebOrigins` を WebGL Service のブラウザー到達 origin として使い続けます。§3.2
+で述べた専用 `WebClientOrigin` への分離は、JoinDetails と参加ページ、Admin UI の生成結果を同時に
+変更する必要があり、今回の配信追加の範囲では行いません。
 
 `AllowedWebOrigins` を空にして pod を再起動すると、カードが「Web 版の配信元を appsettings.json の
 AllowedWebOrigins に設定すると表示されます。」、一覧が「WebGL: 未設定」に変わります。Basis の参加 URL は
@@ -459,6 +638,7 @@ AllowedWebOrigins に設定すると表示されます。」、一覧が「WebGL
 ```sh
 kubectl -n basis delete gameservers,secrets -l app=basis-server --ignore-not-found
 kubectl -n basis delete secret concierge-config concierge-admin --ignore-not-found
+kubectl delete -f concierge/deploy/40-web-deployment.yaml --ignore-not-found
 kubectl delete -f concierge/deploy/30-service.yaml --ignore-not-found
 kubectl delete -f concierge/deploy/20-deployment-dev.yaml --ignore-not-found
 kubectl delete -f concierge/deploy/10-rbac.yaml --ignore-not-found

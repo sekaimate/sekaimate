@@ -31,6 +31,27 @@ namespace Basis.Integration.Sso.Tests
         }
 
         [Test]
+        public void BrowserRedirectAcceptsLoopbackHttpAdmissionEndpoint()
+        {
+            BasisOidcConfig config = BrowserConfig("http://127.0.0.1:15080/web-oidc/google/token");
+            config.ServerTransport.AdmissionEndpoint = "http://127.0.0.1:15080/admission/local";
+            config.ServerTransport.AllowUntrustedLoopbackCertificate = true;
+
+            Assert.That(config.TryValidate(out string error), Is.True, error);
+        }
+
+        [Test]
+        public void BrowserRedirectRejectsRemoteHttpAdmissionEndpoint()
+        {
+            BasisOidcConfig config = BrowserConfig("https://broker.example/web-oidc/google/token");
+            config.ServerTransport.AdmissionEndpoint = "http://broker.example/admission/local";
+
+            Assert.That(config.TryValidate(out string error), Is.False);
+            Assert.That(error, Is.EqualTo(
+                "OIDC config: serverTransport.admissionEndpoint must use HTTPS; HTTP is allowed only for localhost or a loopback IP."));
+        }
+
+        [Test]
         public void OrganizationWildcardAcceptsNonEmptyHostedDomainClaim()
         {
             BasisOidcConfig config = BrowserConfig("https://broker.example/web-oidc/google/token");

@@ -1,9 +1,7 @@
 Assets/AddressableAssetsData
-Assets/Basis/Settings/Highlight
 Assets/Basis/Settings/InputActions
 Assets/Basis/Settings/Quality Settiings
 Assets/Basis/Settings/Resources
-Assets/Basis/Settings/Unity Rendering Defaults
 Assets/Basis/link.xml
 Assets/Plugins/Android
 Assets/StreamingAssets/SteamVR

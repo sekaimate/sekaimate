@@ -5,6 +5,9 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(process.argv[2]);
 const port = Number(process.argv[3] || 4173);
+// Keep the local default loopback-only, but allow container deployments to
+// listen on the pod interface. Kubernetes Services cannot reach 127.0.0.1.
+const host = process.env.HOST || "127.0.0.1";
 const callbackKey = "basis.sso.callback";
 const returnUrlKey = "basis.sso.returnUrl";
 
@@ -144,14 +147,19 @@ const server = createServer(async (request, response) => {
     }
 
     const extension = path.extname(filePath).toLowerCase();
+    const contentExtension = extension === ".gz" || extension === ".br"
+      ? path.extname(filePath.slice(0, -extension.length)).toLowerCase()
+      : extension;
     const headers = {
-      "content-type": contentTypes[extension] || "application/octet-stream",
+      "content-type": contentTypes[contentExtension] || "application/octet-stream",
       "content-length": String(contentLength),
       "accept-ranges": "bytes",
       "cache-control": "no-cache",
       "access-control-allow-origin": "*",
       "access-control-expose-headers": "Content-Range, Content-Length, Accept-Ranges, ETag",
     };
+    if (extension === ".gz") headers["content-encoding"] = "gzip";
+    if (extension === ".br") headers["content-encoding"] = "br";
     if (contentRange) headers["content-range"] = contentRange;
     response.writeHead(statusCode, headers);
     response.end(body);
@@ -161,7 +169,7 @@ const server = createServer(async (request, response) => {
   }
 });
 
-server.listen(port, "127.0.0.1", () => {
-  console.log(`Serving ${root} at http://127.0.0.1:${port}/`);
-  console.log(`World BEE: http://127.0.0.1:${port}/BEE/world.BEE`);
+server.listen(port, host, () => {
+  console.log(`Serving ${root} at http://${host}:${port}/`);
+  console.log(`World BEE: http://${host}:${port}/BEE/world.BEE`);
 });

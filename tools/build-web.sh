@@ -87,7 +87,10 @@ if [[ "$development_build" == false && -e "$build_path" ]]; then
   rm -rf -- "$build_path"
 fi
 
-if [[ "$development_build" == true && -d "$canonical_addressables_path" ]]; then
+if [[ "$development_build" == true && -d "$canonical_addressables_path" \
+  && "$canonical_addressables_path" != "$build_path/StreamingAssets/aa" ]]; then
+  # Build/Web is also accepted as an explicit Development output directory
+  # for image builds. Avoid copying Addressables onto itself in that mode.
   mkdir -p "$build_path/StreamingAssets"
   cp -R -- "$canonical_addressables_path/." "$build_path/StreamingAssets/aa"
   echo "Reusing Addressables content from $canonical_addressables_path"

@@ -31,7 +31,8 @@
 - `operations.md §4` の WebGL 用 template を `wss://`/`https://` に修正しました。従来の
   `ws://{host}:{port}/basis` は `ValidateBrowserEndpointTemplates` が必ず拒否するため、起動不能でした。
 - `operations.md §4.1` に、起動時 ID 衝突の解消手順と、検証用に `/data` を `emptyDir` にする手順を追加しました。
-- `operations.md §7.1` に参加 URL 自動表示の再現手順を追加しました。
+- `operations.md §7.1` に WebGL image/Deployment/Service の構築、port-forward、圧縮 MIME と Range の検査、
+  Admin UI からの URL 起動・OIDC 前提を含む参加 URL 自動表示の再現手順を追加しました。
 - `verification.md §4.4` に minikube での実測結果、`§5` に見つかった 2 件を追記しました。
 
 ### 1.3 Basis：ブランチ固有のビルド破損 2 件
@@ -60,27 +61,30 @@ minikube + Agones で、`concierge:joinlinks-dev` image を Deployment に反映
 - `AllowedWebOrigins` が空の構成で、WebGL 側だけ未設定表示になり Basis 側は残ること。
 - `wss://`/`https://` template と Secret `basis-web-tls` により、managed 会議室に WebGL 接続先が
   入り、GameServer に証明書が read-only mount されること。
+- `concierge-web:dev` の WebGL image、`concierge/deploy/40-web-deployment.yaml` の Deployment/Service、
+  `http://127.0.0.1:4173` への port-forward を使って、WebGL の参加 URL を実際に開き、manifest と
+  `web-config` を取得すること。
+- `./tools/build-web.sh --dev Build/Web` のコンパイルが `totalErrors=0` で完了すること。
 
 Go の `build`/`vet`/`gofmt`/`test`、Admin UI の `typecheck`/`test`/`build` はすべて通ります。
 
+初期検証用 Secret は `verification-*` の placeholder OIDC 設定だったため、WebGL の
+`BasisSsoAuthController.IsSignedIn` は `false` のままで、実 peer の入室までは確認していません。
+実入室の合格判定には、§6 の実 Web OIDC 設定と許可ユーザーが必要です。
+
 ## 3. 未対応・未確認事項（NA）
 
-### 3.1 WebGL クライアントの配信手段がない
+### 3.1 WebGL クライアントの配信手段（対応済み）
 
-`webJoinUrl` の前半 origin は `AllowedWebOrigins` の設定値で、concierge はそこに WebGL クライアントが
-配信されているかを検証しません。そしてリポジトリには、WebGL クライアントを配信するイメージも
-Kubernetes manifest も存在しません。`Build/Web` を参照するのは `tools/serve-web.sh`（ホスト側の
-Node 静的サーバー）だけで、`concierge/deploy/overlays/minikube/` は空です。
+`concierge/web.Dockerfile` と `tools/build-web-image.sh` を追加し、Development WebGL 成果物を
+`concierge-web:dev` image に同梱できるようにしました。`tools/serve-web.mjs` はコンテナでは
+`HOST=0.0.0.0` で listen し、`.gz`/`.br` の `Content-Encoding`、圧縮前拡張子に応じた MIME
+（WASM は `application/wasm`）、BEE の HTTP Range を返します。
 
-Kubernetes 上では、これを独立した Deployment として動かすのが妥当です。必要なものは 3 つです。
-
-1. WebGL ビルド成果物（`Build/Web`）。
-2. それを配信するイメージ。単純な nginx では不足で、`.gz` への `Content-Encoding: gzip`、
-   `.wasm` への `application/wasm`、BEE 取得のための HTTP Range が要ります。`tools/serve-web.mjs` は
-   これらを実装済みなので、Node イメージへ同梱するのが確実です。
-3. Deployment と Service、および `AllowedWebOrigins` をその URL へ向ける設定。
-
-3 が入れば、origin が実配信先になり、§3.2 の弱さも実質的に解消します。
+`concierge/deploy/40-web-deployment.yaml` に `concierge-web` Deployment と ClusterIP Service を追加
+しました。ローカル browser からは `kubectl -n basis port-forward svc/concierge-web 4173:4173` を使い、
+`Broker.AllowedWebOrigins` を `http://127.0.0.1:4173` に設定します。image build は一時 context を使う
+`./tools/build-web-image.sh` が標準手順で、リポジトリ全体や Unity `Library` を minikube builder に送りません。
 
 ### 3.2 `AllowedWebOrigins` の意味が二重になっている
 
@@ -93,19 +97,25 @@ Kubernetes 上では、これを独立した Deployment として動かすのが
 追加し、未設定なら `AllowedWebOrigins` へフォールバックする形が考えられます。参加ページと
 Admin UI の両方に影響します。
 
-### 3.3 WebGL ビルドが未完了
+### 3.3 WebGL ビルドと Kubernetes 配信（確認済み）
 
-`./tools/build-web.sh` は §1.3 の 2 件を直した状態で未実行です。1 件目を直した時点で 2 件目が
-表面化したため、3 件目以降が残っている可能性があります。同種の破損は `developer` および
-`feature/web-support` との差分で特定できます。
+`./tools/build-web-image.sh`（内部で `./tools/build-web.sh --dev Build/Web` を実行）で Development
+WebGL ビルドが完了し、Unity ログの `totalErrors=0` を確認しました。`concierge-web:dev` image を
+minikube に取り込み、Deployment/Service を apply、`http://127.0.0.1:4173` へ port-forward して、
+圧縮 MIME、`Content-Encoding`、WASM MIME、BEE Range (`206`) の応答を確認しました。
 
-`web:release` の出力は `Build/Web` です。`mise run web:serve` は `serve-web.sh --dev` を実行して
-`Build/WebDev` を配信するため、リリースビルドの配信には `./tools/serve-web.sh` を直接使います。
+### 3.4 WebGL URL の起動と実入室（起動確認済み、実入室は OIDC 待ち）
 
-### 3.4 WebGL origin の到達性は未検証
+minikube の Admin UI で会議室を作成し、provisioning から ready への遷移、Admin UI に WebGL/Basis の
+参加 URL が表示されること、WebGL URL を実際に開いて manifest と `web-config` を取得できることを
+確認しました。Performance entries では admission、server-info、WebSocket のリクエストは発生していません。
 
-検証では `http://127.0.0.1:4173` へ何も配信していません。確認したのは concierge 側の参加ページと
-`web-manifest` で、WebGL クライアントを開いて実際に入室するところまでは通していません。
+一方、検証用 Secret の OIDC は `verification-*` placeholder で、manifest と `web-config` の取得後、
+admission、server-info、WebSocket より前に WebGL の `BasisSsoAuthController.IsSignedIn` 待ちで停止し、
+実サーバー log の peer 数は 0 のままでした。従って実 peer の入室は未達です。実入室を合格とするには、operations.md §6 の実 Web OIDC 設定
+（有効な `WebClientId`、`WebClientSecret`、`TokenEndpoint`、`JwksUri` と許可ユーザー）を投入し、
+認証完了後の peer 接続を再確認する必要があります。placeholder のままの WebGL 起動・manifest/
+`web-config` 確認を「入室合格」とは扱いません。
 
 ### 3.5 起動時 ID 衝突は起動時にしか検出されない
 
@@ -120,8 +130,10 @@ XR 設定、`baked-paths.txt`、`BasisSetup.json`、`Modified - Web.asset` な�
 開いた際やビルド時に書き換えたものです。`ProjectSettings/ProjectVersion.txt` も
 `6000.5.2f1` から `6000.5.3f1` へ上がっています。
 
-これらは意図的な変更か判断できないため、commit していません。ProjectVersion の更新は
-プロジェクト全体のエディターバージョン変更にあたるため、取り込むかどうかは別途判断が必要です。
+`tools/build-web.sh` は `ProjectVersion.txt` から Unity executable を選び、導入済みの Unity 6000.5.3f1
+（WebGL module 有り）でビルドが成功したため、`ProjectSettings/ProjectVersion.txt` の 6000.5.3f1 への
+更新は意図した変更として取り込みます。その他の Basis 副作用は意図した修正と混ぜず、commit 対象から
+除外します。
 
 ## 4. minikube の現状
 
