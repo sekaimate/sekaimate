@@ -73,9 +73,22 @@ spec:
             - name: BASIS_SERVER_WEBSOCKET_ENABLED
               value: "true"
             - name: BASIS_SERVER_WEBSOCKET_USE_TLS
-              value: "true"
+              value: "false"
             - name: BASIS_SERVER_WEBSOCKET_ALLOWED_ORIGINS
-              value: "http://127.0.0.1:5080,http://localhost:5080"
+              value: "http://127.0.0.1:4173,http://localhost:4173"
+            # Minikube's dynamic GameServer ports are forwarded to the host
+            # at the same local port by tools/k8s-gameserver-forward.sh.
+            - name: BASIS_SERVER_WEBSOCKET_URI_TEMPLATE
+              value: "ws://127.0.0.1:{port}/basis"
+            - name: BASIS_SERVER_INFO_URI_TEMPLATE
+              value: "http://127.0.0.1:{port}/server-info"
+            - name: BASIS_WORLD_BEE_URL
+              value: "http://127.0.0.1:4173/BEE/world.BEE"
+            - name: BASIS_WORLD_BEE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: concierge-world
+                  key: password
             - name: GAMESERVER_READY_TIMEOUT_SECONDS
               value: "120"
             - name: BASIS_SSO_ADMIN_TOKEN

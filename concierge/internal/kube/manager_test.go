@@ -180,10 +180,15 @@ func TestCreate_WebSocketTLSSecretMountsReadOnlyAndDerivesPaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get gameserver: %v", err)
 	}
-	if len(gs.Spec.Template.Spec.Volumes) != 1 {
-		t.Fatalf("volumes = %+v, want one TLS Secret volume", gs.Spec.Template.Spec.Volumes)
+	if len(gs.Spec.Template.Spec.Volumes) != 2 {
+		t.Fatalf("volumes = %+v, want world and TLS Secret volumes", gs.Spec.Template.Spec.Volumes)
 	}
-	volume := gs.Spec.Template.Spec.Volumes[0]
+	var volume corev1.Volume
+	for _, candidate := range gs.Spec.Template.Spec.Volumes {
+		if candidate.Name == "websocket-tls" {
+			volume = candidate
+		}
+	}
 	if volume.Name != "websocket-tls" || volume.Secret == nil || volume.Secret.SecretName != "basis-web-tls" {
 		t.Fatalf("TLS volume = %+v, want read-only Secret basis-web-tls", volume)
 	}
@@ -191,7 +196,13 @@ func TestCreate_WebSocketTLSSecretMountsReadOnlyAndDerivesPaths(t *testing.T) {
 		t.Fatalf("TLS volume items = %+v, want tls.crt/tls.key", volume.Secret.Items)
 	}
 	game := gs.Spec.Template.Spec.Containers[0]
-	if len(game.VolumeMounts) != 1 || game.VolumeMounts[0].Name != "websocket-tls" || game.VolumeMounts[0].MountPath != "/run/basis-web-tls" || !game.VolumeMounts[0].ReadOnly {
+	var tlsMount corev1.VolumeMount
+	for _, candidate := range game.VolumeMounts {
+		if candidate.Name == "websocket-tls" {
+			tlsMount = candidate
+		}
+	}
+	if tlsMount.Name != "websocket-tls" || tlsMount.MountPath != "/run/basis-web-tls" || !tlsMount.ReadOnly {
 		t.Fatalf("volume mounts = %+v, want read-only /run/basis-web-tls", game.VolumeMounts)
 	}
 	env := map[string]string{}
@@ -233,8 +244,8 @@ func TestCreate_WebSocketTLSSecretConfigurationIgnoredWhenTLSDisabled(t *testing
 	if err != nil {
 		t.Fatalf("get gameserver: %v", err)
 	}
-	if len(gs.Spec.Template.Spec.Volumes) != 0 || len(gs.Spec.Template.Spec.Containers[0].VolumeMounts) != 0 {
-		t.Fatalf("TLS volume unexpectedly mounted while TLS disabled: volumes=%+v mounts=%+v", gs.Spec.Template.Spec.Volumes, gs.Spec.Template.Spec.Containers[0].VolumeMounts)
+	if len(gs.Spec.Template.Spec.Volumes) != 1 || gs.Spec.Template.Spec.Volumes[0].Name != "initial-resources" || len(gs.Spec.Template.Spec.Containers[0].VolumeMounts) != 1 || gs.Spec.Template.Spec.Containers[0].VolumeMounts[0].Name != "initial-resources" {
+		t.Fatalf("unexpected initial resource mount: volumes=%+v mounts=%+v", gs.Spec.Template.Spec.Volumes, gs.Spec.Template.Spec.Containers[0].VolumeMounts)
 	}
 }
 

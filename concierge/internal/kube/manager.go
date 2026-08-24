@@ -51,6 +51,7 @@ while true; do curl -sf -X POST -H "Content-Type: application/json" -d "{}" http
 	defaultImage                  = "basis-server:latest"
 	defaultContainerPort          = int32(4296)
 	defaultWebSocketContainerPort = int32(4297)
+	defaultWorldBEEURL            = "http://127.0.0.1:4173/BEE/world.BEE"
 	defaultReadyTimeout           = 120 * time.Second
 	defaultPollInterval           = 2 * time.Second
 )
@@ -101,6 +102,11 @@ type ManagerConfig struct {
 	WebSocketAllowedOrigins    []string
 	WebSocketUriTemplate       string
 	ServerInfoUriTemplate      string
+	// WorldBEEURL and WorldBEEPassword describe the world loaded by every
+	// managed Basis Server at startup. The URL is browser-facing: clients,
+	// rather than the GameServer pod, download the BEE file.
+	WorldBEEURL      string
+	WorldBEEPassword string
 	// ReadyTimeout bounds how long Create's background watch waits for the
 	// GameServer to become Ready before marking the meeting failed.
 	// Defaults to 120s (design.md §12 decision 3).
@@ -125,6 +131,9 @@ func (c ManagerConfig) withDefaults() ManagerConfig {
 	}
 	if c.ServerInfoPath == "" {
 		c.ServerInfoPath = "/server-info"
+	}
+	if c.WorldBEEURL == "" {
+		c.WorldBEEURL = defaultWorldBEEURL
 	}
 	if c.ReadyTimeout == 0 {
 		c.ReadyTimeout = defaultReadyTimeout
@@ -206,6 +215,17 @@ func gameServerName(meetingID string) string {
 	return "basis-" + controlplane.KubernetesName(meetingID)
 }
 
+func worldSecretName(meetingID string) string {
+	return "basis-" + controlplane.KubernetesName(meetingID) + "-world"
+}
+
+func worldXML(url, password string) string {
+	escape := func(value string) string {
+		return strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", "\"", "&quot;", "'", "&apos;").Replace(value)
+	}
+	return fmt.Sprintf("<BasisLoadableConfiguration>\n  <Mode>1</Mode>\n  <LoadedNetID></LoadedNetID>\n  <UnlockPassword>%s</UnlockPassword>\n  <CombinedURL>%s</CombinedURL>\n  <Persist>true</Persist>\n</BasisLoadableConfiguration>\n", escape(password), escape(url))
+}
+
 // Create implements RoomProvisioner. It synchronously creates the Secret and
 // GameServer (rolling back the Secret if the GameServer create fails), then
 // — if a *controlplane.Store was supplied to NewManager — starts a
@@ -237,16 +257,33 @@ func (m *Manager) Create(ctx context.Context, meetingID string, keys RoomKeys) e
 		// StringData into Data server-side, but the fake clientsets used in
 		// tests do not).
 		Data: map[string][]byte{
+			"Password":                     []byte(keys.Password),
 			"SsoAdmissionTicketSigningKey": []byte(keys.TicketSigningKey),
 			"SsoTransportPrivateKey":       []byte(keys.TransportPrivateKey),
 			"SsoTransportPublicKey":        []byte(keys.TransportPublicKey),
 		},
+	}
+	worldSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      worldSecretName(meetingID),
+			Namespace: m.cfg.Namespace,
+			Labels:    labels,
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{"world.xml": []byte(worldXML(m.cfg.WorldBEEURL, m.cfg.WorldBEEPassword))},
 	}
 	if _, err := m.core.CoreV1().Secrets(m.cfg.Namespace).Create(ctx, secret, metav1.CreateOptions{}); err != nil {
 		if apierrors.IsAlreadyExists(err) {
 			return fmt.Errorf("%w: secret %s", ErrAlreadyExists, secret.Name)
 		}
 		return fmt.Errorf("kube: create secret: %w", err)
+	}
+	if _, err := m.core.CoreV1().Secrets(m.cfg.Namespace).Create(ctx, worldSecret, metav1.CreateOptions{}); err != nil {
+		_ = m.core.CoreV1().Secrets(m.cfg.Namespace).Delete(context.Background(), secret.Name, metav1.DeleteOptions{})
+		if apierrors.IsAlreadyExists(err) {
+			return fmt.Errorf("%w: world secret %s", ErrAlreadyExists, worldSecret.Name)
+		}
+		return fmt.Errorf("kube: create world secret: %w", err)
 	}
 
 	gs := &agonesv1.GameServer{
@@ -268,6 +305,10 @@ func (m *Manager) Create(ctx context.Context, meetingID string, keys RoomKeys) e
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
 				Spec: corev1.PodSpec{
+					Volumes: []corev1.Volume{{
+						Name:         "initial-resources",
+						VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: worldSecret.Name}},
+					}},
 					// No liveness/readiness probes: Agones injects its own
 					// via the SDK sidecar (agones-ready, below), same as
 					// basis-k8s.
@@ -287,6 +328,7 @@ func (m *Manager) Create(ctx context.Context, meetingID string, keys RoomKeys) e
 								{Name: "AutoStartSsoBroker", Value: "false"},
 								{Name: "SetPort", Value: strconv.FormatInt(int64(m.cfg.ContainerPort), 10)},
 							},
+							VolumeMounts: []corev1.VolumeMount{{Name: "initial-resources", MountPath: "/app/initialresources", ReadOnly: true}},
 						},
 						{
 							Name:    readyContainerName,
@@ -348,6 +390,9 @@ func (m *Manager) Create(ctx context.Context, meetingID string, keys RoomKeys) e
 		if delErr := m.core.CoreV1().Secrets(m.cfg.Namespace).Delete(context.Background(), secret.Name, metav1.DeleteOptions{}); delErr != nil && !apierrors.IsNotFound(delErr) {
 			log.Printf("kube: create %s: rollback of secret %s failed: %v", meetingID, secret.Name, delErr)
 		}
+		if delErr := m.core.CoreV1().Secrets(m.cfg.Namespace).Delete(context.Background(), worldSecret.Name, metav1.DeleteOptions{}); delErr != nil && !apierrors.IsNotFound(delErr) {
+			log.Printf("kube: create %s: rollback of world secret %s failed: %v", meetingID, worldSecret.Name, delErr)
+		}
 		if apierrors.IsAlreadyExists(err) {
 			return fmt.Errorf("%w: gameserver %s", ErrAlreadyExists, gs.Name)
 		}
@@ -391,10 +436,14 @@ func (m *Manager) watchReady(meetingID string) {
 				record, _ := m.meetings.Find(meetingID)
 				webSocketURI := record.WebSocketUri
 				serverInfoURI := record.ServerInfoUri
-				if webSocketURI == "" {
+				// Managed templates are authoritative for Agones rooms. This is
+				// important when local development settings change (for example
+				// switching from self-signed wss to loopback ws): an old endpoint
+				// persisted in the control-plane store must not survive a restart.
+				if m.cfg.WebSocketUriTemplate != "" {
 					webSocketURI = expandEndpointTemplate(m.cfg.WebSocketUriTemplate, gs.Status.Address, tcpPort)
 				}
-				if serverInfoURI == "" {
+				if m.cfg.ServerInfoUriTemplate != "" {
 					serverInfoURI = expandEndpointTemplate(m.cfg.ServerInfoUriTemplate, gs.Status.Address, tcpPort)
 				}
 				if webSocketURI != "" && serverInfoURI != "" {
@@ -458,6 +507,9 @@ func (m *Manager) Delete(ctx context.Context, meetingID string) error {
 	}
 	if err := m.core.CoreV1().Secrets(m.cfg.Namespace).Delete(ctx, secretName(meetingID), metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("kube: delete secret: %w", err)
+	}
+	if err := m.core.CoreV1().Secrets(m.cfg.Namespace).Delete(ctx, worldSecretName(meetingID), metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("kube: delete world secret: %w", err)
 	}
 	return nil
 }

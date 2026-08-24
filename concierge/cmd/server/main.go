@@ -218,6 +218,8 @@ func buildProvisioner(cfg *config.Store, meetings *controlplane.Store) kube.Room
 		WebSocketAllowedOrigins:     allowedOrigins,
 		WebSocketUriTemplate:        webSocketTemplate,
 		ServerInfoUriTemplate:       serverInfoTemplate,
+		WorldBEEURL:                 envOrDefault("BASIS_WORLD_BEE_URL", "http://127.0.0.1:4173/BEE/world.BEE"),
+		WorldBEEPassword:            os.Getenv("BASIS_WORLD_BEE_PASSWORD"),
 		ReadyTimeout:                readyTimeout,
 	})
 	manager.SetServerRegistry(cfg)
