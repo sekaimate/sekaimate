@@ -58,6 +58,14 @@ if ! command -v kubectl >/dev/null 2>&1; then
   echo "kubectl is required; run mise install first." >&2
   exit 1
 fi
+# kubectl wait fails outright when nothing matches yet, and the Node object
+# appears a moment after k3s first starts.
+for _ in $(seq 1 60); do
+  if kubectl get nodes -o name 2>/dev/null | grep -q .; then
+    break
+  fi
+  sleep 2
+done
 kubectl wait --for=condition=Ready node --all --timeout=180s
 
 echo "==> Installing Agones"
