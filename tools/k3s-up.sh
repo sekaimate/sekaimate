@@ -58,6 +58,13 @@ if ! command -v kubectl >/dev/null 2>&1; then
   echo "kubectl is required; run mise install first." >&2
   exit 1
 fi
+# k3s installs into /usr/local/bin, which sudo's secure_path usually leaves
+# out, so image imports have to call it by absolute path.
+k3s_binary="$(command -v k3s || true)"
+if [[ -z "$k3s_binary" ]]; then
+  echo "k3s is not on PATH after installation." >&2
+  exit 1
+fi
 # kubectl wait fails outright when nothing matches yet, and the Node object
 # appears a moment after k3s first starts.
 for _ in $(seq 1 60); do
@@ -90,7 +97,7 @@ import_image() {
   "$container_engine" save -o "$archive" "$image"
   # k3s uses its own containerd, so a locally built image has to be imported
   # rather than pulled.
-  sudo k3s ctr images import "$archive"
+  sudo "$k3s_binary" ctr images import "$archive"
   rm -rf -- "$archive_dir"
 }
 
