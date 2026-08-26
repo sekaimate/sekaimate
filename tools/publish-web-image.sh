@@ -40,22 +40,9 @@ for argument in "$@"; do
   esac
 done
 
-# Use the same engine preference as tools/k8s-up.sh so that a Podman-only or a
-# Docker-only machine both work without extra configuration.
-container_engine="${CONTAINER_ENGINE:-}"
-if [[ -n "$container_engine" ]]; then
-  if ! command -v "$container_engine" >/dev/null 2>&1; then
-    echo "CONTAINER_ENGINE is set to $container_engine, which is not installed." >&2
-    exit 1
-  fi
-elif command -v podman >/dev/null 2>&1; then
-  container_engine=podman
-elif command -v docker >/dev/null 2>&1; then
-  container_engine=docker
-else
-  echo "Either podman or docker is required to publish the WebGL image." >&2
-  exit 1
-fi
+# Works on a Podman-only or a Docker-only machine without extra configuration.
+# shellcheck source=tools/container-engine.sh
+source "${repository_root}/tools/container-engine.sh"
 
 # Both engines take one --platform per architecture.
 platform_arguments=()

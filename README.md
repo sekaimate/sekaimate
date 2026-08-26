@@ -171,6 +171,88 @@ mise run web:publish
 パッケージをpublicに変更してください。publicにすると、イメージへ同梱されるBEEも誰でも取得できます。
 公開範囲を絞る場合はパッケージをprivateにし、imagePullSecretを別途設定してください。
 
+### OCI / k3s での公開デプロイ
+
+Minikubeの`k8s:up`はローカル開発用で、すべてを`127.0.0.1`のport-forwardで繋ぎます。インターネットへ公開する場合は、
+Linuxサーバー上のシングルノードk3sへデプロイし、CaddyでTLSを終端します。Agonesの動的ポートはノードへ直接
+バインドされるため、ノードがホスト自身になるk3sを使います。
+
+#### 前提
+
+- Linuxのインスタンス（OCIのAmpere A1など）と、停止・起動で変わらない予約パブリックIP
+- `concierge`、`web`、`rooms`の3つのAレコードをそのIPへ向けたドメイン
+
+k3s、Agones、CaddyはすべてこのあとのコマンドがインストールするのでOS側の準備は不要です。Caddyのバイナリは
+`mise.toml`の`[tools]`から入ります。
+
+#### 設定
+
+`.env.local`にドメインとBEEのパスワードを設定します。サブドメインは自動で組み立てます。
+
+```sh
+BASIS_PUBLIC_DOMAIN=example.com
+BASIS_WORLD_BEE_PASSWORD=...
+CADDY_ADMIN_ALLOW_IPS=203.0.113.10
+```
+
+#### 起動
+
+```sh
+mise install
+mise run k3s:up
+```
+
+`k3s:up`が次を順番に実行します。
+
+1. k3sをTraefikなしでインストール（80番と443番はCaddyが使うため）
+2. Agones v1.60.0をインストール
+3. Caddyをsystemdサービスとして導入し、ドメインから生成したCaddyfileを反映
+4. ConciergeとBasis Serverのイメージをインスタンス上でビルドしてk3sのcontainerdへ取り込み
+5. Secretとブラウザ向けエンドポイントのConfigMapを作成
+6. roomsの証明書を待って`basis-web-tls`Secretへ同期
+7. マニフェストを適用（WebGLイメージはGHCRから取得）
+
+初回は`local/concierge/appsettings.public.json`がドメイン置換済みで生成されるので、GoogleのOAuth設定を記入してから
+再実行してください。Google側のredirect URIには`https://web.example.com/sso-callback`を登録します。
+
+個別に実行する場合は`caddy:install`、`caddy:apply`、`caddy:sync-cert`、`k3s:cluster`も使えます。
+
+証明書はCaddyが取得し、GameServerは`basis-web-tls`をマウントして自身でwssを終端します。会議ごとにポートが変わり、
+固定ポートのreverse proxyに載せられないためです。更新後は`mise run caddy:sync-cert`を実行してください。実行中の会議は
+作成時の証明書を使い続け、次に作る会議から新しい証明書を使います。
+
+証明書の発行にはDNSの反映と80番の開放が必要です。まだ通っていない場合、`k3s:up`は警告を出して残りの適用を続けます。
+ポートを開けたあとに`k3s:up`を再実行すれば同期されます。
+
+#### ネットワーク
+
+OCIはセキュリティリスト（またはNSG）とOSファイアウォールの両方で許可が必要です。片方だけでは通りません。
+
+| ポート | プロトコル | 送信元 | 用途 |
+| --- | --- | --- | --- |
+| 22 | TCP | 管理者のIP | SSH |
+| 80 | TCP | 0.0.0.0/0 | ACME HTTP-01とHTTPSへのリダイレクト |
+| 443 | TCP | 0.0.0.0/0 | ConciergeとWebGL |
+| 7000-8000 | TCP | 0.0.0.0/0 | GameServerのwss |
+| 7000-8000 | UDP | 0.0.0.0/0 | ネイティブクライアント |
+
+```sh
+sudo firewall-cmd --permanent --add-port=80/tcp --add-port=443/tcp
+sudo firewall-cmd --permanent --add-port=7000-8000/tcp --add-port=7000-8000/udp
+sudo firewall-cmd --reload
+```
+
+ConciergeとWebGLのNodePort（既定30080と30173）はループバック経由でCaddyが使うだけなので、公開しません。
+
+#### 停止と確認
+
+```sh
+mise run k3s:status
+mise run k3s:down
+```
+
+`k3s:down`はConciergeのDeployment、GameServer、Secret、ConfigMapを削除します。k3sとAgonesは残ります。
+
 ## ディレクトリ構成
 
 ```text

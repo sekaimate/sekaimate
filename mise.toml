@@ -6,6 +6,7 @@ pnpm = "11"
 go = "1.26.5"
 kubectl = "1.36.4"
 minikube = "1.38.1"
+caddy = "latest"
 
 [tasks."web:build"]
 description = "再利用可能なWebGL開発ビルドを作成"
@@ -130,3 +131,33 @@ run = "bash ./tools/k8s-down.sh"
 [tasks."k8s:status"]
 description = "Minikube上のConciergeとGameServerの状態を確認"
 run = "bash ./tools/k8s-status.sh"
+
+# --- 公開デプロイ / k3s + Caddy ------------------------------------------
+
+[tasks."k3s:up"]
+description = "k3s上にConcierge・Agones・Basis Server・WebGLを構築して公開"
+run = "bash ./tools/k3s-up.sh"
+
+[tasks."k3s:cluster"]
+description = "k3sとAgonesだけをインストール"
+run = "bash ./tools/k3s-up.sh --cluster-only"
+
+[tasks."k3s:down"]
+description = "k3s上のConciergeリソースを削除"
+run = "bash ./tools/k3s-down.sh"
+
+[tasks."k3s:status"]
+description = "k3s・Caddy・Conciergeの状態を確認"
+run = "bash ./tools/k3s-status.sh"
+
+[tasks."caddy:install"]
+description = "miseのCaddyをsystemdサービスとして導入"
+run = "bash ./tools/caddy-install.sh"
+
+[tasks."caddy:apply"]
+description = "ドメイン設定からCaddyfileを生成してCaddyへ反映"
+run = "bash ./tools/caddy-apply.sh"
+
+[tasks."caddy:sync-cert"]
+description = "Caddyの証明書をbasis-web-tls Secretへ同期"
+run = "bash ./tools/caddy-sync-cert.sh"
