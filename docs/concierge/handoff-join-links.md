@@ -76,6 +76,9 @@ Go の `build`/`vet`/`gofmt`/`test`、Admin UI の `typecheck`/`test`/`build` �
 
 ### 3.1 WebGL クライアントの配信手段（対応済み）
 
+この記録の時点の `tools/build-web-image.sh` は、現在の `tools/publish-web-image.sh` です。image は
+minikube 内ビルドではなく GHCR への push へ変更しました。
+
 `concierge/web.Dockerfile` と `tools/build-web-image.sh` を追加し、Development WebGL 成果物を
 `concierge-web:dev` image に同梱できるようにしました。`tools/serve-web.mjs` はコンテナでは
 `HOST=0.0.0.0` で listen し、`.gz`/`.br` の `Content-Encoding`、圧縮前拡張子に応じた MIME

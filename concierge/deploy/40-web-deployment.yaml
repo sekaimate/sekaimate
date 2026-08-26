@@ -1,10 +1,12 @@
 # WebGL client static server for local Kubernetes/minikube.
-# Build concierge/web.Dockerfile from the repository root and load the image
-# into minikube before applying this manifest:
+# The image is published to GHCR by a developer who has Unity installed, so
+# starting this environment does not require Unity:
 #
-#   ./tools/build-web.sh --dev Build/Web
-#   minikube image build -t concierge-web:dev -f concierge/web.Dockerfile .
+#   ./tools/publish-web-image.sh
 #   kubectl apply -f concierge/deploy/40-web-deployment.yaml
+#
+# Set WEB_IMAGE to use another image reference; tools/k8s-up.sh substitutes it
+# for the default below.
 #
 # The Node server is used instead of a generic static server because Unity's
 # compressed assets need Content-Encoding, WebAssembly needs its MIME type,
@@ -28,8 +30,9 @@ spec:
     spec:
       containers:
         - name: web
-          image: concierge-web:dev
-          imagePullPolicy: Never
+          image: ghcr.io/sekaimate/concierge-web:dev
+          # The default tag is mutable, so always check the registry digest.
+          imagePullPolicy: Always
           ports:
             - name: http
               containerPort: 4173

@@ -104,10 +104,12 @@ mise run k8s:up
 2. Agones v1.60.0をインストール
 3. Conciergeイメージをビルド
 4. Basis Serverイメージをビルド
-5. Development WebGLイメージをビルド
-6. 開発用TLS証明書とSecretを作成
-7. Kubernetesマニフェストを適用
-8. ConciergeとWebGLのport-forwardを開始
+5. 開発用TLS証明書とSecretを作成
+6. Kubernetesマニフェストを適用（WebGLイメージはGHCRから取得）
+7. ConciergeとWebGLのport-forwardを開始
+
+WebGLイメージは`ghcr.io/sekaimate/concierge-web:dev`をpullします。この手順にUnityは不要です。
+別のイメージを使う場合は`.env.local`の`WEB_IMAGE`で上書きします。
 
 起動後のURLは次のとおりです。
 
@@ -152,6 +154,22 @@ mise run k8s:down
 Minikubeクラスタ自体は残るため、次回の起動を短縮できます。
 
 起動時にターミナルへもAdmin tokenが表示されます。表示されない場合は上記のSecret取得コマンドを使用してください。
+
+#### WebGLイメージの公開
+
+WebGLクライアントを更新したときは、Unityを導入した環境で次を実行し、GHCRへpushします。
+
+```sh
+podman login ghcr.io   # dockerの場合は docker login ghcr.io。write:packagesのトークンを使用
+mise run web:publish
+```
+
+このタスクはDevelopment WebGLビルドを作成し、`linux/amd64`と`linux/arm64`のイメージを
+`ghcr.io/sekaimate/concierge-web:dev`へpushします。コンテナエンジンはPodmanとDockerのどちらでも動作し、
+両方ある環境ではPodmanを使います。`CONTAINER_ENGINE`で明示的に選べます。既存の`Build/Web`を
+再利用する場合は`./tools/publish-web-image.sh --skip-build`を使います。初回のpush後は、GitHubのPackages設定で
+パッケージをpublicに変更してください。publicにすると、イメージへ同梱されるBEEも誰でも取得できます。
+公開範囲を絞る場合はパッケージをprivateにし、imagePullSecretを別途設定してください。
 
 ## ディレクトリ構成
 

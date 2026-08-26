@@ -23,6 +23,10 @@ run = "bash ./tools/ensure-web-dev-build.sh"
 description = "WebGL開発ビルドとワールドBEEを配信"
 run = "./tools/serve-web.sh --dev"
 
+[tasks."web:publish"]
+description = "WebGLイメージをビルドしてGHCRへ公開"
+run = "./tools/publish-web-image.sh"
+
 [tasks."server:up"]
 description = "WebSocket対応のローカルBasis Serverをビルドして起動"
 run = "bash ./tools/server-up.sh"

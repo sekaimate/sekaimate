@@ -22,6 +22,10 @@ else
   exit 1
 fi
 config_path="${K8S_CONCIERGE_CONFIG:-${repository_root}/local/concierge/appsettings.minikube.json}"
+# The WebGL image is pulled from GHCR so that this environment does not need
+# Unity. Keep the default in sync with concierge/deploy/40-web-deployment.yaml.
+web_image_default="ghcr.io/sekaimate/concierge-web:dev"
+web_image="${WEB_IMAGE:-$web_image_default}"
 pid_dir="${repository_root}/.tmp/k8s"
 start_only=false
 
@@ -50,8 +54,6 @@ echo "==> Building Concierge image"
 (cd "$repository_root/concierge" && minikube image build -p "$profile" -t concierge:dev .)
 echo "==> Building Basis Server image"
 (cd "$repository_root/Basis Server" && minikube image build -p "$profile" -t basis-server:dev -f Docker/Dockerfile .)
-echo "==> Building Development WebGL image"
-MINIKUBE_PROFILE="$profile" "$repository_root/tools/build-web-image.sh"
 
 echo "==> Applying namespace and RBAC"
 kubectl --context "$profile" apply -f "$repository_root/concierge/deploy/00-namespace.yaml"
@@ -95,9 +97,13 @@ kubectl --context "$profile" --namespace "$namespace" create secret generic conc
 echo "==> Applying Concierge and WebGL"
 kubectl --context "$profile" apply -f "$repository_root/concierge/deploy/20-deployment-dev.yaml"
 kubectl --context "$profile" apply -f "$repository_root/concierge/deploy/30-service.yaml"
-kubectl --context "$profile" apply -f "$repository_root/concierge/deploy/40-web-deployment.yaml"
+sed "s#image: ${web_image_default}#image: ${web_image}#" "$repository_root/concierge/deploy/40-web-deployment.yaml" \
+  | kubectl --context "$profile" apply -f -
 kubectl --context "$profile" --namespace "$namespace" rollout status deployment/concierge --timeout=180s
-kubectl --context "$profile" --namespace "$namespace" rollout status deployment/concierge-web --timeout=180s
+if ! kubectl --context "$profile" --namespace "$namespace" rollout status deployment/concierge-web --timeout=180s; then
+  echo "concierge-web did not become ready. Check that $web_image exists and is public; publish it with ./tools/publish-web-image.sh." >&2
+  exit 1
+fi
 
 mkdir -p "$pid_dir"
 start_forward() {

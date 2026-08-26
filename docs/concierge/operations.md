@@ -447,16 +447,18 @@ minikube + Agones の managed 会議室で再現する手順です。§4 の clu
 理由を表示します。`concierge-web` の Service DNS 名はホストのブラウザーから解決できないため、
 port-forward の URL (`http://127.0.0.1:4173`) を AllowedWebOrigins に設定します。
 
-まず、Unity の Development WebGL ビルドを作成し、成果物を minikube の `concierge-web:dev` image に
-取り込みます。スクリプトは `Build/Web` を入力に使い、Unity の `Library` やリポジトリ全体を image
-builder へ送らない一時 context を作成します。Development build は Addressables と Unity のキャッシュを
-再利用する incremental build であり、`clean_build` は使用しません。
+WebGL の image は GHCR の `ghcr.io/sekaimate/concierge-web:dev` を pull します。この検証に Unity は
+不要です。
 
 ```sh
-./tools/build-web-image.sh
 kubectl apply -f concierge/deploy/40-web-deployment.yaml
 kubectl rollout status deployment/concierge-web -n basis --timeout=180s
 ```
+
+WebGL クライアントを更新した場合は、Unity を導入した環境で `./tools/publish-web-image.sh` を実行して
+image を push します。スクリプトは `Build/Web` を入力に使い、Unity の `Library` やリポジトリ全体を image
+builder へ送らない一時 context を作成します。Development build は Addressables と Unity のキャッシュを
+再利用する incremental build であり、`clean_build` は使用しません。
 
 別ターミナルで WebGL Service を公開します。検証中はこの port-forward を終了しないでください。
 

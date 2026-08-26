@@ -55,8 +55,17 @@ mise run k8s:status
 mise run k8s:down
 ```
 
-WebGLの出力先は`Build/Web`です。既存の出力とUnityの`Library`キャッシュを再利用します。
-BEEはGit管理外の`local/BEE/world.BEE`から自動的に配置されます。
+`k8s:up`はWebGLイメージを`ghcr.io/sekaimate/concierge-web:dev`からpullするため、この起動にUnityは不要です。
+WebGLクライアントを更新したときは、Unityを導入した環境で`podman login ghcr.io`（Dockerの場合は
+`docker login ghcr.io`）のあとに次を実行してpushします。
+
+```sh
+mise run web:publish
+```
+
+このタスクはDevelopment WebGLビルドの出力先として`Build/Web`を使い、`linux/amd64`と`linux/arm64`の
+イメージをPodmanまたはDockerで作成します。既存の出力とUnityの`Library`キャッシュを再利用します。
+BEEはGit管理外の`local/BEE/world.BEE`から自動的に配置され、イメージにも同梱されます。
 
 ## ブラウザでの実行
 
