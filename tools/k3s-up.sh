@@ -88,13 +88,25 @@ bash "$repository_root/tools/caddy-install.sh"
 echo "==> Applying the Caddyfile"
 bash "$repository_root/tools/caddy-apply.sh"
 
+# Kubernetes expands a bare name such as concierge:local to
+# docker.io/library/concierge:local, while podman stores local builds under
+# localhost/. Build with the fully qualified name so the imported image is the
+# one the kubelet looks up.
+qualified_image_name() {
+  case "$1" in
+    */*) printf '%s' "$1" ;;
+    *) printf 'docker.io/library/%s' "$1" ;;
+  esac
+}
+
 import_image() {
   local image="$1" context="$2" dockerfile="$3"
-  local archive_dir archive
+  local archive_dir archive build_name
+  build_name="$(qualified_image_name "$image")"
   archive_dir="$(mktemp -d)"
   archive="$archive_dir/image.tar"
-  ( cd "$context" && "$container_engine" build -t "$image" -f "$dockerfile" . )
-  "$container_engine" save -o "$archive" "$image"
+  ( cd "$context" && "$container_engine" build -t "$build_name" -f "$dockerfile" . )
+  "$container_engine" save -o "$archive" "$build_name"
   # k3s uses its own containerd, so a locally built image has to be imported
   # rather than pulled.
   sudo "$k3s_binary" ctr images import "$archive"
