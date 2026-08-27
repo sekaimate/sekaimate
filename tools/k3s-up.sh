@@ -52,7 +52,7 @@ if ! command -v k3s >/dev/null 2>&1; then
   # Traefik is disabled because Caddy owns 80 and 443 on this host. The
   # kubeconfig mode lets the deploying user run kubectl without sudo.
   curl -sfL https://get.k3s.io \
-    | sudo INSTALL_K3S_EXEC="--disable=traefik --write-kubeconfig-mode=644" sh -
+    | sudo INSTALL_K3S_EXEC="--disable=traefik --disable=servicelb --write-kubeconfig-mode=644" sh -
 fi
 if ! command -v kubectl >/dev/null 2>&1; then
   echo "kubectl is required; run mise install first." >&2
@@ -77,6 +77,17 @@ kubectl wait --for=condition=Ready node --all --timeout=180s
 
 echo "==> Installing Agones"
 bash "$repository_root/tools/k8s-agones-install.sh"
+
+# k3s ServiceLB publishes LoadBalancer Services on the node's own ports, and
+# Agones ships agones-allocator (443) and agones-ping (80 and UDP 50000) as
+# LoadBalancers. On a cluster that still has ServiceLB they take the ports
+# Caddy needs. Concierge creates GameServers through the Kubernetes API and
+# never calls the allocation or ping services.
+for service_name in agones-allocator agones-ping-http-service agones-ping-udp-service; do
+  if kubectl -n agones-system get "service/$service_name" >/dev/null 2>&1; then
+    kubectl -n agones-system patch "service/$service_name" --type=merge -p '{"spec":{"type":"ClusterIP"}}' >/dev/null
+  fi
+done
 
 if [[ "$cluster_only" == true ]]; then
   exit 0
