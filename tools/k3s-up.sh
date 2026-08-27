@@ -75,6 +75,24 @@ for _ in $(seq 1 60); do
 done
 kubectl wait --for=condition=Ready node --all --timeout=180s
 
+# Basis Server watches files through inotify, and the distro default of 128
+# instances is shared by every pod running as the same uid on this host, so
+# game servers die with "The configured user limit (128) on the number of
+# inotify instances has been reached".
+echo "==> Checking inotify limits"
+inotify_instances_minimum=1024
+inotify_watches_minimum=524288
+current_instances="$(sysctl -n fs.inotify.max_user_instances 2>/dev/null || echo 0)"
+current_watches="$(sysctl -n fs.inotify.max_user_watches 2>/dev/null || echo 0)"
+if (( current_instances < inotify_instances_minimum || current_watches < inotify_watches_minimum )); then
+  printf 'fs.inotify.max_user_instances = %s\nfs.inotify.max_user_watches = %s\n' \
+    "$(( current_instances > inotify_instances_minimum ? current_instances : inotify_instances_minimum ))" \
+    "$(( current_watches > inotify_watches_minimum ? current_watches : inotify_watches_minimum ))" \
+    | sudo tee /etc/sysctl.d/90-basis-inotify.conf >/dev/null
+  sudo sysctl -q -p /etc/sysctl.d/90-basis-inotify.conf
+  echo "Raised inotify limits to at least ${inotify_instances_minimum} instances and ${inotify_watches_minimum} watches."
+fi
+
 echo "==> Installing Agones"
 bash "$repository_root/tools/k8s-agones-install.sh"
 
