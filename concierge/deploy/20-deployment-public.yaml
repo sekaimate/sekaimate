@@ -1,11 +1,10 @@
 # Public single-node k3s overlay, applied by tools/k3s-up.sh.
 #
 # Differences from 20-deployment-dev.yaml: the images come from the host's
-# container engine (imported into k3s containerd, so they are never pulled),
-# the browser endpoints are HTTPS/WSS names instead of loopback ports, and
-# manual meetings stay disabled. The endpoint values live in the
-# concierge-endpoints ConfigMap, which tools/k3s-up.sh renders from the
-# domains in .env.local.
+# container engine (imported into k3s containerd, so they are never pulled)
+# and the browser endpoints are HTTPS/WSS names instead of loopback ports.
+# The endpoint values live in the concierge-endpoints ConfigMap, which
+# tools/k3s-up.sh renders from the domains in .env.local.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -74,6 +73,10 @@ spec:
               value: /data/control-plane.json
             - name: ADMIN_UI_DIR
               value: /adminui
+            # Gates POST /admin/meetings, which is how the Admin Console
+            # creates every meeting.
+            - name: BASIS_CONTROL_PLANE_ALLOW_MANUAL_MEETINGS
+              value: "true"
             - name: GAMESERVER_READY_TIMEOUT_SECONDS
               value: "120"
             - name: BASIS_WORLD_BEE_PASSWORD
