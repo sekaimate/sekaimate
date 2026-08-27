@@ -195,8 +195,27 @@ sed \
   -e "s#nodePort: 30173#nodePort: ${web_node_port}#" \
   "$repository_root/concierge/deploy/50-nodeport.yaml" \
   | kubectl apply -f -
-kubectl -n "$namespace" rollout status deployment/concierge --timeout=180s
-kubectl -n "$namespace" rollout status deployment/concierge-web --timeout=180s
+# The images are rebuilt on every run, and an unchanged pod spec would keep
+# the previous ones running, so roll both deployments explicitly.
+kubectl -n "$namespace" rollout restart deployment/concierge deployment/concierge-web
+
+# A failed rollout is almost always visible in the pod events, so print them
+# instead of leaving only the timeout message.
+report_rollout_failure() {
+  local selector="$1"
+  echo "--- pods ($selector)" >&2
+  kubectl -n "$namespace" get pods -l "$selector" -o wide >&2 || true
+  echo "--- events ($selector)" >&2
+  kubectl -n "$namespace" describe pods -l "$selector" 2>/dev/null | sed -n '/Events:/,$p' >&2 || true
+  echo "--- logs ($selector)" >&2
+  kubectl -n "$namespace" logs -l "$selector" --tail=30 --all-containers >&2 2>/dev/null || true
+}
+for deployment_name in concierge concierge-web; do
+  if ! kubectl -n "$namespace" rollout status "deployment/$deployment_name" --timeout=180s; then
+    report_rollout_failure "app=$deployment_name"
+    exit 1
+  fi
+done
 
 echo "Kubernetes environment is ready on k3s."
 echo "Admin Console: https://${concierge_domain}/admin/"
