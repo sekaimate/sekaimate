@@ -189,9 +189,11 @@ func ValidateBrowserEndpoints(webSocketURI, serverInfoURI string) error {
 }
 
 // ValidateBrowserEndpointTemplates validates the explicit URI templates used
-// for Agones-managed rooms. Remote templates must carry both placeholders so
-// Concierge never guesses an ingress host. A loopback host may be fixed in the
-// template because local Minikube uses a host-side port-forward.
+// for Agones-managed rooms. {port} is always required because Agones assigns
+// it per room. The host may be fixed instead of using {host} when the
+// endpoint is loopback (the Minikube port-forward) or TLS-protected (a
+// single-node deployment where every room answers on one DNS name); both are
+// operator-supplied values, so Concierge still never guesses an ingress host.
 func ValidateBrowserEndpointTemplates(webSocketTemplate, serverInfoTemplate string) error {
 	webSocketTemplate = strings.TrimSpace(webSocketTemplate)
 	serverInfoTemplate = strings.TrimSpace(serverInfoTemplate)
@@ -208,8 +210,8 @@ func ValidateBrowserEndpointTemplates(webSocketTemplate, serverInfoTemplate stri
 		if !strings.Contains(template, "{host}") {
 			uri := strings.ReplaceAll(template, "{port}", "4297")
 			parsed, err := url.Parse(uri)
-			if err != nil || !isLoopbackHost(parsed.Hostname()) {
-				return fmt.Errorf("managed %s URI template without {host} must use a loopback host", name)
+			if err != nil || !(isLoopbackHost(parsed.Hostname()) || parsed.Scheme == "wss" || parsed.Scheme == "https") {
+				return fmt.Errorf("managed %s URI template without {host} must use a loopback or TLS endpoint", name)
 			}
 		}
 	}

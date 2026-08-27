@@ -151,6 +151,8 @@ func TestValidateBrowserEndpointTemplates(t *testing.T) {
 		{"empty", "", "", false},
 		{"complete", "wss://{host}:{port}/basis", "https://{host}:{port}/server-info", false},
 		{"fixed loopback", "wss://127.0.0.1:{port}/basis", "https://127.0.0.1:{port}/server-info", false},
+		{"fixed remote tls", "wss://rooms.example.com:{port}/basis", "https://rooms.example.com:{port}/server-info", false},
+		{"fixed remote insecure", "ws://rooms.example.com:{port}/basis", "http://rooms.example.com:{port}/server-info", true},
 		{"missing pair", "wss://{host}:{port}/basis", "", true},
 		{"missing placeholder", "wss://{host}/basis", "https://{host}:{port}/server-info", true},
 		{"insecure remote", "ws://{host}:{port}/basis", "http://{host}:{port}/server-info", true},

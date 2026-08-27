@@ -194,10 +194,12 @@ Agones 管理下の部屋で WebGL を有効にする場合は、`BASIS_SERVER_W
 従来どおり meeting の `port` として扱う。
 
 外部 URI は `BASIS_SERVER_WEBSOCKET_URI_TEMPLATE`/`BASIS_SERVER_INFO_URI_TEMPLATE` または `Broker` の
-`ManagedWebSocketUriTemplate`/`ManagedServerInfoUriTemplate` に、`{host}` と `{port}` を含む完全な URI として明示する。
-テンプレートが空の場合、meeting 作成時に 2 つの URI を指定しない限りブラウザ URI は生成されない。concierge は UDP
-アドレスから scheme、TLS、Ingress、host、path を推測しない。リモート接続は `wss://` と `https://`、loopback のみ
-`ws://` と `http://` を許可し、URI に userinfo や fragment は許可しない。TLS 終端と Ingress の責務は deployment の
+`ManagedWebSocketUriTemplate`/`ManagedServerInfoUriTemplate` に、完全な URI として明示する。`{port}` は Agones が
+会議ごとに割り当てるため必須とする。ホストは `{host}` で解決するか、loopback (Minikube の port-forward) と TLS 終端済み
+エンドポイント (すべての会議が 1 つの DNS 名で応答する単一ノード構成) に限り、テンプレートへ直接書ける。いずれも運用者が
+与えた値であり、concierge 自身は Ingress ホストを推測しない。テンプレートが空の場合、meeting 作成時に 2 つの URI を
+指定しない限りブラウザ URI は生成されない。concierge は UDP アドレスから scheme、TLS、Ingress、host、path を推測しない。
+リモート接続は `wss://` と `https://`、loopback のみ `ws://` と `http://` を許可し、URI に userinfo や fragment は許可しない。TLS 終端と Ingress の責務は deployment の
 明示設定に残る。
 
 ## 6. 互換性要件

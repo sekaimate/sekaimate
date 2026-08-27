@@ -311,8 +311,8 @@ WebGL 対応を有効にした場合(`BASIS_SERVER_WEBSOCKET_ENABLED=true`)は�
 明示的に注入する。Ready status の named port を使って UDP は従来の meeting `port`、TCP は browser endpoint template
 の `{port}` として解決する。URI の scheme、TLS、Ingress、host は推測せず、`WebSocketUri` と `ServerInfoUri` の両方が
 meeting/static server に明示されるか、両方の managed template が設定されている場合だけ manifest/client-config/deep link
-へ公開する。template には `{host}` と `{port}` の両方を必須とし、展開後の URI も WebGL の `ws/wss`・`http/https` と
-loopback 制約で検証する。Ready 後に展開されたペアは control-plane の meeting と admission 用 `Servers[]` の双方へ
+へ公開する。template には `{port}` を必須とし、`{host}` は loopback または TLS 終端済みの固定ホストを書く場合に限り省略できる。
+展開後の URI も WebGL の `ws/wss`・`http/https` と loopback 制約で検証する。Ready 後に展開されたペアは control-plane の meeting と admission 用 `Servers[]` の双方へ
 保存するため、`/admin/servers`・admin client-config template・join manifest が同じ公開 URI を返す。
 
 TLS を Basis Server 自身で終端する構成では、`BASIS_SERVER_WEBSOCKET_USE_TLS=true` と証明書/秘密鍵パスの 2 つの
