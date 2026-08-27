@@ -1,0 +1,118 @@
+# Local minikube overlay. Create concierge-config and concierge-admin first,
+# then apply 00-namespace.yaml, 10-rbac.yaml, this file, and 30-service.yaml.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: concierge-data
+  namespace: basis
+  labels:
+    app: concierge
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: concierge
+  namespace: basis
+  labels:
+    app: concierge
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: concierge
+  template:
+    metadata:
+      labels:
+        app: concierge
+    spec:
+      serviceAccountName: concierge
+      initContainers:
+        - name: seed-config
+          image: busybox:1.36
+          command: [sh, -c]
+          args:
+            - |
+              if [ ! -f /data/appsettings.json ]; then
+                cp /etc/concierge-seed/appsettings.json /data/appsettings.json
+              fi
+          volumeMounts:
+            - name: config-seed
+              mountPath: /etc/concierge-seed
+              readOnly: true
+            - name: data
+              mountPath: /data
+      containers:
+        - name: concierge
+          image: concierge:dev
+          imagePullPolicy: Never
+          ports:
+            - name: http
+              containerPort: 5080
+              protocol: TCP
+          env:
+            - name: NAMESPACE
+              value: basis
+            - name: BASIS_SSO_BROKER_CONFIG_PATH
+              value: /data/appsettings.json
+            - name: BASIS_CONTROL_PLANE_STORE_PATH
+              value: /data/control-plane.json
+            - name: ADMIN_UI_DIR
+              value: /adminui
+            - name: BASIS_CONTROL_PLANE_ALLOW_MANUAL_MEETINGS
+              value: "true"
+            - name: BASIS_SERVER_IMAGE
+              value: basis-server:dev
+            # WebGL-managed GameServers use the Kubernetes.WebSocketTls*
+            # settings from appsettings.json. Create that Secret before
+            # creating a meeting (see docs/concierge/operations.md §5).
+            - name: BASIS_SERVER_WEBSOCKET_ENABLED
+              value: "true"
+            - name: BASIS_SERVER_WEBSOCKET_USE_TLS
+              value: "false"
+            - name: BASIS_SERVER_WEBSOCKET_ALLOWED_ORIGINS
+              value: "http://127.0.0.1:4173,http://localhost:4173"
+            # Minikube's dynamic GameServer ports are forwarded to the host
+            # at the same local port by tools/k8s-gameserver-forward.sh.
+            - name: BASIS_SERVER_WEBSOCKET_URI_TEMPLATE
+              value: "ws://127.0.0.1:{port}/basis"
+            - name: BASIS_SERVER_INFO_URI_TEMPLATE
+              value: "http://127.0.0.1:{port}/server-info"
+            - name: BASIS_WORLD_BEE_URL
+              value: "http://127.0.0.1:4173/BEE/world.BEE"
+            - name: BASIS_WORLD_BEE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: concierge-world
+                  key: password
+            - name: GAMESERVER_READY_TIMEOUT_SECONDS
+              value: "120"
+            - name: BASIS_SSO_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: concierge-admin
+                  key: token
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            tcpSocket:
+              port: 5080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 5080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: config-seed
+          secret:
+            secretName: concierge-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: concierge-data

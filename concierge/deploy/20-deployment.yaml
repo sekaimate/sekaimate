@@ -1,0 +1,140 @@
+# concierge itself needs two pieces of operator-supplied Secret material
+# that this repo intentionally does NOT commit example manifests for
+# (matching how basis-k8s leaves environment-specific material like the
+# MetalLB IPAddressPool out of deploy/): create them before applying this
+# file.
+#
+#   kubectl create secret generic concierge-config -n basis \
+#     --from-file=appsettings.json=./appsettings.json
+#
+#     appsettings.json is the Broker-section config (static Servers[] /
+#     Organization OIDC settings) described in docs/concierge/design.md §8.
+#     Its Broker.AdminTokenEnvironmentVariable should be set to
+#     "BASIS_SSO_ADMIN_TOKEN" to match the env var wired up below.
+#
+#   kubectl create secret generic concierge-admin -n basis \
+#     --from-literal=token="$(openssl rand -base64 32)"
+#
+#     Supplies the admin bearer token value itself, at least 32 characters
+#     (docs/concierge/design.md §6-5).
+#
+# Both control-plane.json (meeting records) and appsettings.json
+# (Servers[]/Organization) are runtime state, not purely static config:
+# internal/config.Store persists Servers[]/Organization changes back to
+# BASIS_SSO_BROKER_CONFIG_PATH on every meeting create/delete and admin
+# organization update, exactly as internal/controlplane.Store persists
+# control-plane.json (design.md §8, matching the C# broker's
+# SaveBrokerConfigurationAsync). A Kubernetes Secret volume cannot be
+# written back to (writes only land on the pod's local tmpfs copy and are
+# lost on restart, regardless of the volumeMount's readOnly setting), so
+# concierge-config is only ever the *seed*: the seed-config initContainer
+# below copies it onto the concierge-data PersistentVolumeClaim once (skipped
+# if a copy is already there from a previous pod), and the main container
+# reads/writes that copy — the same PVC control-plane.json already lives on,
+# so both survive pod restarts.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: concierge-data
+  namespace: basis
+  labels:
+    app: concierge
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      # control-plane.json and appsettings.json are both small (one JSON
+      # object per meeting / per server); 1Gi is generous headroom, not a
+      # sizing requirement. Increase if your storage class enforces a higher
+      # minimum.
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: concierge
+  namespace: basis
+  labels:
+    app: concierge
+spec:
+  # Single replica, matching basis-k8s: concierge is not designed for
+  # horizontal scaling (docs/concierge/design.md §11 non-goals), and
+  # control-plane.json/appsettings.json are single mutable files on one PVC.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: concierge
+  template:
+    metadata:
+      labels:
+        app: concierge
+    spec:
+      serviceAccountName: concierge
+      initContainers:
+        - name: seed-config
+          # Any small image with a shell + cp is fine here; busybox keeps
+          # this independent of the concierge image itself.
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              if [ ! -f /data/appsettings.json ]; then
+                cp /etc/concierge-seed/appsettings.json /data/appsettings.json
+              fi
+          volumeMounts:
+            - name: config-seed
+              mountPath: /etc/concierge-seed
+              readOnly: true
+            - name: data
+              mountPath: /data
+      containers:
+        - name: concierge
+          # 利用するレジストリのイメージ名に置き換える
+          image: alc-gitea.kanaru.me/kanaru0928/concierge:v1.0.0
+          ports:
+            - name: http
+              containerPort: 5080
+              protocol: TCP
+          env:
+            - name: NAMESPACE
+              value: basis
+            - name: BASIS_SSO_BROKER_CONFIG_PATH
+              value: /data/appsettings.json
+            - name: BASIS_CONTROL_PLANE_STORE_PATH
+              value: /data/control-plane.json
+            - name: ADMIN_UI_DIR
+              value: /adminui
+            - name: BASIS_CONTROL_PLANE_ALLOW_MANUAL_MEETINGS
+              value: "true"
+            # basis-server image the Agones GameServers run — replace with
+            # your pushed tag (docs/concierge/implementation.md phase-2
+            # section, design.md §10.3).
+            - name: BASIS_SERVER_IMAGE
+              value: basis-server:latest
+            - name: BASIS_SSO_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: concierge-admin
+                  key: token
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            tcpSocket:
+              port: 5080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 5080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: config-seed
+          secret:
+            secretName: concierge-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: concierge-data

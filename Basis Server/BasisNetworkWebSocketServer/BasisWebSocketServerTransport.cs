@@ -29,6 +29,14 @@ public sealed class BasisWebSocketServerTransport : IAsyncDisposable
         _peerIdAllocator = peerIdAllocator ?? new WebSocketPeerIdAllocator();
 
         WebApplicationBuilder builder = WebApplication.CreateSlimBuilder();
+        // .NET 10 requires this opt-in before Kestrel may load HTTPS endpoint
+        // and certificate settings supplied through IConfiguration. Without
+        // it, a TLS-enabled browser transport fails during host startup even
+        // when both certificate files are present and readable.
+        if (options.UseTls)
+        {
+            builder.WebHost.UseKestrelHttpsConfiguration();
+        }
         string endpoint = "Kestrel:Endpoints:WebSocket";
         builder.Configuration[$"{endpoint}:Url"] = $"{(options.UseTls ? "https" : "http")}://*:{options.Port}";
         if (options.UseTls)

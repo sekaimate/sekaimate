@@ -4,6 +4,7 @@
     "references": [
         "com.gator-dragon-games.jigglephysics",
         "UnityEngine.UI",
+        "Unity.Animation.Rigging",
         "Unity.ResourceManager",
         "Unity.InputSystem",
         "Unity.TextMeshPro",

@@ -1,0 +1,46 @@
+# NodePort Services for the public k3s deployment, applied by tools/k3s-up.sh.
+#
+# Caddy runs on the host and reverse-proxies to these ports over loopback, so
+# they are not opened in the OCI security list. Only 80, 443 and the Agones
+# port range (7000-8000/TCP and /UDP) need to be reachable from the internet.
+# The ClusterIP Services in 30-service.yaml and 40-web-deployment.yaml stay
+# as they are; these are additional entry points.
+apiVersion: v1
+kind: Service
+metadata:
+  name: concierge-nodeport
+  namespace: basis
+  labels:
+    app: concierge
+spec:
+  type: NodePort
+  # Single node: keep the client address instead of routing through another
+  # node, so Broker.TrustedProxyCIDRs sees Caddy rather than a SNAT address.
+  externalTrafficPolicy: Local
+  selector:
+    app: concierge
+  ports:
+    - name: http
+      port: 5080
+      targetPort: http
+      nodePort: 30080
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: concierge-web-nodeport
+  namespace: basis
+  labels:
+    app: concierge-web
+spec:
+  type: NodePort
+  externalTrafficPolicy: Local
+  selector:
+    app: concierge-web
+  ports:
+    - name: http
+      port: 4173
+      targetPort: http
+      nodePort: 30173
+      protocol: TCP

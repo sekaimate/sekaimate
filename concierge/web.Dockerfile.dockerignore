@@ -1,0 +1,9 @@
+# This Dockerfile is built with the repository root as its context so it can
+# copy Build/Web and tools/serve-web.mjs. Do not send Unity's Library, .git,
+# or the rest of the repository to the image builder.
+**
+!Build/
+!Build/Web/
+!Build/Web/**
+!tools/
+!tools/serve-web.mjs

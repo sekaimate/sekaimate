@@ -1,0 +1,72 @@
+# WebGL client static server for local Kubernetes/minikube.
+# The image is published to GHCR by a developer who has Unity installed, so
+# starting this environment does not require Unity:
+#
+#   ./tools/publish-web-image.sh
+#   kubectl apply -f concierge/deploy/40-web-deployment.yaml
+#
+# Set WEB_IMAGE to use another image reference; tools/k8s-up.sh substitutes it
+# for the default below.
+#
+# The Node server is used instead of a generic static server because Unity's
+# compressed assets need Content-Encoding, WebAssembly needs its MIME type,
+# and BEE files use HTTP Range requests.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: concierge-web
+  namespace: basis
+  labels:
+    app: concierge-web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: concierge-web
+  template:
+    metadata:
+      labels:
+        app: concierge-web
+    spec:
+      containers:
+        - name: web
+          image: ghcr.io/sekaimate/concierge-web:dev
+          # The default tag is mutable, so always check the registry digest.
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 4173
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: concierge-web
+  namespace: basis
+  labels:
+    app: concierge-web
+spec:
+  # Keep this as a ClusterIP: local browser access uses a stable port-forward,
+  # which is also a loopback origin accepted by Concierge's webJoinURL check.
+  # For a shared cluster, put an HTTPS ingress/reverse proxy in front of this
+  # Service and use that public origin in Broker.AllowedWebOrigins.
+  type: ClusterIP
+  selector:
+    app: concierge-web
+  ports:
+    - name: http
+      port: 4173
+      targetPort: http
+      protocol: TCP

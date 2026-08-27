@@ -1,0 +1,4 @@
+adminui/node_modules
+adminui/dist
+.git
+*.test

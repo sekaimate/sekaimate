@@ -526,7 +526,7 @@ namespace Basis.BasisUI
 
                 PanelToggle autoStartBroker = PanelToggle.CreateNewEntry(container);
                 autoStartBroker.Descriptor.SetTitle("Start local SSO broker with server");
-                autoStartBroker.Descriptor.SetDescription("On the next standalone server restart, starts sso-broker/BasisSsoBroker.dll and stops it when the server exits. Disable when using a separately managed broker.");
+                autoStartBroker.Descriptor.SetDescription("On the next standalone server restart, starts the colocated Go Concierge and stops it when the server exits. Disable when using a separately managed Concierge.");
                 autoStartBroker.SetValueWithoutNotify(NetworkServer.Configuration.AutoStartSsoBroker);
                 autoStartBroker.OnValueChanged += enabled =>
                 {

@@ -60,11 +60,11 @@ public class Configuration
     public string SsoTransportPublicKey = "";
     /// <summary>Shared only with the HTTPS admission broker; never expose this to clients or admin UI.</summary>
     public string SsoAdmissionTicketSigningKey = "";
-    /// <summary>When RequireSso is enabled, start the colocated HTTPS admission broker with the server process.</summary>
+    /// <summary>When RequireSso is enabled, start the colocated Go Concierge with the server process. The legacy field name remains XML-compatible.</summary>
     public bool AutoStartSsoBroker = true;
-    /// <summary>Directory containing the published BasisSsoBroker.dll. Relative paths are resolved from the server executable.</summary>
-    public string SsoBrokerDirectory = "sso-broker";
-    /// <summary>Loopback URL used by the colocated broker. Put a TLS reverse proxy in front of it for public client access.</summary>
+    /// <summary>Directory containing the published concierge binary and appsettings.json. Relative paths are resolved from the server executable. The legacy field name remains XML-compatible.</summary>
+    public string SsoBrokerDirectory = "concierge";
+    /// <summary>Loopback URL used by the colocated Concierge. Put a TLS reverse proxy in front of it for public client access. The legacy field name remains XML-compatible.</summary>
     public string SsoBrokerBindUrl = "http://127.0.0.1:5080";
     public string NetworkStackId = "";
     public BasisUserRestrictionMode BasisUserRestrictionMode;

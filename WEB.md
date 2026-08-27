@@ -41,34 +41,39 @@ mise run server:logs   # Serverログを表示
 mise run server:down   # Serverを停止
 ```
 
-SSOのBrokerとAdmin gatewayをDockerで起動する場合は、先に`Basis Server/Docker/sso/.env`とBroker設定を用意してから次を実行します。
+通常の開発環境はMinikube上でまとめて起動します。
 
 ```sh
-mise run sso:up
+mise run k8s:up
 ```
 
-管理画面は`https://127.0.0.1:5081/admin/`です。停止・ログ確認は次のタスクを使います。
+起動後は `http://127.0.0.1:15080/admin/` で管理画面、
+`http://127.0.0.1:4173/` でWebGLクライアントを開きます。停止は次のコマンドです。
 
 ```sh
-mise run sso:logs
-mise run sso:down
+mise run k8s:status
+mise run k8s:down
 ```
 
-Admin Consoleだけを開発サーバーで起動する場合は`mise run sso:dev`を使い、`http://localhost:5173/`を開きます。必要なpnpm依存関係とBroker/HTTPS gatewayはタスクが先に起動します。
+`k8s:up`はWebGLイメージを`ghcr.io/sekaimate/concierge-web:dev`からpullするため、この起動にUnityは不要です。
+WebGLクライアントを更新したときは、Unityを導入した環境で`podman login ghcr.io`（Dockerの場合は
+`docker login ghcr.io`）のあとに次を実行してpushします。
 
-全部を起動する場合は`mise run local:up`を使用します。WebGL成果物が最新ならビルドをスキップし、変更がある場合だけ再ビルドします。配信中はそのターミナルを終了せず、ブラウザーで`http://127.0.0.1:4173/`を開いてください。
+```sh
+mise run web:publish
+```
 
-`sso:dev` はBrokerとHTTPS Admin gatewayも自動起動します。終了時は`mise run local:down`でSSOとBasis Serverを停止できます。Web配信のターミナルは`Ctrl-C`で終了してください。
-
-開発用の出力先は`Build/WebDev`です。既存の出力を削除せずに再利用し、ワールドBEEはGit管理外の`local/BEE/world.BEE`から自動的に配置します。BEEをビルド出力の外に置くため、通常のリリース用ビルドでも失われません。通常のリリース用ビルドは従来どおり`./tools/build-web.sh`を使用します。
-
-`mise run server:up` はこのBEEをBasis Serverの`initialresources`へ登録します。これはBasis Serverが起動時にアクティブワールドとしてロードし、後から参加するクライアントにも通知する標準経路です。BEEにパスワードがある場合は`.env.local`に`BASIS_WORLD_BEE_PASSWORD=...`を設定してください。URLを変更する場合は`BASIS_WORLD_BEE_URL`で上書きできます。
+このタスクはDevelopment WebGLビルドの出力先として`Build/Web`を使い、`linux/amd64`と`linux/arm64`の
+イメージをPodmanまたはDockerで作成します。既存の出力とUnityの`Library`キャッシュを再利用します。
+BEEはGit管理外の`local/BEE/world.BEE`から自動的に配置され、イメージにも同梱されます。
 
 ## ブラウザでの実行
 
 ビルドにWebサーバーは不要です。生成後の成果物をブラウザで実行するときだけHTTPまたはHTTPSで配信します。
 
 現在のビルドはGzip圧縮を使用します。`.gz`ファイルには`Content-Encoding: gzip`が必要です。また、WebAssemblyには`Content-Type: application/wasm`、JavaScriptには`Content-Type: application/javascript`、`.data`と`.bundle`には`Content-Type: application/octet-stream`を設定します。圧縮済みファイルの配信要件は[Unity公式ドキュメント](https://docs.unity3d.com/6000.5/Documentation/Manual/webgl-deploying.html)に基づいています。
+
+`tools/serve-web.mjs`は、すべてのレスポンスへ`ETag`を付け、`If-None-Match`が一致したときは`304`を返します。同名の`.gz`ファイルがある場合は、`Accept-Encoding: gzip`を送るクライアントへそのファイルを`Content-Encoding: gzip`で返し、Range付きのリクエストには非圧縮のファイルを使います。開発ビルドの`.wasm`は非圧縮で120MBを超え、そのままではブラウザーがキャッシュへ保存しません。そのため`tools/publish-web-image.sh`は、イメージ用の一時ディレクトリで`.wasm`、`.data`、`.framework.js`をgzip化してから同梱します。
 
 対応ブラウザはWebGL 2、WebAssembly、64bitをサポートするデスクトップ版Chrome、Firefox、Safari、Edgeです。詳細は[Unityのブラウザ互換性](https://docs.unity3d.com/6000.5/Documentation/Manual/webgl-browsercompatibility.html)を参照してください。
 

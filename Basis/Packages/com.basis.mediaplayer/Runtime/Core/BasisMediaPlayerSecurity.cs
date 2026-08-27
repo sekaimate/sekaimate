@@ -80,7 +80,6 @@ public static class BasisMediaPlayerSecurity
     // smuggled through IPv4-mapped or 6to4 IPv6. allowLoopback exempts loopback only.
     public static bool IsBlockedAddress(IPAddress ip, bool allowLoopback, out string reason)
         => Basis.Scripts.Common.BasisUrlSecurity.IsBlockedAddress(ip, allowLoopback, out reason);
-#endif
 
     public static bool TrySandboxLogPath(string requested, out string sandboxed, out string reason)
     {

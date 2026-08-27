@@ -1,6 +1,12 @@
+min_version = "2024.9.5"
+
 [tools]
 node="latest"
 pnpm = "11"
+go = "1.26.5"
+kubectl = "1.36.4"
+minikube = "1.38.1"
+caddy = "latest"
 
 [tasks."web:build"]
 description = "再利用可能なWebGL開発ビルドを作成"
@@ -18,6 +24,10 @@ run = "bash ./tools/ensure-web-dev-build.sh"
 description = "WebGL開発ビルドとワールドBEEを配信"
 run = "./tools/serve-web.sh --dev"
 
+[tasks."web:publish"]
+description = "WebGLイメージをビルドしてGHCRへ公開"
+run = "./tools/publish-web-image.sh"
+
 [tasks."server:up"]
 description = "WebSocket対応のローカルBasis Serverをビルドして起動"
 run = "bash ./tools/server-up.sh"
@@ -31,11 +41,11 @@ description = "ローカルBasis Serverのログを表示"
 run = 'docker compose -f "Basis Server/Docker/docker-compose.yml" -f "Basis Server/Docker/docker-compose.local-web.yml" logs -f basis-server'
 
 [tasks."sso:up"]
-description = "ローカルHTTPSのSSO gatewayをビルド・起動し、readyまで待機"
+description = "ローカルHTTPSのConcierge gatewayをビルド・起動し、readyまで待機"
 run = "bash ./tools/sso-local-up.sh"
 
 [tasks."sso:health"]
-description = "ローカルSSO gatewayの状態を確認"
+description = "ローカルConcierge gatewayの状態を確認"
 run = "bash ./tools/sso-health.sh"
 
 [tasks."sso:ca"]
@@ -47,29 +57,107 @@ description = "ローカルSSO用CAをmacOSのログインキーチェーンで�
 run = "bash ./tools/sso-trust-ca.sh"
 
 [tasks."sso:down"]
-description = "SSO BrokerとAdmin gatewayを停止"
+description = "ConciergeとAdmin gatewayを停止"
 run = 'docker compose -f "Basis Server/Docker/sso/docker-compose.yml" down'
 
 [tasks."sso:logs"]
-description = "SSO BrokerとAdmin gatewayのログを表示"
-run = 'docker compose -f "Basis Server/Docker/sso/docker-compose.yml" logs -f'
+description = "ConciergeとAdmin gatewayのログを表示"
+run = 'docker compose -f "Basis Server/Docker/sso/docker-compose.yml" logs -f concierge concierge-gateway'
 
 [tasks."sso:install"]
 description = "Admin Consoleの依存関係をインストール"
-dir = "Basis/Tools/BasisSsoBroker/AdminUi"
+dir = "concierge/adminui"
 run = "pnpm install --frozen-lockfile"
 
 [tasks."sso:dev"]
-description = "SSO gatewayを起動し、Admin Consoleの開発サーバーを実行"
+description = "Concierge gatewayを起動し、Admin Consoleの開発サーバーを実行"
 depends = ["sso:up", "sso:install"]
-dir = "Basis/Tools/BasisSsoBroker/AdminUi"
+dir = "concierge/adminui"
 run = "pnpm run dev"
 
-[tasks."local:up"]
-description = "WebGL・SSO・Basis Server・Web配信をまとめて起動"
-depends = ["web:prepare", "sso:up", "server:up"]
-run = "exec ./tools/serve-web.sh --dev"
+# --- Concierge / Kubernetes --------------------------------------------
 
-[tasks."local:down"]
-description = "ローカルSSO gatewayとBasis Serverを停止"
-run = "mise run sso:down && mise run server:down"
+[tasks."concierge:build"]
+description = "Conciergeをビルド"
+dir = "concierge"
+run = "go build ./..."
+
+[tasks."concierge:test"]
+description = "Conciergeのテストを実行"
+dir = "concierge"
+run = "go test ./..."
+
+[tasks."concierge:vet"]
+description = "Conciergeをgo vetで検査"
+dir = "concierge"
+run = "go vet ./..."
+
+[tasks."concierge:fmt"]
+description = "Conciergeのgofmt差分を確認"
+dir = "concierge"
+run = "gofmt -l ."
+
+[tasks."concierge:check"]
+description = "Conciergeのビルド・テスト・vet・整形をまとめて実行"
+depends = ["concierge:build", "concierge:test", "concierge:vet", "concierge:fmt"]
+
+[tasks."concierge:generate"]
+description = "ConciergeのOpenAPIコードを再生成"
+dir = "concierge"
+run = "go generate ./..."
+
+[tasks."k8s:image"]
+description = "ConciergeイメージをMinikube内にビルド"
+dir = "concierge"
+run = "minikube image build -t concierge:dev ."
+
+[tasks."k8s:minikube:start"]
+description = "ローカルMinikubeを起動（MINIKUBE_DRIVERで変更可能）"
+run = "bash ./tools/k8s-up.sh --start-only"
+
+[tasks."k8s:agones:install"]
+description = "Agones v1.60.0をMinikubeへインストール"
+depends = ["k8s:minikube:start"]
+run = "bash ./tools/k8s-agones-install.sh"
+
+[tasks."k8s:up"]
+description = "MinikubeにConcierge・Agones・Basis Server・WebGLをまとめて起動"
+run = "bash ./tools/k8s-up.sh"
+
+[tasks."k8s:down"]
+description = "Minikube上のConcierge環境とport-forwardを停止"
+run = "bash ./tools/k8s-down.sh"
+
+[tasks."k8s:status"]
+description = "Minikube上のConciergeとGameServerの状態を確認"
+run = "bash ./tools/k8s-status.sh"
+
+# --- 公開デプロイ / k3s + Caddy ------------------------------------------
+
+[tasks."k3s:up"]
+description = "k3s上にConcierge・Agones・Basis Server・WebGLを構築して公開"
+run = "bash ./tools/k3s-up.sh"
+
+[tasks."k3s:cluster"]
+description = "k3sとAgonesだけをインストール"
+run = "bash ./tools/k3s-up.sh --cluster-only"
+
+[tasks."k3s:down"]
+description = "k3s上のConciergeリソースを削除"
+run = "bash ./tools/k3s-down.sh"
+
+[tasks."k3s:status"]
+description = "k3s・Caddy・Conciergeの状態を確認"
+run = "bash ./tools/k3s-status.sh"
+
+[tasks."caddy:install"]
+description = "miseのCaddyをsystemdサービスとして導入"
+run = "bash ./tools/caddy-install.sh"
+
+[tasks."caddy:apply"]
+description = "ドメイン設定からCaddyfileを生成してCaddyへ反映"
+run = "bash ./tools/caddy-apply.sh"
+
+[tasks."caddy:sync-cert"]
+description = "Caddyの証明書をbasis-web-tls Secretへ同期"
+run = "bash ./tools/caddy-sync-cert.sh"

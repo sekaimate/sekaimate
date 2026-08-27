@@ -129,6 +129,7 @@ MonoBehaviour:
     AssetBundleDescription: Avatar used While We Load
     AssetBundleIcon: {fileID: 0}
     Tags: []
+    ContentGroupId: 080e45843b6a41e8a765ea382b23fb6820260823
   Animator: {fileID: 7103285763428802826}
   FaceVisemeMesh: {fileID: 8839165641088738499}
   FaceBlinkMesh: {fileID: 8839165641088738499}

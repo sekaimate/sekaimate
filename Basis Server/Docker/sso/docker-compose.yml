@@ -1,9 +1,10 @@
 services:
-  basis-sso-broker:
+  concierge:
     build:
-      context: ../../../Basis/Tools/BasisSsoBroker
-    image: basis-sso-broker:local
-    container_name: basis-sso-broker
+      context: ../../../concierge
+      dockerfile: Dockerfile.compose
+    image: concierge:local
+    container_name: concierge
     restart: unless-stopped
     env_file: [.env]
     environment:
@@ -15,20 +16,19 @@ services:
       Password: ${Password}
       BASIS_SSO_ADMIN_TOKEN: ${BASIS_SSO_ADMIN_TOKEN}
       BASIS_SSO_ALLOW_MISSING_SERVER_KEYS: ${BASIS_SSO_ALLOW_MISSING_SERVER_KEYS:-false}
-      Broker__PublicBaseUrl: ${BASIS_SSO_PUBLIC_BASE_URL:-https://127.0.0.1:5081}
-      BASIS_WEB_SOCKET_URI: ${BASIS_WEB_SOCKET_URI:-}
+      LISTEN_ADDR: 0.0.0.0:5080
     volumes:
       - ../config:/basis-server-config:ro
       - ./broker:/state
     networks: [sso]
 
-  basis-sso-admin:
+  concierge-gateway:
     build:
-      context: ../../../Basis/Tools/BasisSsoBroker/AdminUi
-    image: basis-sso-admin:local
-    container_name: basis-sso-admin
+      context: ../../../concierge/adminui
+    image: concierge-gateway:local
+    container_name: concierge-gateway
     restart: unless-stopped
-    depends_on: [basis-sso-broker]
+    depends_on: [concierge]
     ports:
       - "127.0.0.1:${BASIS_SSO_GATEWAY_PORT:-5081}:443"
     volumes:

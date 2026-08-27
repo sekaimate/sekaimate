@@ -1,0 +1,24 @@
+# Install after publishing Concierge with:
+# ./publish-for-basis-server.sh /opt/basis-server
+# Copy appsettings.json to /etc/concierge and create concierge.env with mode 600.
+[Unit]
+Description=Basis Concierge admission and control plane
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/concierge
+EnvironmentFile=/etc/concierge/concierge.env
+Environment=BASIS_SSO_BROKER_CONFIG_PATH=/etc/concierge/appsettings.json
+Environment=LISTEN_ADDR=127.0.0.1:5080
+ExecStart=/opt/concierge/concierge
+Restart=on-failure
+RestartSec=5
+User=basis
+Group=basis
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

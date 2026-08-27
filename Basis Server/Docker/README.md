@@ -13,12 +13,23 @@ This document guides you through setting up and running the Basis server, using 
 - [Volumes and Persistence](#volumes-and-persistence)
 - [Logging and Monitoring](#logging-and-monitoring)
 - [Troubleshooting](#troubleshooting)
+- [Concierge and browser/OIDC operation](#concierge-and-browseroidc-operation)
 - [License](#license)
 
 ## Prerequisites
 
 - Docker (latest version recommended)
 - Docker Compose (v2 syntax: `docker compose`)
+
+## Concierge and browser/OIDC operation
+
+SSO admission、meeting lifecycle、Admin UI、browser join、Web OIDC は Go の Concierge が担当します。
+この Docker README は Basis Server image の基本設定を説明するものなので、Concierge の standalone、Compose、
+minikube、TLS/CORS、OIDC test fixture、cleanup を含む再現可能な手順は
+[`docs/concierge/operations.md`](../../docs/concierge/operations.md) を参照してください。
+
+Compose の browser 用 overlay を使う場合、Basis Server は `AutoStartSsoBroker=false` で起動し、Concierge
+Compose service が同じ SSO 設定と state を読みます。旧 C# broker の binary や project は必要ありません。
 
 ## Directory Structure
 

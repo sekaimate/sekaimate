@@ -1,0 +1,18 @@
+# Compose image for a static Basis Server deployment. The entrypoint keeps the
+# existing config.xml key hand-off, but runs the Go Concierge binary.
+FROM golang:1.26.5 AS builder
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -o /out/concierge ./cmd/server
+
+FROM debian:bookworm-slim
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates sed \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /out/concierge /concierge
+COPY docker-entrypoint.sh /usr/local/bin/concierge-entrypoint
+RUN chmod 755 /concierge /usr/local/bin/concierge-entrypoint
+EXPOSE 5080
+ENTRYPOINT ["/usr/local/bin/concierge-entrypoint"]
