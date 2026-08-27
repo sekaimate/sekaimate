@@ -99,7 +99,11 @@ namespace Basis.BasisUI
             // menu; one owned by the world or a HUD survives. Collapsing Unity-null to a real
             // null hands the keyboard "no target" rather than a dead component — the input
             // module re-points it as soon as the user selects a field again.
+#if UNITY_WEBGL && !UNITY_EDITOR
+            _ = BasisMenuVirtualKeyboardPanel.CreateNewAsync(
+#else
             BasisMenuVirtualKeyboardPanel.CreateNew(
+#endif
                 inputField ? inputField : null,
                 tmpInputField ? tmpInputField : null);
         }

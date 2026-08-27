@@ -96,9 +96,11 @@ and loopback URL; the child exits with the server.
 
 ## Production HTTPS
 
-Place Nginx in front of the broker, configure it with a certificate trusted for your public
+Place a TLS endpoint in front of the broker, configure it with a certificate trusted for your public
 hostname, and set `https://sso.example.com/admission/SERVER_ID` as
 `serverTransport.admissionEndpoint` in each client `basis-sso.json`.
+For WebGL clients, add every exact HTTPS client origin to `Broker.AllowedWebOrigins`; the broker
+uses that list for the admission POST CORS policy and does not allow wildcard origins.
 
 For a system service, publish the app and use `basis-sso-broker.service.example` as the template:
 
@@ -153,7 +155,7 @@ tokens.
 
 ## Browser-managed client setup (no build-time SSO config)
 
-The broker can host each server's client-facing `basis-sso.json` and provide a one-time setup URL.
+The broker hosts the organization configuration and delivers it through each meeting invitation.
 This keeps the IdP settings, admission endpoint, and transport public key out of the client build.
 
 Add a long random value to the broker process environment (never to `appsettings.json`):
@@ -167,12 +169,9 @@ client JSON. The editor rejects every `clientSecret` field because this JSON is 
 clients. The broker stores the editable source at
 `ClientConfigDirectory/<server-id>.json`; mount that directory as persistent storage.
 
-Press **クライアント設定 URL を発行** while the Basis client is running. It opens a short-lived,
-single-use HTTPS link. The browser redirects only to the client's loopback receiver; the client
-downloads the JSON and activates it **in memory for the current process**. It does not write
-`basis-sso.json` to `persistentDataPath`, so the build can ship without one and restarting the
-client requires issuing another setup URL. The link expires after ten minutes and its config
-download can be consumed once.
+When a participant opens a meeting invitation, the client downloads the meeting's short-lived
+configuration and activates it **in memory for the current process**. It does not write
+`basis-sso.json` to `persistentDataPath`; the meeting invitation is the only user-facing setup
+entry point.
 
 The public `GET /client-config/SERVER_ID` endpoint exists for inspection or managed deployment.
-Use the one-time setup URL for interactive clients.

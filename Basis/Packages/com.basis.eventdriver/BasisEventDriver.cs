@@ -149,18 +149,17 @@ namespace Basis.EventDriver
         /// <summary>
         /// Unity enable hook. Subscribes render callbacks (client), initializes scene and network drivers.
         /// </summary>
-        public void OnEnable()
+        public async void OnEnable()
         {
             Instance = this;
             if (!IsHeadlessClient)
             {
                 Application.onBeforeRender += OnBeforeRender;
             }
-            BasisOpenLipSyncDriver.BeginInitialize();
             BasisSceneFactory.Initialize();
             Basis.Scripts.Networking.Sync.BasisSyncDriver.Initialize();
             RemoteBoneJobSystem.Initialize();
-            BasisOpenLipSyncDriver.EndInitialize();
+            await BasisOpenLipSyncDriver.InitializeAsync();
         }
 
         /// <summary>
@@ -951,7 +950,7 @@ namespace Basis.EventDriver
                 BasisJoinLeaveNotification.Simulate(TimeAsDouble);
             }
 
-            bool drawJiggle = SMModuleDebugOptions.UseGizmos && SMModuleDebugOptions.UseJiggleVisuals;
+            bool drawJiggle = SupportsJiggleVisuals && SMModuleDebugOptions.UseGizmos && SMModuleDebugOptions.UseJiggleVisuals;
             if (drawJiggle)
             {
                 using (Prof.JiggleRender.Auto())
@@ -1039,6 +1038,13 @@ namespace Basis.EventDriver
             BasisFiniteWatchdog.Tick();
             ProfileLateUpdateFinish();
         }
+
+        private const bool SupportsJiggleVisuals =
+#if UNITY_WEBGL
+            false;
+#else
+            true;
+#endif
         /// <summary>
         /// Callback invoked before rendering each frame (client), used to run final local player
         /// render-time simulation and to publish avatar changes.

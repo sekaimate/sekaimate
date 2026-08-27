@@ -36,10 +36,75 @@ namespace Basis.Scripts.Networking
         public static Func<string> ConnectionBlockedReason;
         /// <summary>Optional integration hook that replaces the wire auth payload immediately before connecting.</summary>
         public static Func<string, Task<byte[]>> ConnectionAuthenticationPayloadProvider;
+        public static event Action ConnectionPermissionChanged;
+        public static event Action ConnectionStateChanged;
+
+        private static Action<ServerDirectoryEntry, string> _webMeetingConnectionHandler;
+        private static ServerDirectoryEntry _pendingWebMeetingEntry;
+        private static string _pendingWebMeetingUserName;
+        private static int _webMeetingRequestClaimed;
+
+        public static void RegisterWebMeetingConnectionHandler(Action<ServerDirectoryEntry, string> handler)
+        {
+            _webMeetingConnectionHandler = handler ?? throw new ArgumentNullException(nameof(handler));
+            if (_pendingWebMeetingEntry == null)
+            {
+                return;
+            }
+
+            ServerDirectoryEntry entry = _pendingWebMeetingEntry;
+            string userName = _pendingWebMeetingUserName;
+            _pendingWebMeetingEntry = null;
+            _pendingWebMeetingUserName = null;
+            handler(entry, userName);
+        }
+
+        public static bool RequestWebMeetingConnection(ServerDirectoryEntry entry, string userName)
+        {
+            if (entry == null || string.IsNullOrWhiteSpace(userName))
+            {
+                return false;
+            }
+            if (Interlocked.CompareExchange(ref _webMeetingRequestClaimed, 1, 0) != 0)
+            {
+                return false;
+            }
+
+            if (_webMeetingConnectionHandler != null)
+            {
+                _webMeetingConnectionHandler(entry, userName);
+            }
+            else
+            {
+                _pendingWebMeetingEntry = entry;
+                _pendingWebMeetingUserName = userName;
+            }
+            return true;
+        }
+
+        public static void NotifyConnectionPermissionChanged() =>
+            ConnectionPermissionChanged?.Invoke();
+
+        public static void NotifyConnectionStateChanged() =>
+            ConnectionStateChanged?.Invoke();
 
         // Stable key the loading bar uses to merge updates for the same connection
         // attempt, distinct from the bundle-load key BasisSceneLoad reports under.
         private const string ConnectionProgressKey = "BasisServerConnection";
+
+        private static ServerDirectoryEntry _lastTarget;
+        private static string _lastUserName;
+
+        public static bool HasReconnectTarget => _lastTarget != null && !string.IsNullOrWhiteSpace(_lastUserName);
+
+        public static Task ReconnectAsync()
+        {
+            if (!HasReconnectTarget)
+            {
+                return Task.CompletedTask;
+            }
+            return ConnectAsync(_lastTarget, _lastUserName);
+        }
 
         public static void ReportConnectionProgress(float progress, string message) =>
             BasisSceneLoad.progressCallback.ReportProgress(ConnectionProgressKey, progress, message ?? string.Empty);
@@ -94,6 +159,12 @@ namespace Basis.Scripts.Networking
                 return;
             }
 
+            AutoConnectAttempted = true;
+            BasisMainMenu.Close();
+            BasisCursorManagement.OnReset();
+
+            await WaitForLocalPlayerReadyAsync();
+
             if (_connectInProgress)
             {
                 BasisDebug.LogWarning("Connect requested while a connection attempt is already in progress; ignoring.");
@@ -102,6 +173,7 @@ namespace Basis.Scripts.Networking
             _connectInProgress = true;
             try
             {
+                BasisNetworkConnectionWatchdog.NotifyConnectStarting();
                 ReportConnectionProgress(5f, BasisLocalization.Get("menu.servers.status.initializing"));
 
                 if (BasisNetworkConnection.LocalPlayerIsConnected)
@@ -113,7 +185,7 @@ namespace Basis.Scripts.Networking
                     Task rebootWait = BasisNetworkConnection.WaitForRebootCompleteAsync(cts.Token);
                     await BasisNetworkLifeCycle.Destroy();
                     await rebootWait;
-                    BasisNetworkLifeCycle.Initialize();
+                    await BasisNetworkLifeCycle.Initialize();
                 }
 
                 if (!BasisNetworkManagement.IsInitialized)
@@ -129,14 +201,24 @@ namespace Basis.Scripts.Networking
                 BasisDataStore.SaveString(BasisLocalPlayer.Instance.DisplayName, UsernameFileName);
                 BasisDataStore.SaveString(entry.Id, LastConnectedServerIdFile);
 
-                string address = entry.Target?.Get(ConnectionTarget.Keys.Address) ?? string.Empty;
-                string portString = entry.Target?.Get(ConnectionTarget.Keys.Port) ?? string.Empty;
+                ConnectionTarget connectionTarget = ClientConnectionTargetSelector.Select(
+                    entry.Target,
+                    entry.WebSocketUri,
+                    IsWebGlPlayer());
+                string address = connectionTarget?.Get(ConnectionTarget.Keys.Address) ?? string.Empty;
+                string portString = connectionTarget?.Get(ConnectionTarget.Keys.Port) ?? string.Empty;
                 ushort port;
                 if (!ushort.TryParse(portString, out port)) port = LNLConnectionTargetParser.DefaultPort;
-                string stackId = entry.Target?.StackId ?? BasisNetworkStackRegistry.DefaultId;
+                string stackId = connectionTarget?.StackId ?? BasisNetworkStackRegistry.DefaultId;
+                string connectionAddress = string.Equals(
+                    stackId,
+                    BasisNetworkStackRegistry.WebSocketId,
+                    StringComparison.OrdinalIgnoreCase)
+                    ? connectionTarget.Raw
+                    : address;
 
                 BasisNetworkManagement.Port = port;
-                BasisNetworkManagement.Ip = address;
+                BasisNetworkManagement.Ip = connectionAddress;
                 BasisNetworkManagement.Password = entry.HasPassword ? entry.Password : string.Empty;
                 BasisNetworkManagement.IsHostMode = isHostMode;
                 BasisNetworkManagement.NetworkStackId = stackId;
@@ -158,15 +240,19 @@ namespace Basis.Scripts.Networking
                 // is actually reachable. Skipped in host-mode: the local server may not be
                 // listening yet. Non-fatal: if the probe fails we fall back to the hostname.
                 Task<string> resolveTask = isHostMode
-                    ? Task.FromResult(address)
-                    : ResolveConnectionAddressAsync(entry.Target, address);
+                    || !string.Equals(stackId, BasisNetworkStackRegistry.LiteNetLibId, StringComparison.OrdinalIgnoreCase)
+                    ? Task.FromResult(connectionAddress)
+                    : ResolveConnectionAddressAsync(connectionTarget, address);
                 await LoadDefaultAssetBundleAsync();
                 string resolvedIp = await resolveTask;
-                if (!string.IsNullOrEmpty(resolvedIp) && resolvedIp != address)
+                if (!string.IsNullOrEmpty(resolvedIp) && resolvedIp != connectionAddress)
                 {
                     BasisDebug.Log($"Resolved {address} → {resolvedIp}", BasisDebug.LogTag.Networking);
                     BasisNetworkManagement.Ip = resolvedIp;
                 }
+
+                _lastTarget = isHostMode ? null : entry;
+                _lastUserName = isHostMode ? null : BasisLocalPlayer.Instance.DisplayName;
 
                 ReportConnectionProgress(90f, BasisLocalization.Get("menu.servers.status.connecting"));
                 BasisNetworkManagement.Connect(authenticationPayload);
@@ -174,19 +260,50 @@ namespace Basis.Scripts.Networking
                 {
                     BasisDesktopEye.Instance.LockEye();
                 }
-                CompleteConnectionProgress();
+                BasisNetworkConnectionWatchdog.NotifyHandshakeStarted();
             }
             catch (TimeoutException tex)
             {
+                BasisNetworkConnectionWatchdog.NotifyConnectAborted();
                 ReportConnectionError(BasisLocalization.Get("menu.servers.error.timeout"));
                 BasisDebug.LogError(tex.ToString());
             }
+            catch (InvalidOperationException ex)
+            {
+                BasisNetworkConnectionWatchdog.NotifyConnectAborted();
+                ReportConnectionError(ex.Message);
+                BasisDebug.LogError(ex.ToString());
+            }
+            catch (FormatException ex)
+            {
+                BasisNetworkConnectionWatchdog.NotifyConnectAborted();
+                ReportConnectionError(ex.Message);
+                BasisDebug.LogError(ex.ToString());
+            }
             catch (Exception ex)
             {
+                BasisNetworkConnectionWatchdog.NotifyConnectAborted();
                 ReportConnectionError(BasisLocalization.Get("menu.servers.error.connectFailed"));
                 BasisDebug.LogError(ex.ToString());
             }
             finally { _connectInProgress = false; }
+        }
+
+        private static async Task WaitForLocalPlayerReadyAsync()
+        {
+            while (!BasisLocalPlayer.PlayerReady || BasisLocalPlayer.Instance == null)
+            {
+                await Task.Yield();
+            }
+        }
+
+        private static bool IsWebGlPlayer()
+        {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            return true;
+#else
+            return false;
+#endif
         }
 
         /// <summary>

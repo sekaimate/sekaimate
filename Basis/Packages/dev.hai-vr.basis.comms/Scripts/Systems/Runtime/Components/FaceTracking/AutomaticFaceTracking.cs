@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 using Basis.BasisUI;
 using Basis.Scripts.BasisSdk;
 using UnityEngine;
@@ -26,6 +27,9 @@ namespace HVR.Basis.Comms
 
         private static BlendshapeActuationDefinitionFile _ueHandle = null;
         private static BlendshapeActuationDefinitionFile _arKitHandle = null;
+#if UNITY_WEBGL && !UNITY_EDITOR
+        private static Task _defaultDefinitionFilesLoadTask;
+#endif
 
         private static readonly HashSet<string> UnifiedExpressionsProbe = new HashSet<string> { "MouthRaiserLower", "MouthRaiserLowerLeft" };
         private static readonly HashSet<string> ArKitProbe = new HashSet<string> { "mouthShrugLower" };
@@ -60,8 +64,34 @@ namespace HVR.Basis.Comms
         public void OnHVRAvatarReady(bool isWearer)
         {
             _isWearer = isWearer;
+#if UNITY_WEBGL && !UNITY_EDITOR
+            DiscoverAsync();
+#else
             Discover();
+#endif
         }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+        private async void DiscoverAsync()
+        {
+            await LoadDefaultDefinitionFilesAsync();
+            if (this != null)
+            {
+                Discover();
+            }
+        }
+
+        private static Task LoadDefaultDefinitionFilesAsync()
+        {
+            return _defaultDefinitionFilesLoadTask ??= LoadDefaultDefinitionFilesInternalAsync();
+        }
+
+        private static async Task LoadDefaultDefinitionFilesInternalAsync()
+        {
+            _ueHandle ??= await Addressables.LoadAssetAsync<BlendshapeActuationDefinitionFile>("HVR.Basis.Comms.FaceTracking.DefaultUnifiedExpressionsDefinitionFile").Task;
+            _arKitHandle ??= await Addressables.LoadAssetAsync<BlendshapeActuationDefinitionFile>("HVR.Basis.Comms.FaceTracking.DefaultARKitDefinitionFile").Task;
+        }
+#endif
 
         public void OnHVRReadyBothAvatarAndNetwork(bool isWearer)
         {
@@ -99,8 +129,15 @@ namespace HVR.Basis.Comms
 
         public BlendshapeActuationDefinitionFile[] ResolveFilesOrNull(SkinnedMeshRenderer[] smrs, out NamingConvention resolvedNamingConvention)
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            if (_ueHandle == null || _arKitHandle == null)
+            {
+                throw new InvalidOperationException("Default face tracking definitions have not finished loading.");
+            }
+#else
             _ueHandle ??= Addressables.LoadAssetAsync<BlendshapeActuationDefinitionFile>("HVR.Basis.Comms.FaceTracking.DefaultUnifiedExpressionsDefinitionFile").WaitForCompletion();
             _arKitHandle ??= Addressables.LoadAssetAsync<BlendshapeActuationDefinitionFile>("HVR.Basis.Comms.FaceTracking.DefaultARKitDefinitionFile").WaitForCompletion();
+#endif
 
             if (useOverrideDefinitionFiles && overrideDefinitionFiles != null && overrideDefinitionFiles.Length != 0)
             {

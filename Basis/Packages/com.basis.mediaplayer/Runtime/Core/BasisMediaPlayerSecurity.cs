@@ -1,7 +1,9 @@
 using System;
 using System.IO;
 using System.Net;
+#if !UNITY_WEBGL || UNITY_EDITOR
 using System.Threading.Tasks;
+#endif
 using UnityEngine;
 
 public static class BasisMediaPlayerSecurity
@@ -63,6 +65,7 @@ public static class BasisMediaPlayerSecurity
     public static bool IsBlockedHost(string host, out string reason)
         => Basis.Scripts.Common.BasisUrlSecurity.IsBlockedHost(host, out reason);
 
+#if !UNITY_WEBGL || UNITY_EDITOR
     // DNS layer: resolves a real host name off the main thread and blocks it if any
     // resolved address is non-global. Closes the name-that-points-at-a-private-IP
     // bypass that the literal-only IsBlockedHost can't see. null = allowed. Fails
@@ -71,11 +74,13 @@ public static class BasisMediaPlayerSecurity
     // host is a blocked host (a genuinely dead name couldn't be played anyway).
     public static Task<string> ValidateResolvedHostAsync(string url)
         => Basis.Scripts.Common.BasisUrlSecurity.ValidateResolvedHostAsync(url);
+#endif
 
     // Blocks anything that is not global unicast, including a private/loopback target
     // smuggled through IPv4-mapped or 6to4 IPv6. allowLoopback exempts loopback only.
     public static bool IsBlockedAddress(IPAddress ip, bool allowLoopback, out string reason)
         => Basis.Scripts.Common.BasisUrlSecurity.IsBlockedAddress(ip, allowLoopback, out reason);
+#endif
 
     public static bool TrySandboxLogPath(string requested, out string sandboxed, out string reason)
     {

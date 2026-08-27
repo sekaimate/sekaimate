@@ -1,4 +1,5 @@
 using Basis.Scripts.Addressable_Driver.Resource;
+using Basis.BasisUI;
 using Basis.Scripts.Avatar;
 using Basis.Scripts.Drivers;
 using Basis.Scripts.Networking;
@@ -497,9 +498,13 @@ namespace Basis.Scripts.BasisSdk.Players
         {
             if (NamePlate == null)
             {
+#if UNITY_WEBGL && !UNITY_EDITOR
+                NamePlate = AddressableAssets.GetPrefab(LoadableNamePlatename);
+#else
                 UnityEngine.ResourceManagement.AsyncOperations.AsyncOperationHandle<GameObject> op =
                     Addressables.LoadAssetAsync<GameObject>(LoadableNamePlatename);
                 NamePlate = op.WaitForCompletion();
+#endif
             }
             return NamePlate;
         }

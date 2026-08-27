@@ -8,8 +8,8 @@ using Microsoft.Extensions.Options;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<BrokerOptions>(builder.Configuration.GetSection("Broker"));
 builder.Services.AddSingleton<TokenValidator>();
-builder.Services.AddSingleton<EnrollmentStore>();
 builder.Services.AddSingleton<MeetingStore>();
+builder.Services.AddHttpClient<WebOidcTokenExchange>();
 var app = builder.Build();
 app.UseForwardedHeaders(new ForwardedHeadersOptions
 {
@@ -43,6 +43,17 @@ app.MapGet("/client-config/{serverId}", (string serverId, IOptions<BrokerOptions
     string? path = broker.ClientConfigPath(serverId);
     if (path == null || !File.Exists(path)) return Results.NotFound();
     return Results.Content(ClientConfig.RemoveSecrets(File.ReadAllText(path)), "application/json; charset=utf-8");
+});
+
+app.MapGet("/web-client-config/{serverId}", (string serverId, HttpContext http, IOptions<BrokerOptions> options) =>
+{
+    BrokerOptions broker = options.Value;
+    BrokerServerOptions? server = broker.FindServer(serverId);
+    if (server == null) return Results.NotFound();
+    IReadOnlyList<ProviderOptions> providers = broker.GetOrganization().Providers ?? server.Providers ?? [];
+    ProviderOptions[] webProviders = providers.Where(provider => provider.IsWebConfigured).ToArray();
+    if (webProviders.Length == 0) return Results.Problem("Web SSO is not configured.", statusCode: 503);
+    return Results.Json(CreateWebClientConfiguration(http, broker, server, webProviders));
 });
 
 app.MapGet("/admin/servers", (HttpContext http, IOptions<BrokerOptions> options) =>
@@ -226,45 +237,6 @@ app.MapPut("/admin/client-config/{serverId}", async (string serverId, HttpContex
     File.Move(temporaryPath, path, overwrite: true);
     return Results.NoContent();
 });
-app.MapPost("/admin/enrollment/{serverId}", (string serverId, HttpContext http, IOptions<BrokerOptions> options, EnrollmentStore enrollments) =>
-{
-    BrokerOptions broker = options.Value;
-    if (!AdminAuthorized(http, broker)) return Results.Unauthorized();
-    if (broker.FindServer(serverId) == null) return Results.NotFound();
-    string token = enrollments.Issue(serverId);
-    return Results.Ok(new { url = $"{RequestOrigin(http, broker)}/enroll/{token}", expiresInSeconds = 600 });
-});
-app.MapGet("/enroll/{token}", (string token, HttpContext http, IOptions<BrokerOptions> options, EnrollmentStore enrollments) =>
-{
-    if (!enrollments.Exists(token)) return Results.Content("This Basis SSO setup link has expired.", "text/plain; charset=utf-8", statusCode: 410);
-    string configUrl = $"{RequestOrigin(http, options.Value)}/enroll/{Uri.EscapeDataString(token)}/config";
-    string callback = "http://127.0.0.1:56831/basis-sso-config?url=" + Uri.EscapeDataString(configUrl);
-    string callbackHtml = System.Net.WebUtility.HtmlEncode(callback);
-    string page = $$"""
-<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>SekaiMate — Basis 設定</title>
-<style>body{margin:0;background:#f5f7fa;color:#202332;font:16px system-ui,-apple-system,sans-serif}.page{max-width:44rem;margin:0 auto;padding:4rem 1.25rem}.card{background:#fff;border:1px solid #d5dbdb;border-radius:16px;padding:2rem;box-shadow:0 4px 16px #172b4d12}.eyebrow{color:#553bc0;font-size:.8rem;font-weight:800;letter-spacing:.12em}h1{margin:.5rem 0 1rem;font-size:2rem}p{line-height:1.65}.button{display:inline-block;margin:1rem 0;padding:.8rem 1.2rem;border-radius:8px;background:#553bc0;color:#fff;text-decoration:none;font-weight:700}.hint{color:#5f6b7a;font-size:.9rem}</style>
-<main class="page"><section class="card"><div class="eyebrow">SEKAIMATE</div><h1>組織設定を Basis に適用</h1><p>Basis を起動した状態で、下のボタンを押してください。ログインに必要な組織設定をこの端末の Basis に送ります。</p>
-<p><a class="button" href="{{callbackHtml}}">Basis に設定を送る</a></p>
-<p class="hint">設定 URL は 10 分間・一回限りです。送信後は Basis に戻ってログインしてください。</p></section></main>
-""";
-    return Results.Content(page, "text/html; charset=utf-8");
-});
-app.MapGet("/enroll/{token}/config", (string token, HttpContext http, IOptions<BrokerOptions> options, EnrollmentStore enrollments, MeetingStore meetings) =>
-{
-    string? serverId = enrollments.Take(token);
-    if (serverId == null) return Results.Content("This Basis SSO setup link has expired or was already used.", "text/plain; charset=utf-8", statusCode: 410);
-    BrokerOptions broker = options.Value;
-    BrokerServerOptions? server = broker.FindServer(serverId);
-    MeetingRecord? meeting = meetings.Find(serverId);
-    OrganizationOptions organization = broker.GetOrganization();
-    IReadOnlyList<ProviderOptions> providers = organization.Providers is { Count: > 0 }
-        ? organization.Providers : server?.Providers ?? [];
-    string publicKey = meeting?.TransportPublicKey ?? server?.EffectiveTransportPublicKey ?? string.Empty;
-    if (server == null || providers.Count == 0 || string.IsNullOrWhiteSpace(publicKey)) return Results.NotFound();
-    return Results.Json(CreateClientConfiguration(http, broker, serverId, publicKey, providers, organization.DefaultProviderId));
-});
-
 // A join invitation carries the organization configuration for this one meeting. This means a
 // fresh client can start from the participant URL; no organization-specific OIDC values need to
 // be embedded in a Unity build. The endpoint intentionally exposes only native-client values,
@@ -274,6 +246,8 @@ app.MapGet("/join/{token}/config", (string token, HttpContext http, IOptions<Bro
     MeetingRecord? meeting = meetings.FindInvite(token);
     if (meeting == null) return Results.NotFound();
     BrokerOptions broker = options.Value;
+    if (!TryApplyWebCors(http, broker)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+    http.Response.Headers.CacheControl = "no-store";
     BrokerServerOptions? server = broker.FindServer(meeting.Id);
     OrganizationOptions organization = broker.GetOrganization();
     IReadOnlyList<ProviderOptions> providers = organization.Providers is { Count: > 0 }
@@ -285,33 +259,75 @@ app.MapGet("/join/{token}/config", (string token, HttpContext http, IOptions<Bro
         organization.DefaultProviderId));
 });
 
-// A participant-facing URL. It never contains OAuth secrets or the admission signing key. The
-// page first hands its connection link to the loopback listener that exists while Basis is running
-// in the Unity Editor or as a player. It falls back to the OS URL protocol only when no listener
-// replies, keeping a single HTTPS invitation usable in both development and released clients.
-app.MapGet("/join/{token}", (string token, HttpContext http, IOptions<BrokerOptions> options, MeetingStore meetings) =>
+app.MapGet("/join/{token}/web-config", (string token, HttpContext http, IOptions<BrokerOptions> options, MeetingStore meetings) =>
+{
+    MeetingRecord? meeting = meetings.FindInvite(token);
+    if (meeting == null) return Results.NotFound();
+    BrokerOptions broker = options.Value;
+    if (!TryApplyWebCors(http, broker)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+    BrokerServerOptions? server = broker.FindServer(meeting.Id);
+    OrganizationOptions organization = broker.GetOrganization();
+    IReadOnlyList<ProviderOptions> providers = organization.Providers is { Count: > 0 }
+        ? organization.Providers
+        : server?.Providers ?? [];
+    if (server == null || providers.Count == 0 || string.IsNullOrWhiteSpace(meeting.TransportPublicKey))
+        return Results.Problem("Meeting Web SSO configuration is incomplete.", statusCode: 503);
+    http.Response.Headers.CacheControl = "no-store";
+    return Results.Json(CreateWebClientConfiguration(http, broker, server, providers,
+        publicKeyOverride: meeting.TransportPublicKey));
+});
+
+// Web clients receive meeting details over HTTPS instead of carrying the server password
+// and generated username in the participant URL. The invitation token remains the only
+// participant-facing capability, and the response is deliberately not cacheable.
+app.MapGet("/join/{token}/web-manifest", (string token, HttpContext http, IOptions<BrokerOptions> options, MeetingStore meetings) =>
+{
+    MeetingRecord? meeting = meetings.FindInvite(token);
+    if (meeting == null) return Results.NotFound();
+    if (!TryApplyWebCors(http, options.Value)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+    if (!string.Equals(meeting.Status, "ready", StringComparison.OrdinalIgnoreCase)
+        || string.IsNullOrWhiteSpace(meeting.Host))
+        return Results.Content("This meeting is not ready yet.", "text/plain; charset=utf-8", statusCode: 409);
+
+    if (!Uri.TryCreate(RequestOrigin(http, options.Value), UriKind.Absolute, out Uri? brokerOrigin))
+        return Results.Problem("Broker origin is invalid.", statusCode: 503);
+    http.Response.Headers.CacheControl = "no-store";
+    string? configuredWebSocketUri = Environment.GetEnvironmentVariable("BASIS_WEB_SOCKET_URI");
+    string websocketUri = !string.IsNullOrWhiteSpace(configuredWebSocketUri)
+        ? configuredWebSocketUri.Trim()
+        : $"{(brokerOrigin.Scheme == Uri.UriSchemeHttps ? "wss" : "ws")}://{brokerOrigin.Authority}/basis";
+    string configUrl = $"{RequestOrigin(http, options.Value)}/join/{Uri.EscapeDataString(token)}/web-config";
+    return Results.Json(new
+    {
+        configUrl,
+        websocketUri,
+        userName = "web-guest-" + token[..Math.Min(token.Length, 8)],
+        password = meeting.Password,
+    }, new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = null });
+});
+
+// The participant page is a static Admin UI asset. Keep meeting validation and all connection
+// details in JSON endpoints; never put the password or generated username in the page URL.
+app.MapGet("/join/{token}/details", (string token, HttpContext http, IOptions<BrokerOptions> options, MeetingStore meetings) =>
 {
     MeetingRecord? meeting = meetings.FindInvite(token);
     if (meeting == null) return Results.Content("This meeting invitation is invalid or has been revoked.", "text/plain; charset=utf-8", statusCode: 404);
     if (!string.Equals(meeting.Status, "ready", StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(meeting.Host))
         return Results.Content("This meeting is not ready yet.", "text/plain; charset=utf-8", statusCode: 409);
+    string manifestUrl = $"{RequestOrigin(http, options.Value)}/join/{Uri.EscapeDataString(token)}/manifest";
+    return Results.Json(new
+    {
+        title = meeting.Title,
+        webJoinUrl = BuildWebJoinUrl(meeting, token, options.Value, http),
+        nativeBridgeUrl = "http://127.0.0.1:56831/basis-join?url=" + Uri.EscapeDataString(manifestUrl),
+    });
+});
 
-    string host = meeting.Host.Contains(':') && !meeting.Host.StartsWith('[') ? $"[{meeting.Host}]" : meeting.Host;
-    string deepLink = $"basisdemo://{host}:{meeting.Port}?password={Uri.EscapeDataString(meeting.Password)}&meeting={Uri.EscapeDataString(meeting.Id)}";
-    string configurationUrl = $"{RequestOrigin(http, options.Value)}/join/{Uri.EscapeDataString(token)}/config";
-    string loopbackUrl = "http://127.0.0.1:56831/basis-join?config=" + Uri.EscapeDataString(configurationUrl)
-        + "&link=" + Uri.EscapeDataString(deepLink);
-    string encodedDeepLink = System.Net.WebUtility.HtmlEncode(deepLink);
-    string encodedLoopbackUrl = System.Net.WebUtility.HtmlEncode(loopbackUrl);
-    string redirectScriptUrl = System.Text.Json.JsonSerializer.Serialize(deepLink);
-    string title = System.Net.WebUtility.HtmlEncode(meeting.Title);
-    string page = $$"""
-<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{{title}} — SekaiMate</title><style>body{margin:0;background:#f5f7fa;color:#202332;font:16px system-ui,-apple-system,sans-serif}.page{max-width:44rem;margin:0 auto;padding:4rem 1.25rem}.card{background:#fff;border:1px solid #d5dbdb;border-radius:16px;padding:2rem;box-shadow:0 4px 16px #172b4d12}.eyebrow{color:#553bc0;font-size:.8rem;font-weight:800;letter-spacing:.12em}h1{margin:.5rem 0 1rem;font-size:2rem}p{line-height:1.65}.button{display:inline-block;margin:1rem 0;padding:.8rem 1.2rem;border-radius:8px;background:#553bc0;color:#fff;text-decoration:none;font-weight:700}.hint{color:#5f6b7a;font-size:.9rem}iframe{display:none}</style>
-<main class="page"><section class="card"><div class="eyebrow">SEKAIMATE</div><h1>{{title}}</h1><p id="status">Basis を開いて会議への参加を準備しています…</p><p><a class="button" href="{{encodedDeepLink}}">Basis で参加する</a></p><p class="hint">自動で開かない場合は、上のボタンを押してください。</p><iframe id="basis-join" src="{{encodedLoopbackUrl}}" title="Basis join bridge"></iframe></section></main>
-<script>let received=false;addEventListener('message',e=>e.data==='basis-join-received'&&(received=true,document.querySelector('#status').textContent='Basis に会議への参加を渡しました。Basis に戻ってください。'));setTimeout(()=>!received&&(location.href={{redirectScriptUrl}}),900);</script>
-""";
-    return Results.Content(page, "text/html; charset=utf-8");
+app.MapGet("/join/{token}", (string token, MeetingStore meetings) =>
+{
+    MeetingRecord? meeting = meetings.FindInvite(token);
+    if (meeting == null) return Results.Content("This meeting invitation is invalid or has been revoked.", "text/plain; charset=utf-8", statusCode: 404);
+    return Results.Redirect($"/join/{Uri.EscapeDataString(token)}/");
 });
 app.MapGet("/join/{token}/open", (string token, HttpContext http, MeetingStore meetings) =>
 {
@@ -319,25 +335,17 @@ app.MapGet("/join/{token}/open", (string token, HttpContext http, MeetingStore m
     if (meeting == null) return Results.Content("This meeting invitation is invalid or has been revoked.", "text/plain; charset=utf-8", statusCode: 404);
     if (!string.Equals(meeting.Status, "ready", StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(meeting.Host))
         return Results.Content("This meeting is not ready yet.", "text/plain; charset=utf-8", statusCode: 409);
-
-    string host = meeting.Host.Contains(':') && !meeting.Host.StartsWith('[') ? $"[{meeting.Host}]" : meeting.Host;
-    string deepLink = $"basisdemo://{host}:{meeting.Port}?password={Uri.EscapeDataString(meeting.Password)}&meeting={Uri.EscapeDataString(meeting.Id)}";
-    string encodedLink = System.Net.WebUtility.HtmlEncode(deepLink);
-    string title = System.Net.WebUtility.HtmlEncode(meeting.Title);
-    string page = $$"""
-<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{{title}} — SekaiMate</title><style>body{margin:0;background:#f5f7fa;color:#202332;font:16px system-ui,-apple-system,sans-serif}.page{max-width:44rem;margin:0 auto;padding:4rem 1.25rem}.card{background:#fff;border:1px solid #d5dbdb;border-radius:16px;padding:2rem;box-shadow:0 4px 16px #172b4d12}.eyebrow{color:#553bc0;font-size:.8rem;font-weight:800;letter-spacing:.12em}h1{margin:.5rem 0 1rem;font-size:2rem}p{line-height:1.65}.button{display:inline-block;margin:1rem 0;padding:.8rem 1.2rem;border-radius:8px;background:#553bc0;color:#fff;text-decoration:none;font-weight:700}.hint{color:#5f6b7a;font-size:.9rem}</style>
-<main class="page"><section class="card"><div class="eyebrow">SEKAIMATE</div><h1>{{title}}</h1><p>Basis を起動済みなら、下のボタンを押すとこの会議室へ接続します。</p><p><a class="button" href="{{encodedLink}}">Basis で参加する</a></p><p class="hint">通常の招待 URL は自動的にこの操作を行います。この画面はブラウザのフォールバック用です。</p></section></main>
-""";
-    return Results.Content(page, "text/html; charset=utf-8");
+    return Results.Redirect($"/join/{Uri.EscapeDataString(token)}");
 });
 app.MapGet("/join/{token}/manifest", (string token, HttpContext http, IOptions<BrokerOptions> options, MeetingStore meetings) =>
 {
     MeetingRecord? meeting = meetings.FindInvite(token);
     if (meeting == null) return Results.NotFound();
+    http.Response.Headers.CacheControl = "no-store";
     return Results.Json(new
     {
         meeting = new { id = meeting.Id, title = meeting.Title },
+        configUrl = $"{RequestOrigin(http, options.Value)}/join/{Uri.EscapeDataString(token)}/config",
         connection = new { host = meeting.Host, port = meeting.Port, password = meeting.Password },
         serverTransport = TransportConfig(http, options.Value, meeting.TransportPublicKey, meeting.Id),
     });
@@ -358,12 +366,68 @@ app.MapGet("/health", (IOptions<BrokerOptions> options) =>
         : Results.Json(new { status = "not_ready", error = "Configure providers and ticket signing keys for every broker server.", servers }, statusCode: StatusCodes.Status503ServiceUnavailable);
 });
 
+app.MapMethods("/admission/{serverId}", new[] { "OPTIONS" }, (string serverId, HttpContext http, IOptions<BrokerOptions> options) =>
+{
+    if (!TryApplyAdmissionCors(http, options.Value)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+    return Results.NoContent();
+});
 app.MapPost("/admission/{serverId}", (AdmissionRequest request, string serverId, HttpContext http, TokenValidator validator, IOptions<BrokerOptions> options, CancellationToken ct) =>
     CreateAdmissionAsync(request, serverId, http, validator, options.Value, ct));
+
+app.MapMethods("/web-oidc/{serverId}/{providerId}/token", new[] { "OPTIONS" },
+    (HttpContext http, IOptions<BrokerOptions> options) =>
+{
+    if (!TryApplyAdmissionCors(http, options.Value)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+    return Results.NoContent();
+});
+app.MapPost("/web-oidc/{serverId}/{providerId}/token", async (
+    string serverId,
+    string providerId,
+    HttpContext http,
+    IOptions<BrokerOptions> options,
+    WebOidcTokenExchange exchange,
+    CancellationToken ct) =>
+{
+    BrokerOptions broker = options.Value;
+    if (!TryApplyAdmissionCors(http, broker)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+    if (!http.Request.HasFormContentType) return Results.BadRequest(new { error = "form_encoded_request_required" });
+    BrokerServerOptions? server = broker.FindServer(serverId);
+    ProviderOptions? provider = (broker.GetOrganization().Providers ?? server?.Providers ?? [])
+        .FirstOrDefault(candidate => string.Equals(candidate.Id, providerId, StringComparison.Ordinal));
+    if (server == null || provider == null) return Results.NotFound();
+    if (!provider.TryGetWebCredential(out Uri? tokenEndpoint, out string clientId, out string clientSecret))
+        return Results.Problem("Web SSO provider credentials are incomplete.", statusCode: 503);
+
+    IFormCollection form = await http.Request.ReadFormAsync(ct);
+    string grantType = form["grant_type"].ToString();
+    var forwarded = new Dictionary<string, string>(StringComparer.Ordinal);
+    if (grantType == "authorization_code")
+    {
+        string redirectUri = form["redirect_uri"].ToString();
+        if (!AllowedWebRedirect(broker, redirectUri)) return Results.BadRequest(new { error = "invalid_redirect_uri" });
+        foreach (string key in new[] { "grant_type", "code", "redirect_uri", "code_verifier" })
+            if (!string.IsNullOrWhiteSpace(form[key])) forwarded[key] = form[key].ToString();
+        if (!forwarded.ContainsKey("code") || !forwarded.ContainsKey("code_verifier"))
+            return Results.BadRequest(new { error = "invalid_request" });
+    }
+    else if (grantType == "refresh_token")
+    {
+        forwarded["grant_type"] = grantType;
+        forwarded["refresh_token"] = form["refresh_token"].ToString();
+        if (string.IsNullOrWhiteSpace(forwarded["refresh_token"])) return Results.BadRequest(new { error = "invalid_request" });
+    }
+    else return Results.BadRequest(new { error = "unsupported_grant_type" });
+
+    using HttpResponseMessage response = await exchange.SendAsync(tokenEndpoint!, clientId, clientSecret, forwarded, ct);
+    string body = await response.Content.ReadAsStringAsync(ct);
+    http.Response.Headers.CacheControl = "no-store";
+    return Results.Content(body, response.Content.Headers.ContentType?.ToString() ?? "application/json", statusCode: (int)response.StatusCode);
+});
 
 static async Task<IResult> CreateAdmissionAsync(AdmissionRequest request, string serverId, HttpContext http,
     TokenValidator validator, BrokerOptions broker, CancellationToken ct)
 {
+    if (!TryApplyAdmissionCors(http, broker)) return Results.StatusCode(StatusCodes.Status403Forbidden);
     http.Response.Headers.CacheControl = "no-store";
     if (string.IsNullOrWhiteSpace(request.IdToken) || string.IsNullOrWhiteSpace(request.Did)
         || request.IdToken.Length > 16384 || request.Did.Length > 256)
@@ -379,6 +443,42 @@ static async Task<IResult> CreateAdmissionAsync(AdmissionRequest request, string
     if (identity is null) return Results.Unauthorized();
     string key = server.EffectiveTicketSigningKey;
     return Results.Ok(new { ticket = Ticket.Create(key, identity.Issuer, identity.Subject, request.Did) });
+}
+
+static bool TryApplyAdmissionCors(HttpContext http, BrokerOptions broker)
+{
+    string? origin = http.Request.Headers.Origin.FirstOrDefault();
+    if (string.IsNullOrWhiteSpace(origin)) return true;
+    string normalizedOrigin = origin.TrimEnd('/');
+    bool allowed = broker.AllowedWebOrigins?.Any(value => string.Equals(value?.Trim().TrimEnd('/'), normalizedOrigin, StringComparison.OrdinalIgnoreCase)) == true;
+    if (!allowed) return false;
+    http.Response.Headers.AccessControlAllowOrigin = normalizedOrigin;
+    http.Response.Headers.AccessControlAllowMethods = "POST, OPTIONS";
+    http.Response.Headers.AccessControlAllowHeaders = "Content-Type";
+    http.Response.Headers.AccessControlMaxAge = "600";
+    http.Response.Headers.Vary = "Origin";
+    return true;
+}
+
+static bool TryApplyWebCors(HttpContext http, BrokerOptions broker)
+{
+    string? origin = http.Request.Headers.Origin.FirstOrDefault();
+    if (string.IsNullOrWhiteSpace(origin)) return true;
+    string normalizedOrigin = origin.TrimEnd('/');
+    bool allowed = broker.AllowedWebOrigins?.Any(value => string.Equals(value?.Trim().TrimEnd('/'), normalizedOrigin, StringComparison.OrdinalIgnoreCase)) == true;
+    if (!allowed) return false;
+    http.Response.Headers.AccessControlAllowOrigin = normalizedOrigin;
+    http.Response.Headers.AccessControlAllowMethods = "GET, OPTIONS";
+    http.Response.Headers.AccessControlAllowHeaders = "Content-Type";
+    http.Response.Headers.Vary = "Origin";
+    return true;
+}
+
+static bool AllowedWebRedirect(BrokerOptions broker, string value)
+{
+    if (!Uri.TryCreate(value, UriKind.Absolute, out Uri? redirect) || redirect.AbsolutePath != "/sso-callback") return false;
+    string origin = redirect.GetLeftPart(UriPartial.Authority).TrimEnd('/');
+    return broker.AllowedWebOrigins?.Any(allowed => string.Equals(allowed?.Trim().TrimEnd('/'), origin, StringComparison.OrdinalIgnoreCase)) == true;
 }
 
 app.Run();
@@ -401,9 +501,21 @@ static bool AdminAuthorized(HttpContext http, BrokerOptions broker)
 
 static string RequestOrigin(HttpContext http, BrokerOptions broker)
 {
-    if (Uri.TryCreate(broker.PublicBaseUrl, UriKind.Absolute, out Uri? configured) && configured.Scheme == Uri.UriSchemeHttps)
+    if (Uri.TryCreate(broker.PublicBaseUrl, UriKind.Absolute, out Uri? configured)
+        && (configured.Scheme == Uri.UriSchemeHttps || configured.Scheme == Uri.UriSchemeHttp))
         return configured.GetLeftPart(UriPartial.Authority);
     return $"{http.Request.Scheme}://{http.Request.Host}";
+}
+
+static string BuildWebJoinUrl(MeetingRecord meeting, string token, BrokerOptions broker, HttpContext http)
+{
+    string? webOrigin = broker.AllowedWebOrigins?.Select(origin => origin?.Trim().TrimEnd('/'))
+        .FirstOrDefault(origin => Uri.TryCreate(origin, UriKind.Absolute, out Uri? uri)
+            && (uri.Scheme == Uri.UriSchemeHttps || (uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback))
+            && !string.IsNullOrWhiteSpace(uri.Host));
+    if (string.IsNullOrWhiteSpace(webOrigin)) return string.Empty;
+    string manifestUrl = $"{RequestOrigin(http, broker)}/join/{Uri.EscapeDataString(token)}/web-manifest";
+    return $"{webOrigin}/?basisMeeting=1&meetingUrl={Uri.EscapeDataString(manifestUrl)}";
 }
 
 static object TransportConfig(HttpContext http, BrokerOptions broker, string publicKey, string serverId)
@@ -436,6 +548,7 @@ static object CreateClientConfiguration(HttpContext http, BrokerOptions broker, 
             clientId = provider.Audience,
             clientSecret = provider.ClientSecret,
             scopes = new[] { "openid", "email", "profile" },
+            extraAuthParams = HostedDomainPolicy.AuthorizationParameters(provider.Id == "google" ? provider.AllowedHostedDomains : null),
             displayNameClaims = new[] { "name", "preferred_username", "email" },
             access = new
             {
@@ -448,6 +561,36 @@ static object CreateClientConfiguration(HttpContext http, BrokerOptions broker, 
             },
         }),
         redirect = new { mode = "loopback", host = "127.0.0.1", port = 0, path = "/callback" },
+        enforcement = new { allowOfflineWithinTokenValidity = true },
+    };
+}
+
+static object CreateWebClientConfiguration(HttpContext http, BrokerOptions broker, BrokerServerOptions server,
+    IReadOnlyList<ProviderOptions> providers, string? publicKeyOverride = null)
+{
+    OrganizationOptions organization = broker.GetOrganization();
+    return new
+    {
+        defaultProviderId = providers.Any(provider => string.Equals(provider.Id, organization.DefaultProviderId, StringComparison.Ordinal))
+            ? organization.DefaultProviderId : providers[0].Id,
+        serverTransport = TransportConfig(http, broker, publicKeyOverride ?? server.EffectiveTransportPublicKey, server.Id!),
+        providers = providers.Select(provider => new
+        {
+            id = provider.Id,
+            label = string.IsNullOrWhiteSpace(provider.Label) ? provider.Id : provider.Label,
+            issuer = provider.Issuer,
+            clientId = provider.WebClientId,
+            tokenEndpoint = $"{RequestOrigin(http, broker)}/web-oidc/{Uri.EscapeDataString(server.Id!)}/{Uri.EscapeDataString(provider.Id!)}" + "/token",
+            scopes = new[] { "openid", "email", "profile" },
+            extraAuthParams = HostedDomainPolicy.AuthorizationParameters(provider.AllowedHostedDomains),
+            displayNameClaims = new[] { "name", "preferred_username", "email" },
+            access = new
+            {
+                allowedGroups = provider.AllowedGroups ?? [],
+                allowedClaims = (provider.AllowedHostedDomains ?? []).Select(domain => new { claim = "hd", values = new[] { domain } }),
+            },
+        }),
+        redirect = new { mode = "browser", path = "/sso-callback" },
         enforcement = new { allowOfflineWithinTokenValidity = true },
     };
 }
@@ -491,6 +634,7 @@ sealed class BrokerOptions
     public string? AdminTokenEnvironmentVariable { get; set; }
     public bool AllowUnauthenticatedAdmin { get; set; }
     public string? PublicBaseUrl { get; set; }
+    public List<string>? AllowedWebOrigins { get; set; }
     public OrganizationOptions? Organization { get; set; }
 
     public IReadOnlyList<BrokerServerOptions> GetServers() => Servers ?? [];
@@ -558,51 +702,53 @@ sealed class OrganizationOptions
         return true;
     }
 }
-sealed class ProviderOptions { public string? Id { get; set; } public string? Label { get; set; } public string? Issuer { get; set; } public string? Audience { get; set; } public string? ClientSecret { get; set; } public string? JwksUri { get; set; } public List<string>? AllowedHostedDomains { get; set; } public List<string>? AllowedGroups { get; set; } public ProviderOptions Copy() => new() { Id = Id, Label = Label, Issuer = Issuer, Audience = Audience, ClientSecret = ClientSecret, JwksUri = JwksUri, AllowedHostedDomains = AllowedHostedDomains?.ToList() ?? [], AllowedGroups = AllowedGroups?.ToList() ?? [] }; public bool IsStructurallyValid() => !string.IsNullOrWhiteSpace(Id) && Uri.TryCreate(Issuer, UriKind.Absolute, out Uri? issuer) && issuer.Scheme == Uri.UriSchemeHttps && !string.IsNullOrWhiteSpace(Audience) && Uri.TryCreate(JwksUri, UriKind.Absolute, out Uri? jwks) && jwks.Scheme == Uri.UriSchemeHttps; }
-
-sealed class EnrollmentStore
+sealed class ProviderOptions
 {
-    private readonly Dictionary<string, Enrollment> _entries = new(StringComparer.Ordinal);
-    private readonly object _gate = new();
-
-    public string Issue(string serverId)
+    public string? Id { get; set; }
+    public string? Label { get; set; }
+    public string? Issuer { get; set; }
+    public string? Audience { get; set; }
+    public string? ClientSecret { get; set; }
+    public string? WebClientId { get; set; }
+    public string? WebClientSecret { get; set; }
+    public string? TokenEndpoint { get; set; }
+    public string? JwksUri { get; set; }
+    public List<string>? AllowedHostedDomains { get; set; }
+    public List<string>? AllowedGroups { get; set; }
+    public bool IsWebConfigured => !string.IsNullOrWhiteSpace(WebClientId)
+        && !string.IsNullOrWhiteSpace(WebClientSecret)
+        && Uri.TryCreate(TokenEndpoint, UriKind.Absolute, out Uri? endpoint)
+        && endpoint.Scheme == Uri.UriSchemeHttps;
+    public ProviderOptions Copy() => new()
     {
-        byte[] bytes = RandomNumberGenerator.GetBytes(32);
-        string token = Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-        lock (_gate)
-        {
-            RemoveExpired();
-            _entries[token] = new Enrollment(serverId, DateTimeOffset.UtcNow.AddMinutes(10));
-        }
-        return token;
-    }
-
-    public bool Exists(string token)
+        Id = Id,
+        Label = Label,
+        Issuer = Issuer,
+        Audience = Audience,
+        ClientSecret = ClientSecret,
+        WebClientId = WebClientId,
+        WebClientSecret = WebClientSecret,
+        TokenEndpoint = TokenEndpoint,
+        JwksUri = JwksUri,
+        AllowedHostedDomains = AllowedHostedDomains?.ToList() ?? [],
+        AllowedGroups = AllowedGroups?.ToList() ?? [],
+    };
+    public bool IsStructurallyValid() => !string.IsNullOrWhiteSpace(Id)
+        && Uri.TryCreate(Issuer, UriKind.Absolute, out Uri? issuer)
+        && issuer.Scheme == Uri.UriSchemeHttps
+        && (!string.IsNullOrWhiteSpace(Audience) || IsWebConfigured)
+        && Uri.TryCreate(JwksUri, UriKind.Absolute, out Uri? jwks)
+        && jwks.Scheme == Uri.UriSchemeHttps;
+    public bool TryGetWebCredential(out Uri? tokenEndpoint, out string clientId, out string clientSecret)
     {
-        lock (_gate)
-        {
-            RemoveExpired();
-            return _entries.ContainsKey(token);
-        }
+        clientId = WebClientId ?? string.Empty;
+        clientSecret = WebClientSecret ?? string.Empty;
+        bool valid = Uri.TryCreate(TokenEndpoint, UriKind.Absolute, out tokenEndpoint)
+            && tokenEndpoint?.Scheme == Uri.UriSchemeHttps
+            && !string.IsNullOrWhiteSpace(clientId)
+            && !string.IsNullOrWhiteSpace(clientSecret);
+        return valid;
     }
-
-    public string? Take(string token)
-    {
-        lock (_gate)
-        {
-            RemoveExpired();
-            if (!_entries.Remove(token, out Enrollment? entry)) return null;
-            return entry.ServerId;
-        }
-    }
-
-    private void RemoveExpired()
-    {
-        DateTimeOffset now = DateTimeOffset.UtcNow;
-        foreach (string token in _entries.Where(pair => pair.Value.ExpiresAt <= now).Select(pair => pair.Key).ToArray()) _entries.Remove(token);
-    }
-
-    private sealed record Enrollment(string ServerId, DateTimeOffset ExpiresAt);
 }
 
 static class ClientConfig
@@ -660,10 +806,11 @@ sealed class TokenValidator
         string? issuer = payload.RootElement.TryGetProperty("iss", out var iss) ? iss.GetString() : null;
         ProviderOptions? provider = providers.FirstOrDefault(p => p.Issuer == issuer);
         if (provider == null) return null;
-        string audience = provider.Audience ?? string.Empty;
+        string[] audiences = new[] { provider.Audience, provider.WebClientId }
+            .Where(value => !string.IsNullOrWhiteSpace(value)).Cast<string>().ToArray();
         string jwksUriText = provider.JwksUri ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(audience) || !Uri.TryCreate(jwksUriText, UriKind.Absolute, out Uri? jwksUri)
-            || jwksUri == null || jwksUri.Scheme != Uri.UriSchemeHttps || !Audience(payload.RootElement, audience) || Expired(payload.RootElement)) return null;
+        if (audiences.Length == 0 || !Uri.TryCreate(jwksUriText, UriKind.Absolute, out Uri? jwksUri)
+            || jwksUri == null || jwksUri.Scheme != Uri.UriSchemeHttps || !audiences.Any(audience => Audience(payload.RootElement, audience)) || Expired(payload.RootElement)) return null;
         string? subject = payload.RootElement.TryGetProperty("sub", out var sub) ? sub.GetString() : null;
         if (string.IsNullOrWhiteSpace(subject) || !Policy(payload.RootElement, provider)) return null;
         string? kid = header.RootElement.TryGetProperty("kid", out var kidValue) ? kidValue.GetString() : null;
@@ -683,7 +830,13 @@ sealed class TokenValidator
     }
     private static bool Audience(JsonElement p, string expected) => p.TryGetProperty("aud", out var a) && (a.ValueKind == JsonValueKind.String ? a.GetString() == expected : a.ValueKind == JsonValueKind.Array && a.EnumerateArray().Any(x => x.GetString() == expected));
     private static bool Expired(JsonElement p) => !p.TryGetProperty("exp", out var e) || e.GetInt64() <= DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-    private static bool Policy(JsonElement p, ProviderOptions o) => Any(p, "hd", o.AllowedHostedDomains) && Any(p, "groups", o.AllowedGroups);
+    private static bool Policy(JsonElement p, ProviderOptions o)
+    {
+        string? hostedDomain = p.TryGetProperty("hd", out JsonElement hd) && hd.ValueKind == JsonValueKind.String
+            ? hd.GetString()
+            : null;
+        return HostedDomainPolicy.Matches(hostedDomain, o.AllowedHostedDomains) && Any(p, "groups", o.AllowedGroups);
+    }
     private static bool Any(JsonElement p, string claim, List<string>? allowed) { if (allowed is not { Count: > 0 }) return true; if (!p.TryGetProperty(claim, out var v)) return false; return v.ValueKind == JsonValueKind.Array ? v.EnumerateArray().Any(x => allowed.Contains(x.GetString()!)) : allowed.Contains(v.GetString()!); }
     private static byte[] Decode(string value) { string s = value.Replace('-', '+').Replace('_', '/'); if (s.Length % 4 == 2) s += "=="; else if (s.Length % 4 == 3) s += "="; return Convert.FromBase64String(s); }
 }

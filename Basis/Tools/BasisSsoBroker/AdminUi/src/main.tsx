@@ -26,8 +26,10 @@ type Notice = { type: "success" | "error"; text: string } | null;
 type OrganizationForm = {
   displayName: string;
   googleEnabled: boolean;
-  googleClientId: string;
-  googleClientSecret: string;
+  googleWebClientId: string;
+  googleWebClientSecret: string;
+  googleNativeClientId: string;
+  googleNativeClientSecret: string;
   googleDomains: string;
   oktaEnabled: boolean;
   oktaIssuer: string;
@@ -47,8 +49,10 @@ const find = (providers: Provider[], id: string) =>
 const blankForm = (): OrganizationForm => ({
   displayName: "",
   googleEnabled: true,
-  googleClientId: "",
-  googleClientSecret: "",
+  googleWebClientId: "",
+  googleWebClientSecret: "",
+  googleNativeClientId: "",
+  googleNativeClientSecret: "",
   googleDomains: "",
   oktaEnabled: false,
   oktaIssuer: "",
@@ -63,9 +67,11 @@ const formFromOrganization = (organization: Organization): OrganizationForm => {
   const okta = find(organization.providers, "okta");
   return {
     displayName: organization.displayName ?? "",
-    googleEnabled: Boolean(google?.audience),
-    googleClientId: google?.audience ?? "",
-    googleClientSecret: google?.clientSecret ?? "",
+    googleEnabled: Boolean(google?.webClientId),
+    googleWebClientId: google?.webClientId ?? "",
+    googleWebClientSecret: google?.webClientSecret ?? "",
+    googleNativeClientId: google?.audience ?? "",
+    googleNativeClientSecret: google?.clientSecret ?? "",
     googleDomains: (google?.allowedHostedDomains ?? []).join(", "),
     oktaEnabled: Boolean(okta?.issuer && okta?.audience && okta?.jwksUri),
     oktaIssuer: okta?.issuer ?? "",
@@ -81,10 +87,13 @@ const organizationFromForm = (form: OrganizationForm): Organization => {
   if (form.googleEnabled)
     providers.push({
       id: "google",
-      label: "Google Workspace",
+      label: "Google organization account",
       issuer: "https://accounts.google.com",
-      audience: form.googleClientId.trim(),
-      clientSecret: form.googleClientSecret,
+      audience: form.googleNativeClientId.trim() || undefined,
+      clientSecret: form.googleNativeClientSecret || undefined,
+      webClientId: form.googleWebClientId.trim(),
+      webClientSecret: form.googleWebClientSecret || undefined,
+      tokenEndpoint: "https://oauth2.googleapis.com/token",
       jwksUri: "https://www.googleapis.com/oauth2/v3/certs",
       allowedHostedDomains: csv(form.googleDomains),
       allowedGroups: [],
@@ -109,9 +118,9 @@ const organizationFromForm = (form: OrganizationForm): Organization => {
 
 const validateOrganizationForm = (form: OrganizationForm): string | null => {
   if (!form.googleEnabled && !form.oktaEnabled)
-    return "Google Workspace または Okta を少なくとも一つ有効にしてください。";
-  if (form.googleEnabled && !form.googleClientId.trim())
-    return "Google Workspace の OAuth Client ID を入力してください。";
+    return "Google organization account または Okta を少なくとも一つ有効にしてください。";
+  if (form.googleEnabled && !form.googleWebClientId.trim())
+    return "Google Web OAuth Client ID を入力してください。";
   if (
     form.oktaEnabled &&
     (!form.oktaIssuer.trim() ||
@@ -133,7 +142,7 @@ function Page({
     <div className="control-plane-shell">
       <div className="control-plane-top-navigation">
         <TopNavigation
-          identity={{ href: "/", title: "SekaiMate Console" }}
+          identity={{ href: "/admin", title: "SekaiMate Console" }}
         />
       </div>
       <main className="control-plane-main">
@@ -264,8 +273,6 @@ function OrganizationSettings({
   const navigate = useNavigate();
   const [form, setForm] = useState<OrganizationForm>(blankForm);
   const [notice, setNotice] = useState<Notice>(null);
-  const [enrollmentUrl, setEnrollmentUrl] = useState<string | null>(null);
-  const [enrollmentIssued, setEnrollmentIssued] = useState(false);
   const [busy, setBusy] = useState(false);
   const update = <K extends keyof OrganizationForm>(
     key: K,
@@ -303,25 +310,6 @@ function OrganizationSettings({
     }
   };
 
-  const issueEnrollment = async () => {
-    setBusy(true);
-    try {
-      const result = await api.issueEnrollment("local");
-      setEnrollmentUrl(result.url);
-      setEnrollmentIssued(true);
-    } catch (error) {
-      setNotice({
-        type: "error",
-        text:
-          error instanceof Error
-            ? error.message
-            : "組織設定 URL を発行できませんでした。",
-      });
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
     <Page
       notifications={
@@ -343,13 +331,6 @@ function OrganizationSettings({
           }
           actions={
             <SpaceBetween direction="horizontal" size="xs">
-              <Button
-                formAction="none"
-                onClick={() => void issueEnrollment()}
-                disabled={busy}
-              >
-                組織設定 URL を発行
-              </Button>
               <Button
                 variant="primary"
                 onClick={() => void save()}
@@ -374,9 +355,9 @@ function OrganizationSettings({
               header={
                 <Header
                   variant="h2"
-                  description="Google Workspace の hosted domain で参加者を限定できます。"
+                  description="Google組織アカウントのhosted domainで参加者を限定できます。"
                 >
-                  Google Workspace
+                  Google organization account
                 </Header>
               }
             >
@@ -387,21 +368,24 @@ function OrganizationSettings({
                     update("googleEnabled", detail.checked)
                   }
                 >
-                  Google Workspace を有効にする
+                  Google organization accountを有効にする
                 </Toggle>
                 <ColumnLayout columns={2}>
-                  <FormField label="OAuth Client ID">
+                  <FormField
+                    label="Web OAuth Client ID"
+                    description="Google Cloud Consoleで種類をウェブアプリケーションとして作成したClient IDです。"
+                  >
                     <Input
-                      value={form.googleClientId}
+                      value={form.googleWebClientId}
                       onChange={({ detail }) =>
-                        update("googleClientId", detail.value)
+                        update("googleWebClientId", detail.value)
                       }
                       placeholder="…apps.googleusercontent.com"
                     />
                   </FormField>
                   <FormField
                     label="許可ドメイン"
-                    description="カンマ区切り。空欄なら全ドメインを許可します。"
+                    description="カンマ区切り。*はGoogle組織アカウントを必須にします。空欄なら全Googleアカウントを許可します。"
                   >
                     <Input
                       value={form.googleDomains}
@@ -411,12 +395,19 @@ function OrganizationSettings({
                       placeholder="mimifuwa.cc"
                     />
                   </FormField>
-                  <SecretField
-                    label="OAuth Client secret"
-                    value={form.googleClientSecret}
-                    onChange={(value) => update("googleClientSecret", value)}
-                    description="Desktop app では通常不要です。"
-                  />
+                  <FormField
+                    label="Web OAuth Client secret"
+                    description="Brokerのサーバー側設定に保存します。WebGLや参加者向け設定には返しません。空欄にすると既存の環境変数を使います。"
+                  >
+                    <Input
+                      type="password"
+                      value={form.googleWebClientSecret}
+                      onChange={({ detail }) =>
+                        update("googleWebClientSecret", detail.value)
+                      }
+                      placeholder="Google OAuth Client secret"
+                    />
+                  </FormField>
                 </ColumnLayout>
               </SpaceBetween>
             </Container>
@@ -485,7 +476,6 @@ function OrganizationSettings({
             </Container>
           </SpaceBetween>
         </Form>
-        {enrollmentUrl && <IssuedLinkCard title="組織設定 URL" description="会議に入らず、この URL を開いた端末の Basis に組織設定だけを適用します。" url={enrollmentUrl} statusText="組織設定 URL を発行しました。必要な端末で URL を開いてください。" validityText="この URL は 10 分間・一回限りです。" />}
       </SpaceBetween>
     </Page>
   );
@@ -640,9 +630,36 @@ function Meetings({
   );
 }
 
+function AdminLogin({ onLogin }: { onLogin(token: string): void }) {
+  const [token, setToken] = useState("");
+  return (
+    <Page>
+      <Container header={<Header variant="h2">管理者認証</Header>}>
+        <SpaceBetween size="m">
+          <SecretField
+            label="管理トークン"
+            value={token}
+            onChange={setToken}
+            description="サーバーのBASIS_SSO_ADMIN_TOKENを入力してください。ブラウザを閉じると消去されます。"
+          />
+          <Button variant="primary" disabled={token.length < 32} onClick={() => onLogin(token)}>
+            ログイン
+          </Button>
+        </SpaceBetween>
+      </Container>
+    </Page>
+  );
+}
+
 function AdminApp() {
+  const [adminToken, setAdminToken] = useState(() => sessionStorage.getItem("basis.sso.adminToken") ?? "");
   const [meetings, setMeetings] = useState<Meeting[]>([]);
-  const api = useMemo(() => new ControlPlaneApi(), []);
+  const api = useMemo(() => new ControlPlaneApi(adminToken), [adminToken]);
+  if (!adminToken)
+    return <AdminLogin onLogin={(token) => {
+      sessionStorage.setItem("basis.sso.adminToken", token);
+      setAdminToken(token);
+    }} />;
   const refresh = async () => {
     const next = await api.listMeetings();
     setMeetings(next);

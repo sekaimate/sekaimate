@@ -67,6 +67,9 @@ public static partial class BasisEncryptionWrapper
 
     public static Task EncryptFileAsync(string UniqueID, BasisPassword password, string inputPath, string outputPath, BasisProgressReport reportProgress)
     {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        return EncryptFileInternalAsync(UniqueID, password, inputPath, outputPath, reportProgress);
+#else
         var inputFileInfo = new FileInfo(inputPath);
 
         if (inputFileInfo.Length > LargeFileThreshold)
@@ -79,6 +82,7 @@ public static partial class BasisEncryptionWrapper
             // Run directly (async IO) for small files
             return EncryptFileInternalAsync(UniqueID, password, inputPath, outputPath, reportProgress);
         }
+#endif
     }
 
     private static async Task EncryptFileInternalAsync(string UniqueID, BasisPassword password, string inputPath, string outputPath, BasisProgressReport reportProgress)
@@ -150,7 +154,11 @@ public static partial class BasisEncryptionWrapper
         BasisProgressReport reportProgress,
         CancellationToken ct = default)
     {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        return DecryptFromBytesInternalAsync(UniqueID, password, encryptedData, reportProgress, ct);
+#else
         return Task.Run(() => DecryptFromBytesInternalAsync(UniqueID, password, encryptedData, reportProgress, ct), ct);
+#endif
     }
 
     private static async Task<BasisDecryptResult> DecryptFromBytesInternalAsync(
@@ -235,10 +243,19 @@ public static partial class BasisEncryptionWrapper
                 {
                     ct.ThrowIfCancellationRequested();
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+                    int bytesRead = cryptoStream.Read(buffer, 0, bufferSize);
+#else
                     int bytesRead = await cryptoStream.ReadAsync(buffer.AsMemory(0, bufferSize), ct);
+#endif
                     if (bytesRead <= 0) break;
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+                    msOutput.Write(buffer, 0, bytesRead);
+                    await Task.Yield();
+#else
                     await msOutput.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
+#endif
 
                     totalRead += bytesRead;
 

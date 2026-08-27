@@ -158,6 +158,7 @@ MonoBehaviour:
   - Basis.Scripts.Vehicles.Parts.BasisVehicleEngineAudio
   - Basis.Network.Vehicles.BasisNetworkedVehicle
   - UnityEngine.AudioSource
+  - BasisWebRuntimePcmAudioSource
   - UnityEngine.AudioLowPassFilter
   - UnityEngine.AudioHighPassFilter
   - UnityEngine.AudioChorusFilter

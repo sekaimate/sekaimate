@@ -168,6 +168,11 @@ public static class BasisLogBundleReceiver
         bool compressed = _isCompressed;
         string serverNameSafe = _serverNameSafe;
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+        Reset();
+        BasisUILoadingBar.ProgressReport(ProgressKey, 95f, ExtractLabel);
+        BasisWebLogBundleDownload.Start(payload, payloadLen, rawLen, compressed, serverNameSafe);
+#else
         // persistentDataPath must be read on the main thread; we are on it (AdminMessage runs main-thread).
         string root = Path.Combine(Application.persistentDataPath, "PulledServerLogs");
         string stamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
@@ -176,27 +181,15 @@ public static class BasisLogBundleReceiver
 
         BasisUILoadingBar.ProgressReport(ProgressKey, 95f, ExtractLabel);
         _ = Task.Run(() => ExpandAndNotify(payload, payloadLen, rawLen, compressed, destDir));
+#endif
     }
 
     private static void ExpandAndNotify(byte[] payload, int payloadLen, int rawLen, bool compressed, string destDir)
     {
         try
         {
-            byte[] raw;
-            if (compressed)
-            {
-                raw = new byte[rawLen];
-                int decoded = LZ4Codec.Decode(payload, 0, payloadLen, raw, 0, rawLen);
-                if (decoded != rawLen)
-                {
-                    throw new InvalidDataException($"LZ4 decode produced {decoded} bytes, expected {rawLen}.");
-                }
-            }
-            else
-            {
-                raw = payload;
-                rawLen = payloadLen;
-            }
+            byte[] raw = DecodePayload(payload, payloadLen, rawLen, compressed);
+            rawLen = raw.Length;
 
             int fileCount = ExtractContainer(raw, rawLen, destDir);
 
@@ -213,6 +206,45 @@ public static class BasisLogBundleReceiver
                 BasisNetworkModeration.DisplayMessage($"Failed to save server logs: {e.Message}"));
         }
     }
+
+    internal static byte[] DecodePayload(byte[] payload, int payloadLen, int rawLen, bool compressed)
+    {
+        if (!compressed)
+        {
+            if (payloadLen == payload.Length)
+            {
+                return payload;
+            }
+
+            byte[] exactPayload = new byte[payloadLen];
+            Buffer.BlockCopy(payload, 0, exactPayload, 0, payloadLen);
+            return exactPayload;
+        }
+
+        byte[] raw = new byte[rawLen];
+        int decoded = LZ4Codec.Decode(payload, 0, payloadLen, raw, 0, rawLen);
+        if (decoded != rawLen)
+        {
+            throw new InvalidDataException($"LZ4 decode produced {decoded} bytes, expected {rawLen}.");
+        }
+        return raw;
+    }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+    internal static void CompleteBrowserDownload(int fileCount)
+    {
+        BasisDebug.Log($"Downloaded {fileCount} server log file(s) as a ZIP archive.", BasisDebug.LogTag.Networking);
+        ClearProgress();
+        BasisNetworkModeration.DisplayMessage($"Downloaded {fileCount} server log file(s).");
+    }
+
+    internal static void FailBrowserDownload(Exception exception)
+    {
+        BasisDebug.LogError($"Failed to download server logs: {exception.Message}");
+        ClearProgress();
+        BasisNetworkModeration.DisplayMessage($"Failed to download server logs: {exception.Message}");
+    }
+#endif
 
     private static int ExtractContainer(byte[] raw, int rawLen, string destDir)
     {

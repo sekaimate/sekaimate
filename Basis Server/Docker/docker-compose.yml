@@ -8,6 +8,7 @@ services:
     restart: unless-stopped
     environment:
       SetPort: 4296
+      HealthCheckHost: "*"
       HealthCheckPort: 10666
       PromethusPort: 1234
       Password: default_password
@@ -16,8 +17,9 @@ services:
       EnableConsole: false
     ports:
       - "4296:4296/udp"
+      - "4297:4297/tcp"
       - "10666:10666/tcp"
       - "1234:1234/tcp"
     volumes:
-      - ./initialresources:/app/initialresources:ro
-      - ./config:/app/config
+      - ${BASIS_SERVER_INITIAL_RESOURCES_DIR:-./initialresources}:/app/initialresources:ro
+      - ${BASIS_SERVER_CONFIG_DIR:-./config}:/app/config

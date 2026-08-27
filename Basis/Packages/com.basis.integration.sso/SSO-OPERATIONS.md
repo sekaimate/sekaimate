@@ -10,9 +10,9 @@ server's pinned X25519 public key using an ephemeral X25519 key and ChaCha20-Pol
 
 The normal deployment does not embed organization OAuth values in
 `Assets/StreamingAssets/basis-sso.json`. Configure Google / Okta in the organization control
-plane, then either use **Basis に組織設定を送る** or open a meeting invitation while Basis is
-running. The broker applies the current organization configuration only to the running client;
-it is not written back into the build. Create public/native applications in both identity
+plane, then open a meeting invitation. The invitation carries the current organization
+configuration to the client only when it is needed; it is not written back into the build.
+Create public/native applications in both identity
 providers and use Authorization Code with PKCE. If a provider requires a native-client
 `clientSecret`, it is used only during the HTTPS token exchange with that provider; it is never
 sent to the Basis server or broker.
@@ -39,6 +39,24 @@ require agreement between the broker and the UDP server.
 The broker enforces Google Workspace `hd` and Okta `groups` policies. Use `hd` rather than an
 email suffix for Google, and configure the Okta authorization server to emit `groups` in its ID
 token.
+
+## Web meeting invitations
+
+Web participant URLs contain only the opaque meeting invitation token. They do not contain the
+server password, generated username, OAuth client secret, or WebSocket URL. The WebGL client
+fetches a short response from `/join/{token}/web-manifest` over HTTPS, obtains the organization
+configuration from the returned `configUrl`, and only then starts the SSO-gated connection.
+
+The invitation token is still a bearer capability: anyone who obtains the invitation URL can
+attempt to join until the invitation is revoked or expires. Use HTTPS in production, keep the
+broker's allowed Web origins narrow, and do not put invitation URLs in public logs or analytics.
+
+For the local Docker deployment, the admin gateway terminates HTTPS at
+`https://127.0.0.1:5081`. It generates a development CA and leaf certificate under
+`Basis Server/Docker/sso/certs/`; that directory is ignored by git. Trust
+`basis-local-ca.crt` in the development machine's keychain before opening the WebGL client, or
+the browser will reject the manifest and OIDC configuration requests. The broker itself remains
+HTTP-only on the private Compose network; only the browser-facing gateway is TLS-terminated.
 
 ## Accessing server settings
 

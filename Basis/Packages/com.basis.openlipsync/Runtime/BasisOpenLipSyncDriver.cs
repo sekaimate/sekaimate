@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using OpenLipSync.Inference;
+using System.Threading.Tasks;
 using OpenLipSync.Inference.OVRCompat;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
@@ -24,7 +24,7 @@ public static class BasisOpenLipSyncDriver
     public const string ModelAddress = "Packages/com.basisvr.openlipsync/OpenLipSync/model.onnx.bytes";
     public const string ConfigAddress = "Packages/com.basisvr.openlipsync/OpenLipSync/config.json";
 
-    private static OpenLipSyncBackend _backend;
+    private static IBasisOpenLipSyncBackend _backend;
     private static readonly Dictionary<EntityId, uint> _playerToContext = new Dictionary<EntityId, uint>();
     private static readonly Dictionary<EntityId, Action> _slotRevokedCallbacks = new Dictionary<EntityId, Action>();
     private static readonly Stack<uint> _contextPool = new Stack<uint>();
@@ -34,29 +34,26 @@ public static class BasisOpenLipSyncDriver
 
     public static AsyncOperationHandle<TextAsset> modelAsset;
     public static AsyncOperationHandle<TextAsset> configAsset;
-    public static void BeginInitialize()
-    {
-        if (_initialized || modelAsset.IsValid()) return;
-
-        modelAsset = Addressables.LoadAssetAsync<TextAsset>(ModelAddress);
-        configAsset = Addressables.LoadAssetAsync<TextAsset>(ConfigAddress);
-    }
-
-    public static void EndInitialize()
+    public static async Task InitializeAsync()
     {
         if (_initialized) return;
+#if UNITY_WEBGL && !UNITY_EDITOR
+        await Task.CompletedTask;
+        return;
+#else
 
         try
         {
             if (!modelAsset.IsValid())
             {
-                BeginInitialize();
+                modelAsset = Addressables.LoadAssetAsync<TextAsset>(ModelAddress);
+                configAsset = Addressables.LoadAssetAsync<TextAsset>(ConfigAddress);
             }
 
-            modelAsset.WaitForCompletion();
+            await modelAsset.Task;
             if (configAsset.IsValid())
             {
-                configAsset.WaitForCompletion();
+                await configAsset.Task;
             }
 
             if (!modelAsset.IsValid() || modelAsset.Status != AsyncOperationStatus.Succeeded || modelAsset.Result == null)
@@ -66,7 +63,13 @@ public static class BasisOpenLipSyncDriver
                 return;
             }
 
-            _backend = new OpenLipSyncBackend();
+            _backend = BasisOpenLipSyncBackendRegistry.Create();
+            if (_backend == null)
+            {
+                BasisDebug.LogWarning("[OpenLipSync] Native backend is unavailable");
+                ReleaseHandles();
+                return;
+            }
             string configJson = configAsset.IsValid() && configAsset.Status == AsyncOperationStatus.Succeeded && configAsset.Result != null
                 ? configAsset.Result.text
                 : null;
@@ -93,12 +96,7 @@ public static class BasisOpenLipSyncDriver
             BasisDebug.LogWarning($"[OpenLipSync] Initialization exception: {ex.Message}");
             Shutdown();
         }
-    }
-
-    public static void Initialize()
-    {
-        BeginInitialize();
-        EndInitialize();
+#endif
     }
 
     private static void ReleaseHandles()

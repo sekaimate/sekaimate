@@ -104,7 +104,6 @@ namespace SteamAudio
                 NamedBuildTarget.Standalone,
                 NamedBuildTarget.Android,
                 NamedBuildTarget.iOS,
-                NamedBuildTarget.WebGL,
             };
 
             foreach (var supportedPlatform in supportedPlatforms)
@@ -121,6 +120,13 @@ namespace SteamAudio
 
                     PlayerSettings.SetScriptingDefineSymbols(supportedPlatform, defines);
                 }
+            }
+
+            var webDefines = PlayerSettings.GetScriptingDefineSymbols(NamedBuildTarget.WebGL);
+            var webDefineList = new System.Collections.Generic.List<string>(webDefines.Split(';'));
+            if (webDefineList.Remove("STEAMAUDIO_ENABLED"))
+            {
+                PlayerSettings.SetScriptingDefineSymbols(NamedBuildTarget.WebGL, string.Join(";", webDefineList));
             }
 #endif
         }

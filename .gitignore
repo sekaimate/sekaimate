@@ -5,9 +5,18 @@
 [Bb]in/
 [Oo]bj/
 
+# Local WebGL builds and downloaded BEE fixtures
+/Build/
+/.env.local
+/local/
+
+# Unity Performance Test runner output
+/Basis/Assets/Resources/PerformanceTestRun*.json*
+
 # Nix stuff
 .direnv/
 .envrc
+.cache/
 
 # Jetbrains Rider
 .idea/
@@ -33,6 +42,12 @@
 __pycache__/
 *.pyc
 
+/Basis/Tests/WebAudioE2E/node_modules/
+/Basis/Tests/WebAudioE2E/playwright-report/
+/Basis/Tests/WebAudioE2E/test-results/
+
 CLAUDE.md
 .claude
 .wolf
+
+.playwright-mcp/

@@ -127,15 +127,6 @@ public static class BasisAssetBundlePipeline
             if (isScene) OnAfterBuildScene?.Invoke(uniqueID);
             else OnAfterBuildPrefab?.Invoke(uniqueID);
 
-            // keep your original backend reset logic
-            BuildTarget buildTarget = EditorUserBuildSettings.activeBuildTarget;
-            BuildTargetGroup targetGroup = BuildPipeline.GetBuildTargetGroup(buildTarget);
-            var namedBuildTarget = UnityEditor.Build.NamedBuildTarget.FromBuildTargetGroup(targetGroup);
-            if (ScriptingImplementation.Mono2x != PlayerSettings.GetScriptingBackend(namedBuildTarget))
-            {
-                PlayerSettings.SetScriptingBackend(namedBuildTarget, ScriptingImplementation.Mono2x);
-            }
-
             return new(true, value);
         }
         catch (Exception ex)
@@ -153,14 +144,6 @@ public static class BasisAssetBundlePipeline
                     BasisEditorLocalization.Get("sdk.common.build.failedDialog.title"),
                     BasisEditorLocalization.Get("sdk.common.build.failedDialog.body", ex),
                     BasisEditorLocalization.Get("sdk.common.dialog.ok"));
-            }
-
-            BuildTarget buildTarget = EditorUserBuildSettings.activeBuildTarget;
-            BuildTargetGroup targetGroup = BuildPipeline.GetBuildTargetGroup(buildTarget);
-            var namedBuildTarget = UnityEditor.Build.NamedBuildTarget.FromBuildTargetGroup(targetGroup);
-            if (ScriptingImplementation.Mono2x != PlayerSettings.GetScriptingBackend(namedBuildTarget))
-            {
-                PlayerSettings.SetScriptingBackend(namedBuildTarget, ScriptingImplementation.Mono2x);
             }
 
             return new(false, (null, new AssetBundleBuilder.InformationHash()));

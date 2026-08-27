@@ -231,6 +231,12 @@ namespace Basis.Scripts.UI.NamePlate
             panelMaterial = panelMat;
             layer = plateLayer;
 
+            bool supportsGpuBillboarding = SystemInfo.supportsComputeShaders
+                && SystemInfo.maxComputeBufferInputsVertex > 0
+                && SystemInfo.graphicsShaderLevel >= 45;
+            GpuBillboardPanel &= supportsGpuBillboarding;
+            GpuBillboardText &= supportsGpuBillboarding;
+
             if (initialized)
             {
                 if (panel != null && panel.Renderer != null && panel.Renderer.sharedMaterial != panelMaterial)
@@ -974,6 +980,7 @@ namespace Basis.Scripts.UI.NamePlate
 
             var bm = new Material(tmpMat) { name = tmpMat.name + " (NamePlate GPU)" };
             bm.shader = textBillboardShader;
+            bm.EnableKeyword(GpuKeyword);
             if (plateMatrixBuffer != null) bm.SetBuffer(PlateMatricesId, plateMatrixBuffer);
             textBillboardMats[tmpMat] = bm;
             return bm;

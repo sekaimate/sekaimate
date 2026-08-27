@@ -59,7 +59,6 @@ public static class BasisClientMessageRegistry
         LastSupply = supply.Descriptors ?? System.Array.Empty<SerializableBasis.BasisMessageDescriptor>();
 
         PluginDescriptorsByName.Clear();
-        List<ushort> handled = new List<ushort>(LastSupply.Length);
         foreach (SerializableBasis.BasisMessageDescriptor descriptor in LastSupply)
         {
             if (BasisNetworkCommons.IsPluginChannel(descriptor.Channel))
@@ -68,6 +67,22 @@ public static class BasisClientMessageRegistry
                 if (PluginHandlersByName.TryGetValue(descriptor.Name, out BasisClientMessageHandler handler))
                 {
                     PluginHandlers[descriptor.Id] = handler;
+                }
+            }
+        }
+
+        SendSubscription(peer);
+    }
+
+    private static void SendSubscription(NetPeer peer)
+    {
+        List<ushort> handled = new List<ushort>(LastSupply.Length);
+        foreach (SerializableBasis.BasisMessageDescriptor descriptor in LastSupply)
+        {
+            if (BasisNetworkCommons.IsPluginChannel(descriptor.Channel))
+            {
+                if (PluginHandlers.ContainsKey(descriptor.Id))
+                {
                     handled.Add(descriptor.Id);
                 }
             }
@@ -94,6 +109,11 @@ public static class BasisClientMessageRegistry
         if (PluginDescriptorsByName.TryGetValue(name, out SerializableBasis.BasisMessageDescriptor descriptor))
         {
             PluginHandlers[descriptor.Id] = handler;
+            NetPeer peer = BasisNetworkConnection.LocalPlayerPeer;
+            if (peer != null)
+            {
+                SendSubscription(peer);
+            }
         }
     }
 
@@ -104,6 +124,11 @@ public static class BasisClientMessageRegistry
         if (PluginDescriptorsByName.TryGetValue(name, out SerializableBasis.BasisMessageDescriptor descriptor))
         {
             PluginHandlers.TryRemove(descriptor.Id, out _);
+            NetPeer peer = BasisNetworkConnection.LocalPlayerPeer;
+            if (peer != null)
+            {
+                SendSubscription(peer);
+            }
         }
     }
 

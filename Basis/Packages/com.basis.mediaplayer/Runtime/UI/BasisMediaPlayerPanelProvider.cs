@@ -1163,7 +1163,7 @@ namespace Basis.BasisUI.MediaPlayer
             }
 
             _debugBuilder.Clear();
-            var eng = _activePlayer.NativeEngine;
+            var eng = _activePlayer.PlatformEngine;
             string backend = eng != null ? "OS-codec engine" : (_activePlayer.Source != null ? _activePlayer.Source.GetType().Name : "(no source)");
             _debugBuilder.Append("Backend: ").Append(backend).Append('\n');
 

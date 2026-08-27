@@ -70,8 +70,9 @@ namespace Basis.BasisUI
             copyButton.Descriptor.SetTooltip(BasisLocalization.Get("settings.developer.bugReport.copy.tooltip"));
             copyButton.OnClicked += () =>
             {
-                GUIUtility.systemCopyBuffer = BuildMarkdown(summaryField, describeField, reproField, expectedField, contextField);
-                Notify("settings.developer.bugReport.copied");
+                global::BasisClipboard.WriteText(
+                    BuildMarkdown(summaryField, describeField, reproField, expectedField, contextField),
+                    () => Notify("settings.developer.bugReport.copied"));
             };
 
             PanelElementDescriptor[] gated =
@@ -145,7 +146,7 @@ namespace Basis.BasisUI
 
             if (trimmed)
             {
-                GUIUtility.systemCopyBuffer = BuildMarkdown(summary, describe, repro, expected, context);
+                global::BasisClipboard.WriteText(BuildMarkdown(summary, describe, repro, expected, context));
             }
 
             Application.OpenURL(url);

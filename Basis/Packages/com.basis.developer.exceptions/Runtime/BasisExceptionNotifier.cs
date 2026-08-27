@@ -83,7 +83,7 @@ namespace Basis.BasisUI
                         BasisLocalization.Get("notification.exception.dismiss"),
                         accepted =>
                         {
-                            if (accepted) GUIUtility.systemCopyBuffer = details;
+                            if (accepted) global::BasisClipboard.WriteText(details);
                         },
                         divertible: true);
 

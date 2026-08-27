@@ -77,6 +77,7 @@ public static class BasisIOManagement
             nameof(RuntimePlatform.OSXPlayer) => "StandaloneOSX",
             nameof(RuntimePlatform.Android) => "Android",
             nameof(RuntimePlatform.IPhonePlayer) => "iOS",
+            nameof(RuntimePlatform.WebGLPlayer) => "WebGL",
             _ => normalized,
         };
     }
@@ -482,7 +483,7 @@ public static class BasisIOManagement
             return BeeResult<BeeReadResult>.Fail("ReadBEEFileEx: VP is null or empty.");
         }
 
-        using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 96 * 1024, useAsync: true);
+        using var fs = CreateCacheReadStream(filePath);
 
         if (fs.Length < BasisBeeConstants.DiskHeaderSize)
         {
@@ -490,7 +491,7 @@ public static class BasisIOManagement
         }
 
         // Read Int32 connector size (little-endian)
-        byte[] sizeBytes = await ReadExactAsync(fs, BasisBeeConstants.DiskHeaderSize, cancellationToken).ConfigureAwait(false);
+        byte[] sizeBytes = await ReadExactAsync(fs, BasisBeeConstants.DiskHeaderSize, cancellationToken).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
         if (sizeBytes.Length != BasisBeeConstants.DiskHeaderSize)
         {
             return BeeResult<BeeReadResult>.Fail($"ReadBEEFileEx: Failed to read connector size (header). Got {sizeBytes.Length} bytes.");
@@ -504,13 +505,14 @@ public static class BasisIOManagement
         }
 
         // Read connector bytes
-        byte[] connectorBytes = await ReadExactAsync(fs, connectorSize, cancellationToken).ConfigureAwait(false);
+        byte[] connectorBytes = await ReadExactAsync(fs, connectorSize, cancellationToken).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
         if (connectorBytes.Length != connectorSize)
         {
             return BeeResult<BeeReadResult>.Fail($"ReadBEEFileEx: Failed to read full connector block. Expected {connectorSize}, got {connectorBytes.Length}.");
         }
 
-        BasisBundleConnector connector = await BasisEncryptionToData.GenerateMetaFromBytes(vp, connectorBytes, progressCallback).ConfigureAwait(false);
+        BasisBundleConnector connector = await BasisEncryptionToData.GenerateMetaFromBytes(vp, connectorBytes, progressCallback).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
+        BasisDebug.Log("GenerateMetaFromBytes", BasisDebug.LogTag.Event);
 
         if (connector == null)
             return BeeResult<BeeReadResult>.Fail("ReadBEEFileEx: Failed to regenerate connector metadata (null).");
@@ -526,7 +528,7 @@ public static class BasisIOManagement
         }
         else
         {
-            sectionData = await ReadExactAsync(fs, checked((int)remaining), cancellationToken).ConfigureAwait(false);
+            sectionData = await ReadExactAsync(fs, checked((int)remaining), cancellationToken).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
             if (sectionData == null || sectionData.LongLength != remaining)
             {
                 return BeeResult<BeeReadResult>.Fail($"ReadBEEFileEx: Failed to read full section data. Expected {remaining}, got {sectionData?.LongLength ?? 0}.");
@@ -549,13 +551,13 @@ public static class BasisIOManagement
         if (string.IsNullOrWhiteSpace(vp))
             return BeeResult<BeeReadResult>.Fail("ReadBEEFileEx: VP is null or empty.");
 
-        using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 96 * 1024, useAsync: true);
+        using var fs = CreateCacheReadStream(filePath);
 
         if (fs.Length < BasisBeeConstants.DiskHeaderSize)
             return BeeResult<BeeReadResult>.Fail($"ReadBEEFileEx: File too small to contain header. Size={fs.Length} bytes.");
 
         // Read Int32 connector size (little-endian)
-        byte[] sizeBytes = await ReadExactAsync(fs, BasisBeeConstants.DiskHeaderSize, cancellationToken).ConfigureAwait(false);
+        byte[] sizeBytes = await ReadExactAsync(fs, BasisBeeConstants.DiskHeaderSize, cancellationToken).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
         if (sizeBytes.Length != BasisBeeConstants.DiskHeaderSize)
             return BeeResult<BeeReadResult>.Fail($"ReadBEEFileEx: Failed to read connector size (header). Got {sizeBytes.Length} bytes.");
 
@@ -565,11 +567,12 @@ public static class BasisIOManagement
             return BeeResult<BeeReadResult>.Fail($"ReadBEEFileEx: Invalid connector size {connectorSize}. Remaining file bytes: {remainingPossible}. File may be corrupt.");
 
         // Read connector bytes
-        byte[] connectorBytes = await ReadExactAsync(fs, connectorSize, cancellationToken).ConfigureAwait(false);
+        byte[] connectorBytes = await ReadExactAsync(fs, connectorSize, cancellationToken).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
         if (connectorBytes.Length != connectorSize)
             return BeeResult<BeeReadResult>.Fail($"ReadBEEFileEx: Failed to read full connector block. Expected {connectorSize}, got {connectorBytes.Length}.");
 
-        BasisBundleConnector connector = await BasisEncryptionToData.GenerateMetaFromBytes(vp, connectorBytes, progressCallback).ConfigureAwait(false);
+        BasisBundleConnector connector = await BasisEncryptionToData.GenerateMetaFromBytes(vp, connectorBytes, progressCallback).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
+        BasisDebug.Log("GenerateMetaFromBytes", BasisDebug.LogTag.Event);
 
         if (connector == null)
             return BeeResult<BeeReadResult>.Fail("ReadBEEFileEx: Failed to regenerate connector metadata (null).");
@@ -594,12 +597,12 @@ public static class BasisIOManagement
         if (string.IsNullOrWhiteSpace(vp))
             return BeeResult<BeeReadResult>.Fail("ReadRemoteBeeFromDiskEx: VP is null or empty.");
 
-        using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 96 * 1024, useAsync: true);
+        using var fs = CreateCacheReadStream(filePath);
 
         if (fs.Length < BasisBeeConstants.RemoteHeaderSize)
             return BeeResult<BeeReadResult>.Fail($"ReadRemoteBeeFromDiskEx: File too small to contain remote header. Size={fs.Length} bytes.");
 
-        byte[] headerBytes = await ReadExactAsync(fs, BasisBeeConstants.RemoteHeaderSize, cancellationToken).ConfigureAwait(false);
+        byte[] headerBytes = await ReadExactAsync(fs, BasisBeeConstants.RemoteHeaderSize, cancellationToken).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
         if (headerBytes.Length != BasisBeeConstants.RemoteHeaderSize)
             return BeeResult<BeeReadResult>.Fail($"ReadRemoteBeeFromDiskEx: Failed to read remote header. Got {headerBytes.Length} bytes.");
 
@@ -614,11 +617,11 @@ public static class BasisIOManagement
         if (connectorLength > remainingAfterHeader)
             return BeeResult<BeeReadResult>.Fail($"ReadRemoteBeeFromDiskEx: Connector length {connectorLength} exceeds file remainder {remainingAfterHeader}.");
 
-        byte[] connectorBytes = await ReadExactAsync(fs, checked((int)connectorLength), cancellationToken).ConfigureAwait(false);
+        byte[] connectorBytes = await ReadExactAsync(fs, checked((int)connectorLength), cancellationToken).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
         if (connectorBytes.LongLength != connectorLength)
             return BeeResult<BeeReadResult>.Fail($"ReadRemoteBeeFromDiskEx: Failed to read full connector block. Expected {connectorLength}, got {connectorBytes.Length}.");
 
-        BasisBundleConnector connector = await BasisEncryptionToData.GenerateMetaFromBytes(vp, connectorBytes, progressCallback).ConfigureAwait(false);
+        BasisBundleConnector connector = await BasisEncryptionToData.GenerateMetaFromBytes(vp, connectorBytes, progressCallback).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
         if (connector == null)
             return BeeResult<BeeReadResult>.Fail("ReadRemoteBeeFromDiskEx: Failed to parse connector metadata (null).");
 
@@ -688,7 +691,7 @@ public static class BasisIOManagement
             return BeeResult<BeeReadResult>.Fail($"ReadRemoteBeeFromDiskEx: No platform-matching section found. Platform Request was {Application.platform}. {BasisBundleConnector.DebugOfPlatforms(connector)}");
 
         fs.Seek(matchOffset, SeekOrigin.Begin);
-        byte[] platformSectionData = await ReadExactAsync(fs, checked((int)matchLength), cancellationToken).ConfigureAwait(false);
+        byte[] platformSectionData = await ReadExactAsync(fs, checked((int)matchLength), cancellationToken).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
         if (platformSectionData.LongLength != matchLength)
             return BeeResult<BeeReadResult>.Fail($"ReadRemoteBeeFromDiskEx: Expected section length {matchLength}, got {platformSectionData.Length}.");
 
@@ -966,15 +969,25 @@ public static class BasisIOManagement
         string tempPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            using (var fs = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None, buffer, useAsync: true))
+            using (var fs = CreateCacheWriteStream(tempPath, buffer))
             {
-                await fs.WriteAsync(sizeLE, 0, sizeLE.Length).ConfigureAwait(false);
-                await fs.WriteAsync(connectorBytes, 0, connectorBytes.Length).ConfigureAwait(false);
+#if UNITY_WEBGL && !UNITY_EDITOR
+                fs.Write(sizeLE, 0, sizeLE.Length);
+                fs.Write(connectorBytes, 0, connectorBytes.Length);
 
                 if (writeSection)
                 {
-                    await fs.WriteAsync(sectionBytes, 0, sectionBytes.Length).ConfigureAwait(false);
+                    fs.Write(sectionBytes, 0, sectionBytes.Length);
                 }
+#else
+                await fs.WriteAsync(sizeLE, 0, sizeLE.Length).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
+                await fs.WriteAsync(connectorBytes, 0, connectorBytes.Length).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
+
+                if (writeSection)
+                {
+                    await fs.WriteAsync(sectionBytes, 0, sectionBytes.Length).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
+                }
+#endif
             }
 
             long actual = new FileInfo(tempPath).Length;
@@ -1051,7 +1064,13 @@ public static class BasisIOManagement
     /// Returns null when the host is allowed, otherwise the reason it was refused.
     /// </summary>
     private static Task<string> ValidateUrlHostResolvesGlobalAsync(string url)
-        => Basis.Scripts.Common.BasisUrlSecurity.ValidateResolvedHostAsync(url);
+    {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        return Task.FromResult<string>(null);
+#else
+        return Basis.Scripts.Common.BasisUrlSecurity.ValidateResolvedHostAsync(url);
+#endif
+    }
 
     /// <summary>Hop budget for hand-followed redirects.</summary>
     private const int MaxValidatedRedirects = 5;
@@ -1157,7 +1176,7 @@ public static class BasisIOManagement
 
         while (read < size)
         {
-            int n = await s.ReadAsync(buf, read, size - read, ct);
+            int n = await ReadFromCacheAsync(s, buf, read, size - read, ct);
             if (n <= 0) break;
             read += n;
         }
@@ -1177,6 +1196,40 @@ public static class BasisIOManagement
         }
 
         return buf;
+    }
+
+    private static FileStream CreateCacheReadStream(string filePath)
+    {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        return new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 96 * 1024, useAsync: false);
+#else
+        return new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 96 * 1024, useAsync: true);
+#endif
+    }
+
+    private static FileStream CreateCacheWriteStream(string filePath, int bufferSize)
+    {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        return new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize, useAsync: false);
+#else
+        return new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize, useAsync: true);
+#endif
+    }
+
+    private static ValueTask<int> ReadFromCacheAsync(
+        Stream stream,
+        byte[] buffer,
+        int offset,
+        int count,
+        CancellationToken cancellationToken)
+    {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        cancellationToken.ThrowIfCancellationRequested();
+        int n = stream.Read(buffer, offset, count);
+        return new ValueTask<int>(n);
+#else
+        return new ValueTask<int>(stream.ReadAsync(buffer, offset, count, cancellationToken));
+#endif
     }
 
     private static byte[] GetBytesInt32LE(int value)

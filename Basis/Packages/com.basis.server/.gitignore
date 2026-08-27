@@ -59,5 +59,4 @@ Docker/*
 !Docker/.env.example
 !Docker/Caddyfile
 !Docker/Caddyfile.local
-Docker/sso/broker/control-plane.json
 !BasisServerConsole/BasisNetworkConsole.csproj

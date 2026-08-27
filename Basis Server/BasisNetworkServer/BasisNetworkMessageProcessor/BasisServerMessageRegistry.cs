@@ -52,6 +52,7 @@ public static class BasisServerMessageRegistry
     static BasisServerMessageRegistry()
     {
         RegisterCoreHandlers();
+        BasisServerOscRelay.Register();
     }
 
     /// <summary>Force the static constructor to run (registers core handlers). Safe to call repeatedly.</summary>

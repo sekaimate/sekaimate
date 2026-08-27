@@ -15,6 +15,8 @@ namespace Basis.Scripts.Networking
         public string Password;
         public bool HasPassword;
         public ConnectionTarget Target;
+        public string WebSocketUri;
+        public string ServerInfoUri;
         public bool CanEdit;
         public bool CanRemove;
     }

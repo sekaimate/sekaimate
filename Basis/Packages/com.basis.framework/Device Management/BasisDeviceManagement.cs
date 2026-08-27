@@ -238,15 +238,22 @@ namespace Basis.Scripts.Device_Management
             // auto-detection can see an empty settings dict on first run — any
             // earlier binding constructor would write "en" as a default and
             // defeat the HasSaveData("language") check.
-            Basis.BasisUI.BasisLocalization.Initialize();
-            Basis.BasisUI.BasisTMPFontFallbacks.RefreshJapanesePriority();
-            BasisSettingsDefaults.LoadAll();
-            Basis.BasisUI.SettingsProvider.ApplyJiggleStartupSettings();
-            // Applied here and nowhere else: the GPU Resident Drawer rebuild this triggers is only
-            // cheap while the loading scene is the whole scene.
-            Basis.Scripts.Rendering.BasisGpuOcclusionCulling.ApplyStartupSetting();
             try
             {
+#if UNITY_WEBGL && !UNITY_EDITOR
+                await Basis.BasisUI.BasisLocalization.InitializeAsync();
+                await Basis.BasisUI.BasisTMPFontFallbacks.InitializeAsync();
+                await Basis.BasisUI.AddressableAssets.InitializeAsync();
+                await Basis.BasisUI.BasisTrustedUrls.InitializeAsync();
+#else
+                await Basis.BasisUI.BasisLocalization.InitializeAsync();
+                Basis.BasisUI.BasisTMPFontFallbacks.RefreshJapanesePriority();
+#endif
+                BasisSettingsDefaults.LoadAll();
+                Basis.BasisUI.SettingsProvider.ApplyJiggleStartupSettings();
+                // Applied here and nowhere else: the GPU Resident Drawer rebuild this triggers is only
+                // cheap while the loading scene is the whole scene.
+                Basis.Scripts.Rendering.BasisGpuOcclusionCulling.ApplyStartupSetting();
                 await Initialize();
             }
             catch (Exception e)
@@ -316,8 +323,9 @@ namespace Basis.Scripts.Device_Management
         public async Task Initialize()
         {
 
-            BasisAvatarFactory.Initialize();
-            BasisPlayerFactory.Initialize();
+            await BasisAvatarFactory.InitializeAsync();
+            await BasisPlayerFactory.InitializeAsync();
+            await Basis.Scripts.UI.BasisUIRaycast.InitializeAssetsAsync();
             BasisXRManagement.Initialize();
             BasisCommandLineArgs.Initialize(BakedInCommandLineArgs, out ForcedDefault);
 
@@ -346,6 +354,10 @@ namespace Basis.Scripts.Device_Management
             }
 
             await BasisPlayerFactory.CreateLocalPlayer(new InstantiationParameters(transform, true));
+            if (FireOffNetwork)
+            {
+                await BasisRemoteNamePlateDriver.InitializeAsync();
+            }
             StartAllStartIfPermanentlyExists();
             await SwitchSetModeToDefault();
 
@@ -928,12 +940,11 @@ namespace Basis.Scripts.Device_Management
         /// Event handler invoked after initialization to bring up the static
         /// network manager + nameplate driver, replacing what the prefab bootstrap MBs used to do.
         /// </summary>
-        private void RunAfterInitialized()
+        private async void RunAfterInitialized()
         {
             if (FireOffNetwork)
             {
-                BasisRemoteNamePlateDriver.Initialize();
-                BasisNetworkLifeCycle.Initialize();
+                await BasisNetworkLifeCycle.Initialize();
             }
         }
 
@@ -969,22 +980,31 @@ namespace Basis.Scripts.Device_Management
         {
 #if UNITY_SERVER
             return BasisConstants.Headless;
+#elif UNITY_WEBGL
+            return BasisConstants.Web;
 #else
-            if (Application.isMobilePlatform) // try to boot vr first on standalone devices.
+            return ResolveDefaultMode(Application.platform, Application.isMobilePlatform, false);
+#endif
+        }
+
+        public static string ResolveDefaultMode(RuntimePlatform platform, bool isMobilePlatform, bool isServer)
+        {
+            if (isServer)
             {
-                // iOS devices (iPhones/iPads) should use Desktop mode for touch controls
-                if (Application.platform == RuntimePlatform.IPhonePlayer)
-                {
-                    return BasisConstants.Desktop;
-                }
-                // On Android we assume OpenXR for VR headsets like Quest
-                return BasisConstants.OpenXRLoader;
+                return BasisConstants.Headless;
             }
-            else
+
+            if (platform == RuntimePlatform.WebGLPlayer)
+            {
+                return BasisConstants.Web;
+            }
+
+            if (!isMobilePlatform || platform == RuntimePlatform.IPhonePlayer)
             {
                 return BasisConstants.Desktop;
             }
-#endif
+
+            return BasisConstants.OpenXRLoader;
         }
 
         /// <summary>
@@ -999,7 +1019,12 @@ namespace Basis.Scripts.Device_Management
         /// <summary>
         /// Returns <c>true</c> when the current static mode indicates a VR/XR loader.
         /// </summary>
-        public static bool IsCurrentModeVR() => IsVRMode(StaticCurrentMode);
+        public static bool IsCurrentModeVR() =>
+            IsVRMode(StaticCurrentMode)
+#if UNITY_WEBGL && !UNITY_EDITOR
+            || Basis.Scripts.Device_Management.Devices.Web.BasisWebXRBackend.IsImmersiveSessionActive
+#endif
+            ;
 
         /// <summary>
         /// Returns <c>true</c> when <paramref name="mode"/> names a VR/XR loader.

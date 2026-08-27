@@ -242,8 +242,12 @@ namespace Basis.BasisUI
 
             if (PlacementCube == null)
             {
+#if UNITY_WEBGL && !UNITY_EDITOR
+                GameObject go = AddressableAssets.GetPrefab(SpawnOutlineAddress);
+#else
                 var op = Addressables.LoadAssetAsync<GameObject>(SpawnOutlineAddress);
                 GameObject go = op.WaitForCompletion();
+#endif
                 PlacementCube = GameObject.Instantiate(go, BasisDeviceManagement.Instance.transform);
                 PlacementCube.name = "Placement Outline";
 
@@ -376,8 +380,12 @@ namespace Basis.BasisUI
             // Create the outline visual if it doesn't exist yet
             if (selectionGameObjectRef == null)
             {
+#if UNITY_WEBGL && !UNITY_EDITOR
+                GameObject prefab = AddressableAssets.GetPrefab(SpawnOutlineAddress);
+#else
                 var op = Addressables.LoadAssetAsync<GameObject>(SpawnOutlineAddress);
                 GameObject prefab = op.WaitForCompletion();
+#endif
                 selectionGameObjectRef = GameObject.Instantiate(prefab, BasisDeviceManagement.Instance.transform);
                 selectionGameObjectRef.name = "Selection Outline";
 

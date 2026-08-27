@@ -220,21 +220,6 @@ namespace Basis.BasisUI
             resourceLimitsToggle.SetTitle("Resource Limits");
             int resourceLimitsStart = container.childCount;
 
-            PanelTextField maxDatabaseEntriesField = PanelTextField.CreateNewEntry(container);
-            maxDatabaseEntriesField.Descriptor.SetTitle("Max Database Entries");
-            maxDatabaseEntriesField.Descriptor.SetDescription("Maximum number of stored persistent-database entries across all players.");
-            maxDatabaseEntriesField.SetValueWithoutNotify(BasisNetworkModeration.ServerMaxDatabaseEntries.ToString());
-
-            PanelTextField maxDatabaseNameLengthField = PanelTextField.CreateNewEntry(container);
-            maxDatabaseNameLengthField.Descriptor.SetTitle("Max Database Name Length");
-            maxDatabaseNameLengthField.Descriptor.SetDescription("Maximum character length of a persistent-database entry name.");
-            maxDatabaseNameLengthField.SetValueWithoutNotify(BasisNetworkModeration.ServerMaxDatabaseNameLength.ToString());
-
-            PanelTextField maxDatabasePayloadEntriesField = PanelTextField.CreateNewEntry(container);
-            maxDatabasePayloadEntriesField.Descriptor.SetTitle("Max Database Payload Entries");
-            maxDatabasePayloadEntriesField.Descriptor.SetDescription("Maximum number of key/value entries in a single persistent-database payload.");
-            maxDatabasePayloadEntriesField.SetValueWithoutNotify(BasisNetworkModeration.ServerMaxDatabasePayloadEntries.ToString());
-
             PanelTextField maxContentSpheresField = PanelTextField.CreateNewEntry(container);
             maxContentSpheresField.Descriptor.SetTitle("Max Content Spheres Per Player");
             maxContentSpheresField.Descriptor.SetDescription("Maximum active content-share spheres a single player may have at once.");
@@ -244,16 +229,10 @@ namespace Basis.BasisUI
             applyResourceLimits.Descriptor.SetTitle("Apply Resource Limits");
             applyResourceLimits.OnClicked += () =>
             {
-                if (!int.TryParse(maxDatabaseEntriesField.Value, out int entries)) entries = BasisNetworkModeration.ServerMaxDatabaseEntries;
-                if (!int.TryParse(maxDatabaseNameLengthField.Value, out int nameLength)) nameLength = BasisNetworkModeration.ServerMaxDatabaseNameLength;
-                if (!int.TryParse(maxDatabasePayloadEntriesField.Value, out int payloadEntries)) payloadEntries = BasisNetworkModeration.ServerMaxDatabasePayloadEntries;
                 if (!int.TryParse(maxContentSpheresField.Value, out int spheres)) spheres = BasisNetworkModeration.ServerMaxContentSpheresPerPlayer;
-                BasisNetworkModeration.SetGlobalResourceLimits(entries, nameLength, payloadEntries, spheres);
+                BasisNetworkModeration.SetGlobalResourceLimits(spheres);
             };
 
-            controller.MaxDatabaseEntriesField = maxDatabaseEntriesField;
-            controller.MaxDatabaseNameLengthField = maxDatabaseNameLengthField;
-            controller.MaxDatabasePayloadEntriesField = maxDatabasePayloadEntriesField;
             controller.MaxContentSpheresField = maxContentSpheresField;
 
             PanelSectionToggleHelpers.FinalizeFlatSectionFromIndex(resourceLimitsToggle, container, resourceLimitsStart, false, _ => descriptor.ForceRebuild());
@@ -828,9 +807,6 @@ namespace Basis.BasisUI
             public PanelSlider MaxAvatarHeightSlider;
             public float MinAvatarHeightMeters;
             public float MaxAvatarHeightMeters;
-            public PanelTextField MaxDatabaseEntriesField;
-            public PanelTextField MaxDatabaseNameLengthField;
-            public PanelTextField MaxDatabasePayloadEntriesField;
             public PanelTextField MaxContentSpheresField;
             public PanelTextField ReductionIntervalField;
             public PanelTextField ReductionBaseMultiplierField;
@@ -1007,11 +983,8 @@ namespace Basis.BasisUI
                 if (MaxAvatarHeightSlider != null) MaxAvatarHeightSlider.SetValueWithoutNotify(maxMeters);
             }
 
-            private void OnResourceLimitsChanged(int entries, int nameLength, int payloadEntries, int spheres)
+            private void OnResourceLimitsChanged(int spheres)
             {
-                if (MaxDatabaseEntriesField != null) MaxDatabaseEntriesField.SetValueWithoutNotify(entries.ToString());
-                if (MaxDatabaseNameLengthField != null) MaxDatabaseNameLengthField.SetValueWithoutNotify(nameLength.ToString());
-                if (MaxDatabasePayloadEntriesField != null) MaxDatabasePayloadEntriesField.SetValueWithoutNotify(payloadEntries.ToString());
                 if (MaxContentSpheresField != null) MaxContentSpheresField.SetValueWithoutNotify(spheres.ToString());
             }
 

@@ -1,6 +1,7 @@
 using Basis.Scripts.BasisSdk;
 using Basis.Scripts.BasisSdk.Players;
 using Basis.Scripts.Drivers;
+using Basis.Scripts.Networking.NetworkedAvatar;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -263,12 +264,17 @@ public static class BasisSceneFactory
     public static Action OnSpawnedEvent;
     public static void SpawnPlayer(BasisLocalPlayer localPlayer)
     {
-        BasisDebug.Log("Spawning Player");
+        BasisDebug.Log($"Spawning Player in scene '{BasisScene?.gameObject.scene.name ?? "<missing>"}'");
         if (RequestSpawnPoint(out Vector3 position, out Quaternion rotation))
         {
+            BasisDebug.Log(
+                $"Player spawn point: position={position}, rotation={rotation}, " +
+                $"hasAuthoredSpawnPoint={BasisScene != null && BasisScene.SpawnPoint != null}",
+                BasisDebug.LogTag.Scene);
             if (localPlayer != null)
             {
                 localPlayer.Teleport(position, rotation, mode: BasisTeleportMode.WorldFeet);
+                BasisNetworkAvatarCompressor.RequestPoseResync();
             }
             else
             {

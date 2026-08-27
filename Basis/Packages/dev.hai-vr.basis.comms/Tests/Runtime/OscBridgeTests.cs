@@ -1229,6 +1229,10 @@ namespace HVR.Basis.Comms.Tests
                 string json = (string)responseResolver.Invoke(sceneInstance, new object[] { "/scene/scene-one" });
                 StringAssert.Contains("\"FULL_PATH\": \"/scene/scene-one\"", json);
                 StringAssert.Contains("\"Ambient\"", json);
+
+                string publicJson = shim.Query("/scene/scene-one");
+                StringAssert.Contains("\"FULL_PATH\": \"/scene/scene-one\"", publicJson);
+                StringAssert.Contains("\"Ambient\"", publicJson);
             }
             finally
             {

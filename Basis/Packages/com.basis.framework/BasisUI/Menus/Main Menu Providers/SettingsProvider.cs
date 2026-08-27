@@ -755,6 +755,11 @@ namespace Basis.BasisUI
 
         private static void BuildNetworkingSection(RectTransform container, PanelElementDescriptor tabDescriptor = null)
         {
+            if (!BasisNetworkPlatformCapabilities.SupportsDirectPeerConnections)
+            {
+                return;
+            }
+
             // Open by default when at least one direct (P2P) connection is live.
             bool directConnected = BasisP2PManager.HasAnyConnectedSession();
 
@@ -1112,6 +1117,9 @@ namespace Basis.BasisUI
         {
 #if !BASIS_DISABLE_MICROPHONE
             SMDMicrophone.LoadInMicrophoneData(BasisDeviceManagement.StaticCurrentMode);
+#if UNITY_WEBGL && !UNITY_EDITOR
+            BasisWebAudioCaptureBridge.RequestDevicePermission();
+#endif
 #endif
 
             PanelTabPage tab = PanelTabPage.CreateVertical(tabGroup.Descriptor.ContentParent);
@@ -3430,8 +3438,9 @@ namespace Basis.BasisUI
             copyAll.Descriptor.SetDescription(BasisLocalization.Get("settings.main.title.copyBuildInfo.description"));
             copyAll.OnClicked += () =>
             {
-                BasisClipboard.Copy(BuildInfoString(), copyAll);
-                BasisDebug.Log("Copied build info to clipboard.");
+                global::BasisClipboard.WriteText(
+                    BuildInfoString(),
+                    () => BasisDebug.Log("Copied build info to clipboard."));
             };
 
             AddInfoRow(parent, "Version", Application.version);

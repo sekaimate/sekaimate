@@ -37,8 +37,10 @@ internal sealed class BasisSidecarSubtitleEngine
 
         if (track == null || string.IsNullOrEmpty(track.Url)) return false;
         if (!BasisMediaPlayerSecurity.IsUrlAllowed(track.Url, out _)) return false;
+#if !UNITY_WEBGL || UNITY_EDITOR
         string dnsReason = await BasisMediaPlayerSecurity.ValidateResolvedHostAsync(track.Url);
         if (dnsReason != null || loadGeneration != generation) return false;
+#endif
 
         string payload;
         using (var request = UnityWebRequest.Get(track.Url))

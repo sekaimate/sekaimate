@@ -1,0 +1,6 @@
+:root { color: #16191f; background: #f2f3f3; font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif; }
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; }
+.join-shell { min-height: 100vh; display: grid; place-items: center; padding: 32px 20px; background: #f2f3f3; }
+.join-card { width: min(100%, 560px); }
+@media (max-width: 560px) { .join-shell { padding: 20px 12px; } }

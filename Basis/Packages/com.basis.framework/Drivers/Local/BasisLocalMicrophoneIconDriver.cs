@@ -218,10 +218,17 @@ namespace Basis.Scripts.Drivers
                     ? BasisUISounds.Resolve(micEvent, IsMuted ? MuteSound : UnMuteSound)
                     : null;
                 float now = Time.realtimeSinceStartup;
-                if (clip != null && now - _lastClickPlayTime >= ClickMinInterval)
+                if (now - _lastClickPlayTime >= ClickMinInterval)
                 {
                     _lastClickPlayTime = now;
-                    PlayMicClickOneShot(clip, BasisLocalCameraDriver.Position, SMModuleAudio.ActiveMenusVolume);
+#if UNITY_WEBGL && !UNITY_EDITOR
+                    BasisWebAudioCaptureBridge.PlayMicrophoneToggleSound(IsMuted, SMModuleAudio.ActiveMenusVolume);
+#else
+                    if (clip != null)
+                    {
+                        PlayMicClickOneShot(clip, BasisLocalCameraDriver.Position, SMModuleAudio.ActiveMenusVolume);
+                    }
+#endif
                 }
             }
         }

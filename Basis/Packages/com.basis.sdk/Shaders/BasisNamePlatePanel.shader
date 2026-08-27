@@ -31,7 +31,7 @@ Shader "Basis/NamePlate/Panel"
             HLSLPROGRAM
             #pragma vertex vert
             #pragma fragment frag
-            #pragma target 4.5
+            #pragma target 4.5 BASIS_NAMEPLATE_GPU
             #pragma multi_compile_instancing
             #pragma multi_compile _ BASIS_NAMEPLATE_GPU
 

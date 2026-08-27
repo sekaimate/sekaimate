@@ -29,6 +29,10 @@ public static class BasisBundleManagement
         }
 
         BasisIOManagement.BeeDownloadResult bee = result.Value;
+        BasisDebug.Log(
+            $"Web BEE download completed: path={bee.LocalPath}, connector={bee.Connector != null}, " +
+            $"sectionBytes={bee.SectionData?.Length ?? 0}, version={bee.ObservedVersionTag}",
+            BasisDebug.LogTag.Event);
 
         if (string.IsNullOrWhiteSpace(bee.LocalPath))
         {
@@ -57,6 +61,10 @@ public static class BasisBundleManagement
         {
             return (null, null, "Connector loaded, but " + pfErr + " (platform=" + Application.platform + ").");
         }
+        BasisDebug.Log(
+            $"Web BEE platform section resolved: platform={generated.Platform}, bytes={bee.SectionData.Length}, " +
+            $"assetToLoad={generated.AssetToLoadName}, crc={generated.AssetBundleCRC}",
+            BasisDebug.LogTag.Event);
 
         return (generated, bee.SectionData, string.Empty);
     }
@@ -93,7 +101,7 @@ public static class BasisBundleManagement
             return (null, null, "Cancelled before starting.");
         }
         BasisDebug.Log("Processing on-disk meta at " + storedBundle.DownloadedBeeFileLocation);
-        BeeResult<BeeReadResult> result = await BasisIOManagement.ReadBEEFileEx(storedBundle.DownloadedBeeFileLocation, bundleWrapper.LoadableBundle.UnlockPassword!, progressCallback, cancellationToken).ConfigureAwait(false);
+        BeeResult<BeeReadResult> result = await BasisIOManagement.ReadBEEFileEx(storedBundle.DownloadedBeeFileLocation, bundleWrapper.LoadableBundle.UnlockPassword!, progressCallback, cancellationToken).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
 
         if (!result.IsSuccess || result.Value is null)
         {
@@ -151,7 +159,8 @@ public static class BasisBundleManagement
         {
             return (null, "Cancelled before starting.");
         }
-        BeeResult<BeeReadResult> result = await BasisIOManagement.ReadBEEConnectorFileEx(readPath, bundleWrapper.LoadableBundle.UnlockPassword, progressCallback, cancellationToken).ConfigureAwait(false);
+        BasisDebug.Log("Reading connector from disk: " + readPath);
+        BeeResult<BeeReadResult> result = await BasisIOManagement.ReadBEEConnectorFileEx(readPath, bundleWrapper.LoadableBundle.UnlockPassword, progressCallback, cancellationToken).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
 
         if (!result.IsSuccess || result.Value is null)
         {
@@ -234,11 +243,11 @@ public static class BasisBundleManagement
         string password = bundleWrapper.LoadableBundle.UnlockPassword;
         BasisDebug.Log("Reading local bee file from disk: " + localPath);
 
-        BeeResult<BeeReadResult> result = await BasisIOManagement.ReadRemoteBeeFromDiskEx(localPath, password, progressCallback, cancellationToken, includeSection: true).ConfigureAwait(false);
+        BeeResult<BeeReadResult> result = await BasisIOManagement.ReadRemoteBeeFromDiskEx(localPath, password, progressCallback, cancellationToken, includeSection: true).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
         if (!result.IsSuccess || result.Value is null)
         {
             BasisDebug.Log($"Local remote-format read failed ({result.Error}); trying full-file format.", BasisDebug.LogTag.Event);
-            result = await BasisIOManagement.ReadBEEFileEx(localPath, password, progressCallback, cancellationToken).ConfigureAwait(false);
+            result = await BasisIOManagement.ReadBEEFileEx(localPath, password, progressCallback, cancellationToken).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
         }
 
         if (!result.IsSuccess || result.Value is null)
@@ -297,10 +306,10 @@ public static class BasisBundleManagement
         string password = bundleWrapper.LoadableBundle.UnlockPassword;
         BasisDebug.Log("Reading local bee connector from disk: " + localPath);
 
-        BeeResult<BeeReadResult> result = await BasisIOManagement.ReadRemoteBeeFromDiskEx(localPath, password, progressCallback, cancellationToken, includeSection: false).ConfigureAwait(false);
+        BeeResult<BeeReadResult> result = await BasisIOManagement.ReadRemoteBeeFromDiskEx(localPath, password, progressCallback, cancellationToken, includeSection: false).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
         if (!result.IsSuccess || result.Value is null)
         {
-            result = await BasisIOManagement.ReadBEEConnectorFileEx(localPath, password, progressCallback, cancellationToken).ConfigureAwait(false);
+            result = await BasisIOManagement.ReadBEEConnectorFileEx(localPath, password, progressCallback, cancellationToken).ConfigureAwait(BasisBeeConstants.ContinueOnCapturedContext);
         }
 
         if (!result.IsSuccess || result.Value is null)

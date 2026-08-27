@@ -85,11 +85,12 @@ SubShader {
 		CGPROGRAM
 		#pragma vertex VertShader
 		#pragma fragment PixShader
-		#pragma target 4.5
+		#pragma target 4.5 BASIS_NAMEPLATE_GPU
 		// multi_compile (not shader_feature): the billboard materials are created at runtime, so the
 		// needed variants must ship even though no build-asset material references them.
 		#pragma multi_compile __ OUTLINE_ON
 		#pragma multi_compile __ UNDERLAY_ON UNDERLAY_INNER
+		#pragma multi_compile _ BASIS_NAMEPLATE_GPU
 
 		#pragma multi_compile __ UNITY_UI_CLIP_RECT
 		#pragma multi_compile __ UNITY_UI_ALPHACLIP
@@ -99,7 +100,9 @@ SubShader {
 		#include "Packages/com.basis.textmeshpro/Shaders/TMPro_Properties.cginc"
 
 		// 4 columns (float4) per plate, matching Unity's column-major Matrix4x4 memory.
+		#if defined(BASIS_NAMEPLATE_GPU)
 		StructuredBuffer<float4> _PlateMatrices;
+		#endif
 
 		struct vertex_t {
 			UNITY_VERTEX_INPUT_INSTANCE_ID
@@ -145,13 +148,14 @@ SubShader {
 			vert.x += _VertexOffsetX;
 			vert.y += _VertexOffsetY;
 
-			// Per-plate GPU billboard: plate-local glyph -> the merge's local space.
+			#if defined(BASIS_NAMEPLATE_GPU)
 			int b = ((int)(input.plate.x + 0.5)) * 4;
 			float3 bp = (_PlateMatrices[b]     * vert.x
 			           + _PlateMatrices[b + 1] * vert.y
 			           + _PlateMatrices[b + 2] * vert.z
 			           + _PlateMatrices[b + 3]).xyz;
 			vert = float4(bp, 1.0);
+			#endif
 
 			float4 vPosition = UnityObjectToClipPos(vert);
 

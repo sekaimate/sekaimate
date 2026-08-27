@@ -164,6 +164,14 @@
       "value": "नेटवर्किंग स्टैक"
     },
     {
+      "key": "menu.servers.webSocketUri",
+      "value": "WebSocket URI"
+    },
+    {
+      "key": "menu.servers.serverInfoUri",
+      "value": "Server Info URI"
+    },
+    {
       "key": "menu.servers.hostPeerLimit",
       "value": "पीयर सीमा"
     },

@@ -24,34 +24,53 @@ public static class BasisHeadlessBuild
         BuildServer(BuildTarget.StandaloneWindows64);
     }
 
+    public static void BuildWeb()
+    {
+        BuildWeb(false, buildAddressables: true, allowExistingOutput: false);
+    }
+
+    public static void BuildWebE2E()
+    {
+        BuildWeb(true, buildAddressables: true, allowExistingOutput: false);
+    }
+
+    public static void BuildWebDev()
+    {
+        BuildWeb(true, buildAddressables: false, allowExistingOutput: true);
+    }
+
+    private static void BuildWeb(bool developmentBuild, bool buildAddressables, bool allowExistingOutput)
+    {
+        string buildPath = RequireArgument("customBuildPath");
+        if (!allowExistingOutput && Directory.Exists(buildPath) && Directory.EnumerateFileSystemEntries(buildPath).Any())
+        {
+            throw new BuildFailedException($"Web build output directory must be empty: {buildPath}");
+        }
+
+        EnsureActiveBuildTarget(BuildTarget.WebGL);
+        BuildPlayer(BuildTarget.WebGL, CreateWebBuildPlayerOptions(buildPath, developmentBuild), buildAddressables);
+    }
+
+    public static BuildPlayerOptions CreateWebBuildPlayerOptions(string buildPath, bool developmentBuild = false)
+    {
+        return new BuildPlayerOptions
+        {
+            scenes = EditorBuildSettings.scenes.Where(scene => scene.enabled).Select(scene => scene.path).ToArray(),
+            locationPathName = buildPath,
+            target = BuildTarget.WebGL,
+            targetGroup = BuildTargetGroup.WebGL,
+            options = developmentBuild ? BuildOptions.Development : BuildOptions.None
+        };
+    }
+
     private static void BuildServer(BuildTarget target)
     {
         string buildPath = RequireArgument("customBuildPath");
-        string buildName = GetArgument("customBuildName") ?? Path.GetFileNameWithoutExtension(buildPath);
-        string projectPath = GetArgument("projectPath") ?? Directory.GetCurrentDirectory();
         string standaloneSubtargetArg = GetArgument("standaloneBuildSubtarget") ?? "Server";
         string linuxArchitectureArg = GetArgument("linuxArchitecture");
 
-        Debug.Log($"[BasisHeadlessBuild] Starting {target} build");
-        Debug.Log($"[BasisHeadlessBuild] projectPath={projectPath}");
-        Debug.Log($"[BasisHeadlessBuild] buildName={buildName}");
-        Debug.Log($"[BasisHeadlessBuild] buildPath={buildPath}");
-        Debug.Log($"[BasisHeadlessBuild] activeBuildTarget(before)={EditorUserBuildSettings.activeBuildTarget}");
-        Debug.Log($"[BasisHeadlessBuild] activeBuildTargetGroup(before)={BuildPipeline.GetBuildTargetGroup(EditorUserBuildSettings.activeBuildTarget)}");
-        Debug.Log($"[BasisHeadlessBuild] standaloneBuildSubtarget(arg)={standaloneSubtargetArg}");
-        Debug.Log($"[BasisHeadlessBuild] linuxArchitecture(arg)={linuxArchitectureArg ?? "<default>"}");
-
         BuildTargetGroup targetGroup = BuildPipeline.GetBuildTargetGroup(target);
-        if (!BuildPipeline.IsBuildTargetSupported(targetGroup, target))
-        {
-            throw new BuildFailedException($"Build target {target} is not supported in this editor.");
-        }
-
-        if (EditorUserBuildSettings.activeBuildTarget != target)
-        {
-            bool switched = EditorUserBuildSettings.SwitchActiveBuildTarget(targetGroup, target);
-            Debug.Log($"[BasisHeadlessBuild] SwitchActiveBuildTarget({target}) => {switched}");
-        }
+        EnsureActiveBuildTarget(target);
 
         StandaloneBuildSubtarget standaloneSubtarget = ParseStandaloneSubtarget(standaloneSubtargetArg);
         EditorUserBuildSettings.standaloneBuildSubtarget = standaloneSubtarget;
@@ -61,10 +80,35 @@ public static class BasisHeadlessBuild
             PlayerSettings.SetArchitecture(NamedBuildTarget.FromBuildTargetGroup(targetGroup), linuxArchitecture);
             Debug.Log($"[BasisHeadlessBuild] Linux architecture(set)={linuxArchitecture}");
         }
-        Debug.Log($"[BasisHeadlessBuild] activeBuildTarget(after)={EditorUserBuildSettings.activeBuildTarget}");
-        Debug.Log($"[BasisHeadlessBuild] standaloneBuildSubtarget(set)={EditorUserBuildSettings.standaloneBuildSubtarget}");
 
-        EnsureBuildDirectory(buildPath);
+        BuildPlayerOptions options = new BuildPlayerOptions
+        {
+            scenes = EditorBuildSettings.scenes.Where(scene => scene.enabled).Select(scene => scene.path).ToArray(),
+            locationPathName = buildPath,
+            target = target,
+            targetGroup = targetGroup,
+            subtarget = (int)standaloneSubtarget,
+            options = BuildOptions.None
+        };
+
+        BuildPlayer(target, options);
+    }
+
+    private static void BuildPlayer(BuildTarget target, BuildPlayerOptions options, bool buildAddressables = true)
+    {
+        string projectPath = GetArgument("projectPath") ?? Directory.GetCurrentDirectory();
+
+        Debug.Log($"[BasisHeadlessBuild] Starting {target} build");
+        Debug.Log($"[BasisHeadlessBuild] projectPath={projectPath}");
+        Debug.Log($"[BasisHeadlessBuild] buildPath={options.locationPathName}");
+        Debug.Log($"[BasisHeadlessBuild] activeBuildTarget={EditorUserBuildSettings.activeBuildTarget}");
+
+        if (!BuildPipeline.IsBuildTargetSupported(options.targetGroup, target))
+        {
+            throw new BuildFailedException($"Build target {target} is not supported in this editor.");
+        }
+
+        EnsureBuildDirectory(options.locationPathName);
         LogEnabledScenes();
 
         AddressableAssetSettings addressableSettings = AddressableAssetSettingsDefaultObject.Settings;
@@ -74,12 +118,12 @@ public static class BasisHeadlessBuild
         {
             originalBuildAddressablesWithPlayerBuild = addressableSettings.BuildAddressablesWithPlayerBuild;
             restoreBuildAddressablesWithPlayerBuild = true;
-            if (ShouldBuildAddressablesWithPlayerBuild(originalBuildAddressablesWithPlayerBuild))
+            if (buildAddressables && ShouldBuildAddressablesWithPlayerBuild(originalBuildAddressablesWithPlayerBuild))
             {
                 BuildAddressables(target, addressableSettings);
             }
             addressableSettings.BuildAddressablesWithPlayerBuild = AddressableAssetSettings.PlayerBuildOption.DoNotBuildWithPlayer;
-            Debug.Log($"[BasisHeadlessBuild] Overriding BuildAddressablesWithPlayerBuild: {originalBuildAddressablesWithPlayerBuild} -> {addressableSettings.BuildAddressablesWithPlayerBuild}");
+            Debug.Log($"[BasisHeadlessBuild] Addressables player build: requested={buildAddressables}, preference={originalBuildAddressablesWithPlayerBuild}, effective={addressableSettings.BuildAddressablesWithPlayerBuild}");
         }
         else
         {
@@ -88,16 +132,6 @@ public static class BasisHeadlessBuild
 
         try
         {
-            BuildPlayerOptions options = new BuildPlayerOptions
-            {
-                scenes = EditorBuildSettings.scenes.Where(scene => scene.enabled).Select(scene => scene.path).ToArray(),
-                locationPathName = buildPath,
-                target = target,
-                targetGroup = targetGroup,
-                subtarget = (int)standaloneSubtarget,
-                options = BuildOptions.None
-            };
-
             BuildReport report = BuildPipeline.BuildPlayer(options);
             Debug.Log($"[BasisHeadlessBuild] Build result={report.summary.result}");
             Debug.Log($"[BasisHeadlessBuild] Build output path={report.summary.outputPath}");
@@ -108,6 +142,11 @@ public static class BasisHeadlessBuild
             {
                 throw new BuildFailedException($"Player build failed: {report.summary.result}");
             }
+
+            if (target == BuildTarget.WebGL)
+            {
+                ValidateWebBuildOutput(options.locationPathName);
+            }
         }
         finally
         {
@@ -116,6 +155,63 @@ public static class BasisHeadlessBuild
                 addressableSettings.BuildAddressablesWithPlayerBuild = originalBuildAddressablesWithPlayerBuild;
                 Debug.Log($"[BasisHeadlessBuild] Restored BuildAddressablesWithPlayerBuild={addressableSettings.BuildAddressablesWithPlayerBuild}");
             }
+        }
+    }
+
+    public static string[] FindMissingWebBuildArtifacts(IEnumerable<string> relativeFilePaths)
+    {
+        string[] paths = relativeFilePaths
+            .Select(path => path.Replace('\\', '/'))
+            .ToArray();
+        var missing = new List<string>();
+
+        RequireArtifact(paths, missing, "index.html", path => path == "index.html");
+        RequireArtifact(paths, missing, "TemplateData", path => path.StartsWith("TemplateData/", StringComparison.Ordinal));
+        RequireArtifact(paths, missing, "loader.js", path => path.StartsWith("Build/", StringComparison.Ordinal) && path.EndsWith(".loader.js", StringComparison.Ordinal));
+        RequireArtifact(paths, missing, "framework.js", path => path.StartsWith("Build/", StringComparison.Ordinal) && (path.EndsWith(".framework.js", StringComparison.Ordinal) || path.EndsWith(".framework.js.gz", StringComparison.Ordinal) || path.EndsWith(".framework.js.br", StringComparison.Ordinal)));
+        RequireArtifact(paths, missing, "wasm", path => path.StartsWith("Build/", StringComparison.Ordinal) && (path.EndsWith(".wasm", StringComparison.Ordinal) || path.EndsWith(".wasm.gz", StringComparison.Ordinal) || path.EndsWith(".wasm.br", StringComparison.Ordinal)));
+        RequireArtifact(paths, missing, "data", path => path.StartsWith("Build/", StringComparison.Ordinal) && (path.EndsWith(".data", StringComparison.Ordinal) || path.EndsWith(".data.gz", StringComparison.Ordinal) || path.EndsWith(".data.br", StringComparison.Ordinal)));
+        RequireArtifact(paths, missing, "Addressables settings", path => path == "StreamingAssets/aa/settings.json");
+        RequireArtifact(paths, missing, "Addressables catalog", path => path == "StreamingAssets/aa/catalog.bin");
+        RequireArtifact(paths, missing, "Addressables bundle", path => path.StartsWith("StreamingAssets/aa/", StringComparison.Ordinal) && path.EndsWith(".bundle", StringComparison.Ordinal));
+
+        return missing.ToArray();
+    }
+
+    private static void ValidateWebBuildOutput(string buildPath)
+    {
+        string[] relativeFilePaths = Directory
+            .EnumerateFiles(buildPath, "*", SearchOption.AllDirectories)
+            .Where(path => new FileInfo(path).Length > 0)
+            .Select(path => Path.GetRelativePath(buildPath, path))
+            .ToArray();
+        string[] missing = FindMissingWebBuildArtifacts(relativeFilePaths);
+
+        if (missing.Length > 0)
+        {
+            throw new BuildFailedException($"Web build output is incomplete. Missing: {string.Join(", ", missing)}");
+        }
+    }
+
+    private static void RequireArtifact(string[] paths, List<string> missing, string name, Func<string, bool> predicate)
+    {
+        if (!paths.Any(predicate))
+        {
+            missing.Add(name);
+        }
+    }
+
+    private static void EnsureActiveBuildTarget(BuildTarget target)
+    {
+        if (EditorUserBuildSettings.activeBuildTarget == target)
+        {
+            return;
+        }
+
+        BuildTargetGroup targetGroup = BuildPipeline.GetBuildTargetGroup(target);
+        if (!EditorUserBuildSettings.SwitchActiveBuildTarget(targetGroup, target))
+        {
+            throw new BuildFailedException($"Failed to switch active build target to {target}.");
         }
     }
 

@@ -348,7 +348,11 @@ namespace Basis.Scripts.UI
                         {
                             if (BasisMenuVirtualKeyboardPanel.HasInstance == false)
                             {
+#if UNITY_WEBGL && !UNITY_EDITOR
+                                _ = BasisMenuVirtualKeyboardPanel.CreateNewAsync(CurrentSelectedInputField, CurrentSelectedTMP_InputField);
+#else
                                 BasisMenuVirtualKeyboardPanel.CreateNew(CurrentSelectedInputField, CurrentSelectedTMP_InputField);
+#endif
                             }
                         }
                     }
@@ -372,7 +376,11 @@ namespace Basis.Scripts.UI
                             {
                                 if (BasisMenuVirtualKeyboardPanel.HasInstance == false)
                                 {
+#if UNITY_WEBGL && !UNITY_EDITOR
+                                    _ = BasisMenuVirtualKeyboardPanel.CreateNewAsync(CurrentSelectedInputField, CurrentSelectedTMP_InputField);
+#else
                                     BasisMenuVirtualKeyboardPanel.CreateNew(CurrentSelectedInputField, CurrentSelectedTMP_InputField);
+#endif
                                 }
                             }
                         }

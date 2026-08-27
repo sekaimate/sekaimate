@@ -243,7 +243,7 @@ public sealed class BasisMediaPlayerDiagnostics : MonoBehaviour
         lineBuilder.Length = 0;
 
         var clock = player.Clock;
-        var eng = player.NativeEngine;
+        var eng = player.PlatformEngine;
         var src = player.Source;
         var snap = ResolveAudio();
 

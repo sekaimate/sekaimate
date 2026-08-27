@@ -400,11 +400,26 @@ public static class BasisNetworkEvents
                 Reader.Recycle();
                 return;
             }
+            // Deserialize before enqueueing. The reader is owned by the transport and
+            // must not be held across the asynchronous main-thread queue boundary.
+            // This is especially important on WebGL during the initial join, when the
+            // queue can remain backed up while the local player is being initialized.
+            BasisNetworkProfiler.AddToCounter(BasisNetworkProfilerCounter.LoadResource, Reader.AvailableBytes);
+            LocalLoadResource localLoadResource = new LocalLoadResource();
+            try
+            {
+                localLoadResource.Deserialize(Reader);
+            }
+            catch (Exception ex)
+            {
+                BNL.LogError($"Dropping corrupt resource packet: {ex.Message}");
+                Reader.Recycle();
+                return;
+            }
+            Reader.Recycle();
             BasisDeviceManagement.EnqueueOnMainThread(async () =>
             {
-                BasisNetworkProfiler.AddToCounter(BasisNetworkProfilerCounter.LoadResource, Reader.AvailableBytes);
-                await BasisNetworkGenericMessages.LoadResourceMessage(Reader, deliveryMethod);
-                Reader.Recycle();
+                await BasisNetworkGenericMessages.LoadResourceMessage(localLoadResource, deliveryMethod);
             });
         });
 

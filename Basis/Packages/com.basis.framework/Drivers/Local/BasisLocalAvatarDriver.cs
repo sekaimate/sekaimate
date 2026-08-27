@@ -11,7 +11,7 @@ using System;
 using System.Collections.Generic;
 using Unity.Mathematics;
 using UnityEngine;
-using UnityEngine.AddressableAssets;
+using UnityEngine.Animations.Rigging;
 namespace Basis.Scripts.Drivers
 {
     /// <summary>
@@ -21,9 +21,6 @@ namespace Basis.Scripts.Drivers
     [Serializable]
     public class BasisLocalAvatarDriver : BasisAvatarDriver
     {
-
-        /// <summary>Addressables key for the default locomotion animator controller.</summary>
-        public const string Locomotion = "Locomotion";
 
         /// <summary>
         /// One-time T-pose snapshot of the RAW avatar joints, captured per avatar load while the avatar
@@ -35,7 +32,6 @@ namespace Basis.Scripts.Drivers
         /// </summary>
         public static readonly Dictionary<BasisBoneTrackedRole, BasisCalibratedCoords> TposeBoneSnapshot = new Dictionary<BasisBoneTrackedRole, BasisCalibratedCoords>();
         public static bool HasTposeBoneSnapshot;
-
         /// <summary>Cached original head scale recorded during initialization.</summary>
         public static Vector3 HeadScale = Vector3.one;
 
@@ -144,10 +140,8 @@ namespace Basis.Scripts.Drivers
 
             if (player.BasisAvatar.Animator.runtimeAnimatorController == null)
             {
-                UnityEngine.ResourceManagement.AsyncOperations.AsyncOperationHandle<RuntimeAnimatorController> op = Addressables.LoadAssetAsync<RuntimeAnimatorController>(Locomotion);
-                RuntimeAnimatorController RAC = op.WaitForCompletion();
-                player.BasisAvatar.Animator.runtimeAnimatorController = RAC;
-                BasisLocomotionPoseSystem.NotifyStockControllerAssigned(RAC);
+                player.BasisAvatar.Animator.runtimeAnimatorController = BasisPlayerFactory.LocomotionController;
+                BasisLocomotionPoseSystem.NotifyStockControllerAssigned(BasisPlayerFactory.LocomotionController);
             }
             player.BasisAvatar.Animator.applyRootMotion = false;
             player.BasisAvatar.HumanScale = player.BasisAvatar.Animator.humanScale;
@@ -453,29 +447,28 @@ namespace Basis.Scripts.Drivers
             BasisAvatarModelCache.RecordPosesCached(Mapping, LocalPlayer.BasisAvatar.Animator);
             LocalPlayer.FaceIsVisible = false;
 
+            if (LocalPlayer.FaceRenderer != null)
+            {
+                LocalPlayer.FaceRenderer.Check = null;
+                GameObject.Destroy(LocalPlayer.FaceRenderer);
+                LocalPlayer.FaceRenderer = null;
+            }
+
             if (Avatar == null)
             {
                 BasisDebug.LogError("Missing Avatar");
             }
-            if (Avatar.FaceVisemeMesh == null)
+            SkinnedMeshRenderer faceVisemeMesh = Avatar.FaceVisemeMesh;
+            if (faceVisemeMesh == null)
             {
                 BasisDebug.Log("Missing Face for " + LocalPlayer.DisplayName, BasisDebug.LogTag.Avatar);
             }
-
-            LocalPlayer.UpdateFaceVisibility(Avatar.FaceVisemeMesh.isVisible);
-
-            if (LocalPlayer.FaceRenderer != null)
+            else
             {
-                // Mute before the deferred destroy: the outgoing avatar's renderer fires a
-                // final OnBecameInvisible during its end-of-frame teardown, and that late
-                // notification would stomp the visibility state just set up for the
-                // incoming avatar.
-                LocalPlayer.FaceRenderer.Check = null;
-                GameObject.Destroy(LocalPlayer.FaceRenderer);
+                LocalPlayer.UpdateFaceVisibility(faceVisemeMesh.isVisible);
+                LocalPlayer.FaceRenderer = BasisHelpers.GetOrAddComponent<BasisMeshRendererCheck>(faceVisemeMesh.gameObject);
+                LocalPlayer.FaceRenderer.Check += LocalPlayer.UpdateFaceVisibility;
             }
-
-            LocalPlayer.FaceRenderer = BasisHelpers.GetOrAddComponent<BasisMeshRendererCheck>(Avatar.FaceVisemeMesh.gameObject);
-            LocalPlayer.FaceRenderer.Check += LocalPlayer.UpdateFaceVisibility;
 
             if (BasisLocalFacialBlinkDriver.MeetsRequirements(Avatar))
             {

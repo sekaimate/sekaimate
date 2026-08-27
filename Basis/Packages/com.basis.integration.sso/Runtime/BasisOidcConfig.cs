@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using Newtonsoft.Json;
 using UnityEngine;
+using UnityEngine.Networking;
 
 namespace Basis.Integration.Sso
 {
@@ -38,6 +41,7 @@ namespace Basis.Integration.Sso
         /// the Basis server or SSO broker. Native-client secrets are not confidential secrets.
         /// </summary>
         [JsonProperty("clientSecret")] public string ClientSecret = string.Empty;
+        [JsonProperty("tokenEndpoint")] public string TokenEndpoint = string.Empty;
 
         [JsonProperty("scopes")] public List<string> Scopes = new List<string> { "openid", "profile", "email" };
 
@@ -61,6 +65,7 @@ namespace Basis.Integration.Sso
             [JsonProperty("issuer")] public string Issuer = string.Empty;
             [JsonProperty("clientId")] public string ClientId = string.Empty;
             [JsonProperty("clientSecret")] public string ClientSecret = string.Empty;
+            [JsonProperty("tokenEndpoint")] public string TokenEndpoint = string.Empty;
             [JsonProperty("scopes")] public List<string> Scopes = new List<string> { "openid", "profile", "email" };
             [JsonProperty("extraAuthParams")] public Dictionary<string, string> ExtraAuthParams = new Dictionary<string, string>();
             [JsonProperty("displayNameClaims")] public List<string> DisplayNameClaims = new List<string> { "name", "preferred_username", "email" };
@@ -151,7 +156,7 @@ namespace Basis.Integration.Sso
                     error = $"OIDC config: defaultProviderId '{DefaultProviderId}' is not in providers.";
                     return false;
                 }
-                if (!ValidateRedirect(out error)) return false;
+                if (!ValidateRedirect(Providers, out error)) return false;
                 if (ServerTransport == null || string.IsNullOrWhiteSpace(ServerTransport.ServerPublicKey))
                 {
                     error = "OIDC config: serverTransport.serverPublicKey is required when SSO providers are configured.";
@@ -173,18 +178,55 @@ namespace Basis.Integration.Sso
             }
 
             if (!TryValidateProvider(Issuer, ClientId, Scopes, out error)) return false;
-            return ValidateRedirect(out error);
+            return ValidateRedirect(null, out error);
         }
 
-        private bool ValidateRedirect(out string error)
+        private bool ValidateRedirect(IReadOnlyList<ProviderConfig> providers, out string error)
         {
-            if (Redirect == null || !string.Equals(Redirect.Mode, "loopback", StringComparison.OrdinalIgnoreCase))
+            if (Redirect == null)
             {
-                error = "OIDC config: only redirect.mode 'loopback' is supported.";
+                error = "OIDC config: redirect is required.";
                 return false;
             }
-            error = null;
+            if (string.Equals(Redirect.Mode, "loopback", StringComparison.OrdinalIgnoreCase))
+            {
+                error = null;
+                return true;
+            }
+            if (string.Equals(Redirect.Mode, "browser", StringComparison.OrdinalIgnoreCase)
+                && IsSafeBrowserPath(Redirect.Path)
+                && HasSafeBrowserTokenEndpoints(providers))
+            {
+                error = null;
+                return true;
+            }
+            error = "OIDC config: browser redirects require a safe path and HTTPS tokenEndpoint.";
+            return false;
+        }
+
+        private bool HasSafeBrowserTokenEndpoints(IReadOnlyList<ProviderConfig> providers)
+        {
+            if (providers == null || providers.Count == 0) return IsSafeBrowserTokenEndpoint(TokenEndpoint);
+            for (int index = 0; index < providers.Count; index++)
+            {
+                if (!IsSafeBrowserTokenEndpoint(providers[index].TokenEndpoint)) return false;
+            }
             return true;
+        }
+
+        private static bool IsSafeBrowserTokenEndpoint(string value)
+        {
+            if (!Uri.TryCreate(value, UriKind.Absolute, out Uri endpoint)) return false;
+            return endpoint.Scheme == Uri.UriSchemeHttps
+                || (endpoint.Scheme == Uri.UriSchemeHttp && IsLoopbackHost(endpoint.Host));
+        }
+
+        private static bool IsSafeBrowserPath(string path)
+        {
+            return !string.IsNullOrWhiteSpace(path)
+                && path.StartsWith("/", StringComparison.Ordinal)
+                && !path.Contains("..", StringComparison.Ordinal)
+                && !path.Contains("#", StringComparison.Ordinal);
         }
 
         internal static bool IsLoopbackHost(string host)
@@ -228,6 +270,7 @@ namespace Basis.Integration.Sso
                 Issuer = provider.Issuer,
                 ClientId = provider.ClientId,
                 ClientSecret = provider.ClientSecret,
+                TokenEndpoint = provider.TokenEndpoint,
                 Scopes = provider.Scopes,
                 ExtraAuthParams = provider.ExtraAuthParams,
                 Redirect = Redirect,
@@ -251,6 +294,23 @@ namespace Basis.Integration.Sso
         public static BasisOidcConfig Load()
         {
             BasisOidcConfig config = ReadFrom(OverridePath) ?? ReadFrom(StreamingPath);
+            return ValidateLoaded(config);
+        }
+
+        /// <summary>Loads the WebGL streaming asset through the browser URL.</summary>
+        public static async Task<BasisOidcConfig> LoadAsync(CancellationToken cancellationToken = default)
+        {
+            BasisOidcConfig config = ReadFrom(OverridePath);
+#if UNITY_WEBGL && !UNITY_EDITOR
+            if (config == null) config = await ReadFromStreamingUrlAsync(StreamingPath, cancellationToken);
+#else
+            if (config == null) config = ReadFrom(StreamingPath);
+#endif
+            return ValidateLoaded(config);
+        }
+
+        private static BasisOidcConfig ValidateLoaded(BasisOidcConfig config)
+        {
             if (config == null)
             {
                 BasisDebug.LogError(
@@ -258,6 +318,9 @@ namespace Basis.Integration.Sso
                     $"or '{OverridePath}'.");
                 return null;
             }
+            if (string.IsNullOrWhiteSpace(config.Issuer)
+                && (config.Providers == null || config.Providers.Count == 0))
+                return null;
             if (!config.TryValidate(out string error))
             {
                 BasisDebug.LogError($"[SSO] {error}");
@@ -292,6 +355,25 @@ namespace Basis.Integration.Sso
             }
         }
 
+        /// <summary>
+        /// Returns true for the intentionally empty placeholder shipped in builds that receive
+        /// organization SSO settings from a broker at runtime.
+        /// </summary>
+        public static bool IsEmptyPlaceholder(string json)
+        {
+            try
+            {
+                BasisOidcConfig config = JsonConvert.DeserializeObject<BasisOidcConfig>(json);
+                return config != null
+                    && string.IsNullOrWhiteSpace(config.Issuer)
+                    && (config.Providers == null || config.Providers.Count == 0);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private static BasisOidcConfig ReadFrom(string path)
         {
             try
@@ -309,5 +391,34 @@ namespace Basis.Integration.Sso
                 return null;
             }
         }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+        private static async Task<BasisOidcConfig> ReadFromStreamingUrlAsync(string url, CancellationToken cancellationToken)
+        {
+            using UnityWebRequest request = UnityWebRequest.Get(url);
+            using CancellationTokenRegistration cancellation = cancellationToken.Register(request.Abort);
+            await request.SendWebRequest();
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (request.result != UnityWebRequest.Result.Success)
+            {
+                if (request.responseCode != 404)
+                    BasisDebug.LogWarning($"[SSO] Failed to read streaming config '{url}': {request.error}");
+                return null;
+            }
+
+            try
+            {
+                BasisOidcConfig config = JsonConvert.DeserializeObject<BasisOidcConfig>(request.downloadHandler.text);
+                if (config != null) BasisDebug.Log($"[SSO] Loaded OIDC config from '{url}'.");
+                return config;
+            }
+            catch (Exception e)
+            {
+                BasisDebug.LogWarning($"[SSO] Failed to parse streaming config '{url}': {e.Message}");
+                return null;
+            }
+        }
+#endif
     }
 }

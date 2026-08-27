@@ -1,0 +1,75 @@
+[tools]
+node="latest"
+pnpm = "11"
+
+[tasks."web:build"]
+description = "再利用可能なWebGL開発ビルドを作成"
+run = "./tools/build-web.sh --dev"
+
+[tasks."web:release"]
+description = "クリーンなWebGLリリースビルドを作成"
+run = "./tools/build-web.sh"
+
+[tasks."web:prepare"]
+description = "WebGL開発ビルドを再利用し、古い場合だけ再ビルド"
+run = "bash ./tools/ensure-web-dev-build.sh"
+
+[tasks."web:serve"]
+description = "WebGL開発ビルドとワールドBEEを配信"
+run = "./tools/serve-web.sh --dev"
+
+[tasks."server:up"]
+description = "WebSocket対応のローカルBasis Serverをビルドして起動"
+run = "bash ./tools/server-up.sh"
+
+[tasks."server:down"]
+description = "ローカルBasis Serverを停止"
+run = 'docker compose -f "Basis Server/Docker/docker-compose.yml" -f "Basis Server/Docker/docker-compose.local-web.yml" down'
+
+[tasks."server:logs"]
+description = "ローカルBasis Serverのログを表示"
+run = 'docker compose -f "Basis Server/Docker/docker-compose.yml" -f "Basis Server/Docker/docker-compose.local-web.yml" logs -f basis-server'
+
+[tasks."sso:up"]
+description = "ローカルHTTPSのSSO gatewayをビルド・起動し、readyまで待機"
+run = "bash ./tools/sso-local-up.sh"
+
+[tasks."sso:health"]
+description = "ローカルSSO gatewayの状態を確認"
+run = "bash ./tools/sso-health.sh"
+
+[tasks."sso:ca"]
+description = "ローカルSSO用CA証明書のパスを表示"
+run = "bash ./tools/sso-ca.sh"
+
+[tasks."sso:trust-ca"]
+description = "ローカルSSO用CAをmacOSのログインキーチェーンで信頼"
+run = "bash ./tools/sso-trust-ca.sh"
+
+[tasks."sso:down"]
+description = "SSO BrokerとAdmin gatewayを停止"
+run = 'docker compose -f "Basis Server/Docker/sso/docker-compose.yml" down'
+
+[tasks."sso:logs"]
+description = "SSO BrokerとAdmin gatewayのログを表示"
+run = 'docker compose -f "Basis Server/Docker/sso/docker-compose.yml" logs -f'
+
+[tasks."sso:install"]
+description = "Admin Consoleの依存関係をインストール"
+dir = "Basis/Tools/BasisSsoBroker/AdminUi"
+run = "pnpm install --frozen-lockfile"
+
+[tasks."sso:dev"]
+description = "SSO gatewayを起動し、Admin Consoleの開発サーバーを実行"
+depends = ["sso:up", "sso:install"]
+dir = "Basis/Tools/BasisSsoBroker/AdminUi"
+run = "pnpm run dev"
+
+[tasks."local:up"]
+description = "WebGL・SSO・Basis Server・Web配信をまとめて起動"
+depends = ["web:prepare", "sso:up", "server:up"]
+run = "exec ./tools/serve-web.sh --dev"
+
+[tasks."local:down"]
+description = "ローカルSSO gatewayとBasis Serverを停止"
+run = "mise run sso:down && mise run server:down"

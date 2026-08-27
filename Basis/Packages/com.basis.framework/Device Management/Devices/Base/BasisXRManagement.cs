@@ -232,7 +232,10 @@ namespace Basis.Scripts.Device_Management.Devices
         public void DeInitialize()
         {
 #if UNITY_EDITOR
-            xRManagerSettings.TrySetLoaders(AvaliableLoaders);
+            if (xRManagerSettings != null && AvaliableLoaders != null)
+            {
+                xRManagerSettings.TrySetLoaders(AvaliableLoaders);
+            }
 #endif
         }
     }

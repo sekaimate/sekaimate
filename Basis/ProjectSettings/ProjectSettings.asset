@@ -506,6 +506,9 @@ PlayerSettings:
   - m_BuildTarget: Android
     m_StaticBatching: 0
     m_DynamicBatching: 0
+  - m_BuildTarget: WebGL
+    m_StaticBatching: 0
+    m_DynamicBatching: 0
   m_BuildTargetShaderSettings:
   - m_BuildTarget: Standalone
     m_ChunkSizeInMB: 16
@@ -577,7 +580,8 @@ PlayerSettings:
   enableInternalProfiler: 0
   logObjCUncaughtExceptions: 1
   enableCrashReportAPI: 1
-  cameraUsageDescription: 
+  cameraUsageDescription: This application uses the camera for camera capture and
+    avatar tracking features.
   locationUsageDescription: 
   microphoneUsageDescription: This application uses the microphone for voice communication
     and audio features.
@@ -847,7 +851,7 @@ PlayerSettings:
     QNX: 
     Server: UNITY_BUNDLEUNLOAD;
     Standalone: STEAMAUDIO_ENABLED;USE_INPUT_SYSTEM_POSE_CONTROL;USE_STICK_CONTROL_THUMBSTICKS;BASIS_OPENVR_SUPPORTED;AUDIOLINK;AUDIOLINK_V1;SETTINGS_MANAGER_UNIVERSAL;BASIS_FRAMEWORK_EXISTS;LITENETLIB_SPANS;Basis_VOLUMETRIC_SUPPORTED;JIGGLE_VALIDATE
-    WebGL: STEAMAUDIO_ENABLED
+    WebGL: 
     Windows Store Apps: USE_INPUT_SYSTEM_POSE_CONTROL;USE_STICK_CONTROL_THUMBSTICKS
     XboxOne: 
     iPhone: SETTINGS_MANAGER_UNIVERSAL;STEAMAUDIO_ENABLED;USE_INPUT_SYSTEM_POSE_CONTROL;AUDIOLINK;AUDIOLINK_V1;BASIS_FRAMEWORK_EXISTS;LITENETLIB_SPANS;USE_STICK_CONTROL_THUMBSTICKS;Basis_VOLUMETRIC_SUPPORTED;JIGGLE_VALIDATE

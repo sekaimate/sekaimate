@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    "lib": ["DOM", "ESNext"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "target": "ES2022",
+    "types": ["@playwright/test", "node"]
+  },
+  "include": ["playwright.config.ts", "tests/**/*.ts"]
+}

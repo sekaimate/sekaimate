@@ -152,6 +152,9 @@ namespace Basis.Scripts.Networking.Receivers
         // Gate: the per-frame network pass and the audio-thread top-up must never decode at
         // the same time (the Opus decoder is not reentrant). CAS 0->1 to enter, write 0 to leave.
         private int _decoding;
+#if UNITY_WEBGL && !UNITY_EDITOR
+        private int _webPlaybackStartQueued;
+#endif
 
         /// <summary>
         /// Number of accumulated 20 ms silence units (see <see cref="_silentUnits20ms"/>)
@@ -250,8 +253,31 @@ namespace Basis.Scripts.Networking.Receivers
 
         public void Insert(AudioSegmentDataMessage msg)
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            BasisWebAudioDiagnosticsBridge.MarkNetworkReceived(msg.LengthUsed);
+#endif
             VoiceBuffer.InsertEncoded(msg.SequenceNumber, msg.buffer, msg.LengthUsed, msg.TotalPlayedInSilence);
             OnEncodedFrame?.Invoke(msg);
+#if UNITY_WEBGL && !UNITY_EDITOR
+            if (!HasAudioSource
+                && System.Threading.Interlocked.CompareExchange(ref _webPlaybackStartQueued, 1, 0) == 0)
+            {
+                BasisDeviceManagement.EnqueueOnMainThread(() =>
+                {
+                    try
+                    {
+                        if (!HasAudioSource)
+                        {
+                            StartAudio(BasisTransmissionResults.ConvertedVoiceDistance);
+                        }
+                    }
+                    finally
+                    {
+                        System.Threading.Volatile.Write(ref _webPlaybackStartQueued, 0);
+                    }
+                });
+            }
+#endif
         }
 
         // ==================== Decode pipeline ====================
@@ -272,6 +298,9 @@ namespace Basis.Scripts.Networking.Receivers
                     pcmLength = decoder.Decode(data, length, pcmBuffer, RemoteOpusSettings.MaxFrameSize, false);
                     PushCurrentFrame(true);
                     OnDecodedFrame?.Invoke(pcmBuffer, pcmLength);
+#if UNITY_WEBGL && !UNITY_EDITOR
+                    BasisWebAudioDiagnosticsBridge.MarkOpusDecoded(pcmLength);
+#endif
                 }
                 catch
                 {
@@ -399,6 +428,9 @@ namespace Basis.Scripts.Networking.Receivers
                 pcmLength = decoder.Decode(data, length, pcmBuffer, RemoteOpusSettings.FrameSize, true);
                 PushCurrentFrame(true);
                 OnDecodedFrame?.Invoke(pcmBuffer, pcmLength);
+#if UNITY_WEBGL && !UNITY_EDITOR
+                BasisWebAudioDiagnosticsBridge.MarkOpusDecoded(pcmLength);
+#endif
             }
             catch
             {
@@ -427,6 +459,12 @@ namespace Basis.Scripts.Networking.Receivers
 
         private void DrainAndDecodeLocked()
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            if (!HasAudioSource)
+            {
+                return;
+            }
+#endif
             _lastDrainDecoded = false;
 
             // Mute creates a gap that Opus's own loss handling won't catch:
@@ -707,14 +745,7 @@ namespace Basis.Scripts.Networking.Receivers
 
         public void AudioSourceSet()
         {
-            BasisDeviceManagement.EnqueueOnMainThread(() =>
-            {
-                if (!HasAudioSource) return;
-                if (ShouldAudioBeActive())
-                    EnableAndEnsurePlaying();
-                else
-                    DisableAudio();
-            });
+            BasisDeviceManagement.EnqueueOnMainThread(ApplyAudioState);
         }
 
         private void EnableAndEnsurePlaying()
@@ -899,8 +930,7 @@ namespace Basis.Scripts.Networking.Receivers
             BasisNetworkReceiver = networkedPlayer;
             LogOutputRateOnce();
 
-#if UNITY_IOS && !UNITY_EDITOR
-            // iOS requires statically linked Opus library
+#if (UNITY_IOS || UNITY_WEBGL) && !UNITY_EDITOR
             decoder = new OpusSharp.Core.Static.OpusDecoder(RemoteOpusSettings.NetworkSampleRate, RemoteOpusSettings.Channels);
 #else
             decoder = new OpusSharp.Core.Dynamic.OpusDecoder(RemoteOpusSettings.NetworkSampleRate, RemoteOpusSettings.Channels);

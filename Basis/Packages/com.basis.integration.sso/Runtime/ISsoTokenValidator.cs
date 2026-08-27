@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
 
 namespace Basis.Integration.Sso
 {
@@ -23,6 +24,8 @@ namespace Basis.Integration.Sso
         /// <summary>Expected audience — the OIDC client id.</summary>
         public string Audience;
         public string JwksUri;
+        /// <summary>Keys fetched by the browser bridge for WebGL; native clients use JwksUri.</summary>
+        public JArray Jwks;
         public string ExpectedNonce;
         /// <summary>Tolerance applied to exp/iat to absorb clock drift.</summary>
         public System.TimeSpan ClockSkew = System.TimeSpan.FromMinutes(2);

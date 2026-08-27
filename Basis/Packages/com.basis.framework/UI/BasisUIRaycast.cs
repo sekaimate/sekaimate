@@ -6,6 +6,7 @@ using Basis.Scripts.Device_Management.Devices;
 using Basis.Scripts.Drivers;
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
 using UnityEngine.EventSystems;
@@ -27,6 +28,10 @@ namespace Basis.Scripts.UI
         public LineRenderer LineRenderer;
         public static string LoadMaterialAddress = "Assets/UI/Material/RayCastMaterial.mat";
         public static string LoadUIRedicalAddress = "Assets/UI/Prefabs/highlightQuad.prefab";
+        private static AsyncOperationHandle<Material> lineMaterialHandle;
+        private static AsyncOperationHandle<GameObject> reticleHandle;
+        private static Material sharedLineMaterial;
+        private static GameObject sharedReticlePrefab;
         public GameObject highlightQuadInstance;
         private ActiveStateOfHightlight _highlightState;
         public ActiveStateOfHightlight HighlightState
@@ -91,6 +96,21 @@ namespace Basis.Scripts.UI
         private struct ToolkitPanelCacheEntry { public BasisUIToolkitPanel Panel; public int Frame; }
         private readonly Dictionary<Transform, ToolkitPanelCacheEntry> _toolkitPanelCache = new Dictionary<Transform, ToolkitPanelCacheEntry>();
 
+        public static async Task InitializeAssetsAsync()
+        {
+            if (!lineMaterialHandle.IsValid())
+            {
+                lineMaterialHandle = Addressables.LoadAssetAsync<Material>(LoadMaterialAddress);
+            }
+            sharedLineMaterial = await lineMaterialHandle.Task;
+
+            if (!reticleHandle.IsValid())
+            {
+                reticleHandle = Addressables.LoadAssetAsync<GameObject>(LoadUIRedicalAddress);
+            }
+            sharedReticlePrefab = await reticleHandle.Task;
+        }
+
         public void Initialize(BasisInput basisInput, BasisPointRaycaster pointRaycaster)
         {
 
@@ -113,10 +133,7 @@ namespace Basis.Scripts.UI
                 // Add a Line Renderer component to the GameObject
                 LineRenderer = BasisHelpers.GetOrAddComponent<LineRenderer>(BasisPointRaycaster.gameObject);
                 LineRenderer.enabled = false;
-                AsyncOperationHandle<Material> handle = Addressables.LoadAssetAsync<Material>(LoadMaterialAddress);
-                Material InMemory = handle.WaitForCompletion();
-
-                lineMaterial = InMemory;
+                lineMaterial = sharedLineMaterial;
                 // Set the Line Renderer properties
                 LineRenderer.material = lineMaterial;
 
@@ -143,9 +160,7 @@ namespace Basis.Scripts.UI
             }
             if (basisInput.DeviceMatchSettings.HasRayCastRadical)
             {
-                AsyncOperationHandle<GameObject> handle = Addressables.LoadAssetAsync<GameObject>(LoadUIRedicalAddress);
-                GameObject InMemory = handle.WaitForCompletion();
-                GameObject gameObject = GameObject.Instantiate(InMemory);
+                GameObject gameObject = GameObject.Instantiate(sharedReticlePrefab);
                 gameObject.name = $"{DeviceName}_Redical";
                 gameObject.transform.SetParent(BasisLocalPlayer.Instance.transform);
                 highlightQuadInitialSize = gameObject.transform.localScale;

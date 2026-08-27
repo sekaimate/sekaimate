@@ -314,6 +314,12 @@ namespace Basis.BasisUI
 
             try
             {
+#if UNITY_WEBGL && !UNITY_EDITOR
+                foreach (BasisDataStoreItemKeys.ItemKey item in items)
+                {
+                    await PreloadMetaDataForItem(item);
+                }
+#else
                 await Task.WhenAll(items.Select(async item =>
                 {
                     await _preloadGate.WaitAsync();
@@ -326,6 +332,7 @@ namespace Basis.BasisUI
                         _preloadGate.Release();
                     }
                 }));
+#endif
             }
             catch (Exception ex)
             {

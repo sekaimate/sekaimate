@@ -247,6 +247,7 @@ namespace Basis.Scripts.UI.UI_Panels
         // re-acquiring the lock (which would deadlock since the lock is not re-entrant).
         private static async Task LoadKeysInternal()
         {
+            await BasisUI.EmbeddedItems.InitializeAsync();
             EnsureInit();
 
             if (!File.Exists(FilePath))
@@ -262,7 +263,11 @@ namespace Basis.Scripts.UI.UI_Panels
             byte[] byteData;
             try
             {
+#if UNITY_WEBGL && !UNITY_EDITOR
+                byteData = File.ReadAllBytes(FilePath);
+#else
                 byteData = await File.ReadAllBytesAsync(FilePath);
+#endif
             }
             catch (System.Exception e)
             {
@@ -388,12 +393,6 @@ namespace Basis.Scripts.UI.UI_Panels
         {
             EnsureInit();
 
-            // FIX: Write to a temp file first, then replace the real file atomically.
-            // A crash or power loss mid-write previously produced a corrupt keystore
-            // with no recovery path. Temp-swap ensures the old file survives until the
-            // new one is fully flushed.
-            string tempPath = FilePath + ".tmp";
-
             // FIX: Separate try/catch for serialization so a failure here never touches
             // the real file or the temp file.
             byte[] byteData;
@@ -414,6 +413,19 @@ namespace Basis.Scripts.UI.UI_Panels
                 BasisDebug.LogError("Serialization produced empty output. Aborting save to protect existing data.");
                 return;
             }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+            try
+            {
+                File.WriteAllBytes(FilePath, byteData);
+                BasisDebug.Log($"Item keys saved to file at: {FilePath}");
+            }
+            catch (System.Exception e)
+            {
+                BasisDebug.LogError($"Failed to save Item key file: {e}");
+            }
+#else
+            string tempPath = FilePath + ".tmp";
 
             // FIX: Separate try/catch for the write so a failed write bails out before
             // we attempt to swap — previously a write failure would fall through to
@@ -450,6 +462,7 @@ namespace Basis.Scripts.UI.UI_Panels
                 }
                 catch { /* best-effort cleanup */ }
             }
+#endif
         }
 
         public static ItemKey[] DisplayKeys()

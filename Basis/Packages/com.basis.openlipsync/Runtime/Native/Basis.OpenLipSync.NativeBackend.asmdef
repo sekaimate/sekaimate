@@ -1,0 +1,21 @@
+{
+    "name": "Basis.OpenLipSync.NativeBackend",
+    "rootNamespace": "",
+    "references": [
+        "Basis.OpenLipSync.Runtime"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [
+        "WebGL"
+    ],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "Microsoft.ML.OnnxRuntime.dll",
+        "Newtonsoft.Json.dll"
+    ],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

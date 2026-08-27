@@ -12,13 +12,13 @@ namespace Basis.Scripts.Player
     /// Wraps Addressables loading, prefab instantiation, and component initialization.
     /// </summary>
     /// <remarks>
-    /// Call <see cref="Initialize"/> once at startup to load the local/remote player prefabs.
+    /// Call <see cref="InitializeAsync"/> once at startup to load the local/remote player prefabs.
     /// When shutting down or changing scenes, call <see cref="DeInitialize"/> to release Addressables handles.
     /// </remarks>
     public static class BasisPlayerFactory
     {
         /// <summary>
-        /// Prefab asset for the local player, loaded via Addressables by <see cref="Initialize"/>.
+        /// Prefab asset for the local player, loaded via Addressables by <see cref="InitializeAsync"/>.
         /// </summary>
         public static GameObject LocalPlayerReadyToSpawn;
 
@@ -36,38 +36,65 @@ namespace Basis.Scripts.Player
         /// Tpose Handle
         /// </summary>
         public static UnityEngine.ResourceManagement.AsyncOperations.AsyncOperationHandle<RuntimeAnimatorController> TposeHandle;
+        public static UnityEngine.ResourceManagement.AsyncOperations.AsyncOperationHandle<RuntimeAnimatorController> LocomotionHandle;
 
         public static RuntimeAnimatorController TposeController;
+        public static RuntimeAnimatorController LocomotionController;
 
         /// <summary>Addressable path to the T-Pose animator controller asset.</summary>
         public const string TPose = "Assets/Animator/Animated TPose.controller";
+        public const string Locomotion = "Locomotion";
         /// <summary>
         /// Loads the local and remote player prefabs from Addressables and caches them for instantiation.
         /// </summary>
-        /// <remarks>
-        /// This method blocks using <c>WaitForCompletion()</c>. If you need a non-blocking flow,
-        /// adapt this to await the async operations and expose a Task-returning version.
-        /// </remarks>
-        public static void Initialize()
+        public static async Task InitializeAsync()
         {
-            LocalHandle = Addressables.LoadAssetAsync<GameObject>(LocalPlayerId);
-            LocalPlayerReadyToSpawn = LocalHandle.WaitForCompletion();
+            if (!LocalHandle.IsValid())
+            {
+                LocalHandle = Addressables.LoadAssetAsync<GameObject>(LocalPlayerId);
+            }
+            LocalPlayerReadyToSpawn = await LocalHandle.Task;
 
-            TposeHandle = Addressables.LoadAssetAsync<RuntimeAnimatorController>(TPose);
-            TposeController = TposeHandle.WaitForCompletion();
+            if (!TposeHandle.IsValid())
+            {
+                TposeHandle = Addressables.LoadAssetAsync<RuntimeAnimatorController>(TPose);
+            }
+            TposeController = await TposeHandle.Task;
+
+            if (!LocomotionHandle.IsValid())
+            {
+                LocomotionHandle = Addressables.LoadAssetAsync<RuntimeAnimatorController>(Locomotion);
+            }
+            LocomotionController = await LocomotionHandle.Task;
         }
 
         /// <summary>
-        /// Releases Addressables handles acquired by <see cref="Initialize"/>.
+        /// Releases Addressables handles acquired by <see cref="InitializeAsync"/>.
         /// </summary>
         /// <remarks>
         /// After calling this, <see cref="LocalPlayerReadyToSpawn"/>
-        /// should no longer be used. Re-run <see cref="Initialize"/> to load it again.
+        /// should no longer be used. Re-run <see cref="InitializeAsync"/> to load it again.
         /// </remarks>
         public static void DeInitialize()
         {
-            Addressables.Release(LocalHandle);
-            Addressables.Release(TposeController);
+            if (LocalHandle.IsValid())
+            {
+                Addressables.Release(LocalHandle);
+                LocalHandle = default;
+            }
+            if (TposeHandle.IsValid())
+            {
+                Addressables.Release(TposeHandle);
+                TposeHandle = default;
+            }
+            if (LocomotionHandle.IsValid())
+            {
+                Addressables.Release(LocomotionHandle);
+                LocomotionHandle = default;
+            }
+            LocalPlayerReadyToSpawn = null;
+            TposeController = null;
+            LocomotionController = null;
         }
 
         /// <summary>

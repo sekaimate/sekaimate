@@ -471,7 +471,7 @@ namespace Basis.BasisUI
             BasisMenuPromptRestore.Clear();
             Instance.Release();
             Instance = null;
-            BasisCursorManagement.LockCursor(nameof(BasisMainMenu));
+            BasisCursorManagement.LockCursorFromUserGesture(nameof(BasisMainMenu));
             BasisUILoadingBar.SetHudSuppressed(false);
             SetMicrophoneIconHudVisible(true);
             BasisMenuStateMemory.WasOpen = false;

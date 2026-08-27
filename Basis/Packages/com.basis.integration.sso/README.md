@@ -1,8 +1,8 @@
 # Basis SSO (OIDC) Integration
 
-Client-side OpenID Connect single sign-on for the BasisVR **Desktop/PCVR** client, for
-closed-org deployments. The client is gated at launch behind an OIDC login (Authorization
-Code + PKCE, system browser, 127.0.0.1 loopback redirect). The session is persisted
+Client-side OpenID Connect single sign-on for the BasisVR **Desktop/PCVR and WebGL** clients,
+for closed-org deployments. The client is gated at launch behind an OIDC login (Authorization
+Code + PKCE, system browser; WebGL uses the HTTPS host callback). The session is persisted
 encrypted-at-rest and the local DID identity is bound to the signed-in user. With the included
 HTTPS broker and an SSO-enabled Basis server, the client also obtains a DID-bound ticket for
 server-side admission.
@@ -26,6 +26,18 @@ Implemented (this package):
 
 See `SSO-OPERATIONS.md` and `Tools/BasisSsoBroker/README.md` for deployment and trust-boundary details.
 
+## WebGL client
+
+WebGL uses the browser's Authorization Code + PKCE flow. Copy
+`Samples~/basis-sso.web.sample.json` to `Assets/StreamingAssets/basis-sso.json`, set the public
+OIDC client ID, server public key, and HTTPS admission endpoint, then deploy the build. Register
+`https://<web-host>/sso-callback` as the provider redirect URI. The Cloudflare Worker serves this
+callback and returns the result to the running Unity page through same-origin session storage.
+
+Web builds must use a public OIDC client. Do not set `clientSecret`; the browser rejects it. The
+issuer, client ID, callback path, transport public key, and admission endpoint are not secrets.
+The server signing key and provider credentials remain on the SSO broker.
+
 ## Configuration
 
 Ship `basis-sso.json` in `Assets/StreamingAssets/` (see `Samples~/basis-sso.sample.json`). A copy
@@ -33,9 +45,9 @@ in `Application.persistentDataPath` overrides it per machine. Schema is document
 
 ### Google
 
-Create an OAuth client of type **Desktop app** in Google Cloud Console → *APIs & Services →
-Credentials*. Put its client ID in the config. If Google requires it, also set `clientSecret` for
-that native client. Notes:
+For native clients, create an OAuth client of type **Desktop app** in Google Cloud Console →
+*APIs & Services → Credentials*. For WebGL, create an OAuth client of type **Web application**,
+register `https://<web-host>/sso-callback`, and put its client ID in the web config. Notes:
 
 - This is a public/native OAuth client. If Google requires `clientSecret`, it is only included in
   the direct HTTPS token exchange with Google; it is never sent to the Basis server or broker. Do
@@ -47,6 +59,8 @@ that native client. Notes:
   no redirect URI needs registering.
 - Google has no `groups` claim. To restrict a Workspace org, gate on the `hd` (hosted-domain)
   claim, e.g. `allowedClaims: [{ "claim": "hd", "values": ["yourcompany.com"] }]`.
+
+The WebGL client must not contain `clientSecret`; it uses a public client with PKCE.
 
 ### Okta / generic OIDC
 

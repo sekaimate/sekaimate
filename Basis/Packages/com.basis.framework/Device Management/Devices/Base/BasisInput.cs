@@ -741,7 +741,20 @@ namespace Basis.Scripts.Device_Management.Devices
         /// <param name="Volume">Playback volume.</param>
         public void PlaySoundEffectDefaultImplementation(string SoundEffectName, float Volume)
         {
-         //   BasisDebug.Log("Volume was " + Volume);
+#if UNITY_WEBGL && !UNITY_EDITOR
+            switch (SoundEffectName)
+            {
+                case "hover":
+                    BasisWebAudioUiSoundBridge.Play(BasisWebAudioUiSound.Hover, Volume);
+                    break;
+                case "press":
+                    BasisWebAudioUiSoundBridge.Play(BasisWebAudioUiSound.Press, Volume);
+                    break;
+                case "chat":
+                    BasisWebAudioUiSoundBridge.Play(BasisWebAudioUiSound.Chat, Volume);
+                    break;
+            }
+#else
             switch (SoundEffectName)
             {
                 case "hover":
@@ -757,6 +770,7 @@ namespace Basis.Scripts.Device_Management.Devices
                     BasisUISounds.PlayAt(BasisUISoundEvent.Chat, BasisDeviceManagement.Instance.ChatNotificationUI, transform.position, Volume);
                     break;
             }
+#endif
         }
 
         /// <summary>
@@ -868,7 +882,11 @@ namespace Basis.Scripts.Device_Management.Devices
         /// Loads and instantiates a visual model for this device via Addressables.
         /// </summary>
         /// <param name="key">Addressables key for the model prefab.</param>
+#if UNITY_WEBGL && !UNITY_EDITOR
+        public async void LoadModelWithKey(string key)
+#else
         public void LoadModelWithKey(string key)
+#endif
         {
             // The generic marker ball is drawn by the batched gizmo backend rather than an
             // instantiated FallbackSphere — same material and sizing, no per-device GameObject.
@@ -883,7 +901,11 @@ namespace Basis.Scripts.Device_Management.Devices
                 _visualModelHandle = default;
             }
             _visualModelHandle = Addressables.LoadAssetAsync<GameObject>(key);
+#if UNITY_WEBGL && !UNITY_EDITOR
+            GameObject go = await _visualModelHandle.Task;
+#else
             GameObject go = _visualModelHandle.WaitForCompletion();
+#endif
             GameObject gameObject = GameObject.Instantiate(go, this.transform);
             gameObject.name = CommonDeviceIdentifier;
             if (gameObject.TryGetComponent(out BasisVisualTracker))

@@ -26,6 +26,18 @@ namespace Basis.Integration.Sso
         /// <summary>True once config has loaded and validated. When false, SSO cannot proceed.</summary>
         public static bool IsConfigured => _config != null;
 
+        public static bool HasPendingBrowserCallback
+        {
+            get
+            {
+#if UNITY_WEBGL && !UNITY_EDITOR
+                return BasisWebOidcBridge.HasPendingCallback;
+#else
+                return false;
+#endif
+            }
+        }
+
         public static string ActiveDisplayName =>
             IsSignedIn ? BasisSsoIdentityBinding.ResolveDisplayNameFromClaims(_activeProviderConfig ?? _config, Current) : null;
 
@@ -34,24 +46,32 @@ namespace Basis.Integration.Sso
         /// <summary>Raised after a broker-issued configuration has been accepted for this process.</summary>
         public static event Action RuntimeConfigurationApplied;
 
-        /// <summary>
-        /// One-shot OIDC <c>prompt</c> consumed by the next <see cref="SignInAsync"/>. Setting this
-        /// to "login" before <see cref="SignOut"/> makes the gate's re-login force the account
-        /// chooser — how the settings "Switch account" action works without a second parallel flow.
-        /// </summary>
-        public static string PendingPrompt;
-
         /// <summary>Loads and validates config. Safe to call repeatedly; returns cached result.</summary>
         public static bool EnsureConfigLoaded()
         {
             if (_config != null) return true;
             _config = BasisOidcConfig.Load();
             if (_config == null) return false;
+            ConfigureLoadedConfig();
+            return true;
+        }
+
+        /// <summary>Loads streaming assets asynchronously when WebGL exposes them as browser URLs.</summary>
+        public static async Task<bool> EnsureConfigLoadedAsync(CancellationToken cancellationToken = default)
+        {
+            if (_config != null) return true;
+            _config = await BasisOidcConfig.LoadAsync(cancellationToken);
+            if (_config == null) return false;
+            ConfigureLoadedConfig();
+            return true;
+        }
+
+        private static void ConfigureLoadedConfig()
+        {
             SelectedProviderId = !string.IsNullOrEmpty(_config.DefaultProviderId)
                 ? _config.DefaultProviderId
                 : (_config.Providers != null && _config.Providers.Count > 0 ? _config.Providers[0].Id : null);
             ConfigureService(SelectedProviderId);
-            return true;
         }
 
         /// <summary>
@@ -67,7 +87,7 @@ namespace Basis.Integration.Sso
                 && string.Equals(Current.ProviderId, nextProvider.Id, StringComparison.OrdinalIgnoreCase)
                 && string.Equals(_activeProviderConfig.Issuer, nextProvider.Issuer, StringComparison.Ordinal)
                 && string.Equals(_activeProviderConfig.ClientId, nextProvider.ClientId, StringComparison.Ordinal);
-            if (!keepSession)
+            if (Current != null && !keepSession)
             {
                 Current = null;
                 BasisSsoSessionStore.Clear();
@@ -124,9 +144,7 @@ namespace Basis.Integration.Sso
             if (!EnsureConfigLoaded())
                 return SsoAuthResult.Fail("SSO is not configured.");
 
-            string effectivePrompt = prompt ?? PendingPrompt;
-            PendingPrompt = null;
-            SsoAuthResult result = await _service.SignInInteractiveAsync(ct, effectivePrompt);
+            SsoAuthResult result = await _service.SignInInteractiveAsync(ct, prompt);
             return await FinalizeAsync(result, persist: true);
         }
 
@@ -139,14 +157,6 @@ namespace Basis.Integration.Sso
             BasisSsoSessionStore.Clear();
             BasisSsoIdentityBinding.Unbind();
             StateChanged?.Invoke();
-        }
-
-        /// <summary>Sign out then immediately prompt for a different account.</summary>
-        public static async Task<SsoAuthResult> SwitchAccountAsync(CancellationToken ct = default)
-        {
-            SignOut();
-            // prompt=login forces the IdP to re-authenticate rather than silently reusing its session.
-            return await SignInAsync(ct, prompt: "login");
         }
 
         public static async Task<string> GetEndSessionEndpointAsync(CancellationToken ct = default)

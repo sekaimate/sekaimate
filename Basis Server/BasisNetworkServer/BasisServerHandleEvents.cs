@@ -1,4 +1,5 @@
 ﻿using Basis.Network.Core;
+using Basis.Network.Server.Auth;
 using Basis.Network.Server.Generic;
 using Basis.Network.Server.Ownership;
 using BasisNetworkCore;
@@ -362,6 +363,7 @@ namespace BasisServerHandle
             }
 
             NetworkServer.AuthIdentity.RemoveConnection(id, peer);
+            BasisNetworkServer.Security.BasisSsoAdmissionGate.Remove(id);
 
             // A predecessor's disconnect can land after a reconnect has already taken the same id.
             // Every teardown below is keyed by id alone, so running it for a peer that no longer
@@ -504,6 +506,16 @@ namespace BasisServerHandle
             reason = BasisHeadlessConnectionPolicyManager.DisallowedReason;
             return true;
         }
+
+        private static string DescribeSsoPayloadFailure(byte[] payload)
+        {
+            bool hasEnvelopeMarker = payload != null && payload.Length >= 5
+                && payload[0] == (byte)'B' && payload[1] == (byte)'S'
+                && payload[2] == (byte)'S' && payload[3] == (byte)'O' && payload[4] == 2;
+            return hasEnvelopeMarker
+                ? "Encrypted SSO admission payload could not be decrypted."
+                : "Encrypted SSO admission payload required.";
+        }
         #endregion
 
         #region Connection Handling
@@ -517,7 +529,7 @@ namespace BasisServerHandle
                     return;
                 }
               //  BNL.Log("Processing Connection Request");
-                int ServerCount = NetworkServer.Server.ConnectedPeersCount;
+                int ServerCount = NetworkServer.ConnectedPeerCount;
 
                 if (ServerCount >= NetworkServer.Configuration.PeerLimit)
                 {
@@ -537,13 +549,23 @@ namespace BasisServerHandle
                     RejectVersionMismatch(ConReq, BasisNetworkVersion.ServerVersion, ClientVersion);
                     return;
                 }
+                byte[] AuthBytes;
                 if (NetworkServer.Configuration.UseAuth)
                 {
                     BytesMessage authMessage = new BytesMessage();
-                    if (!authMessage.Deserialize(ConReq.Data, out byte[] AuthBytes))
+                    if (!authMessage.Deserialize(ConReq.Data, out AuthBytes))
                     {
                         RejectWithReason(ConReq, "Malformed auth payload");
                         return;
+                    }
+                    if (NetworkServer.Configuration.RequireSso)
+                    {
+                        if (!SsoConnectionAuthPayload.TryDecodeEncrypted(AuthBytes, NetworkServer.Configuration, out string password, out string ticket))
+                        {
+                            RejectWithReason(ConReq, DescribeSsoPayloadFailure(AuthBytes));
+                            return;
+                        }
+                        AuthBytes = SsoConnectionAuthPayload.Encode(password, ticket);
                     }
                     if (NetworkServer.Auth.IsAuthenticated(AuthBytes) == false)
                     {
@@ -553,13 +575,34 @@ namespace BasisServerHandle
                 }
                 else
                 {
-                    //we still want to read the data to move the needle along
                     BytesMessage authMessage = new BytesMessage();
-                    authMessage.Deserialize(ConReq.Data, out byte[] UnusedBytes);
+                    if (!authMessage.Deserialize(ConReq.Data, out AuthBytes))
+                    {
+                        RejectWithReason(ConReq, "Malformed auth payload");
+                        return;
+                    }
+                    if (NetworkServer.Configuration.RequireSso)
+                    {
+                        if (!SsoConnectionAuthPayload.TryDecodeEncrypted(AuthBytes, NetworkServer.Configuration, out string password, out string ticket))
+                        {
+                            RejectWithReason(ConReq, DescribeSsoPayloadFailure(AuthBytes));
+                            return;
+                        }
+                        AuthBytes = SsoConnectionAuthPayload.Encode(password, ticket);
+                    }
                 }
                 if (NetworkServer.Configuration.UseAuthIdentity)
                 {
                     NetPeer newPeer = ConReq.Accept();//can do both way Communication from here on
+                    if (NetworkServer.Configuration.RequireSso)
+                    {
+                        if (!PasswordAuth.TryGetAdmissionTicket(AuthBytes, out string ticket))
+                        {
+                            RejectWithReason(newPeer, "SSO admission ticket required.");
+                            return;
+                        }
+                        BasisNetworkServer.Security.BasisSsoAdmissionGate.SetPendingTicket(newPeer.Id, ticket);
+                    }
                     NetworkServer.AuthIdentity.ProcessConnection(NetworkServer.Configuration, ConReq, newPeer);
                 }
                 else
@@ -656,17 +699,19 @@ namespace BasisServerHandle
             if (added)
             {
                 newPeer.Tag = NetworkServer.AuthenticatedPeerTag;
-                NetworkServer.RebuildPeerSnapshot();
-                // Claim this peer's place in the join order before anything is announced, so the
-                // "only records newer than my own join" rule below has a value to compare against.
-                JoinBroadcast.RegisterPeer(newPeer.Id, JoinBroadcast.NextSeq());
-                BNL.Log($"Peer connected: {newPeer.Id}");
                 //never ever assume the UUID provided by the user is good always recalc on the server.
                 //this means that as long as they pass auth but locally have a bad UUID that only they locally are effected.
                 //there is no way to force a user locally to be a certain UUID, that's not how the internet works.
                 //instead we can make sure all additional clients have them correct.
                 //this only occurs if the server is doing Auth checks.
                 ReadyMessage.playerMetaDataMessage.playerUUID = UUID;
+                BasisServerReductionSystemEvents.AddMessage(newPeer, ReadyMessage.localAvatarSyncMessage, 0);
+                BasisSavedState.AddLastData(newPeer, ReadyMessage);
+                NetworkServer.RebuildPeerSnapshot();
+                // Claim this peer's place in the join order before anything is announced, so the
+                // "only records newer than my own join" rule below has a value to compare against.
+                JoinBroadcast.RegisterPeer(newPeer.Id, JoinBroadcast.NextSeq());
+                BNL.Log($"Peer connected: {newPeer.Id}");
                 PermissionIntegration.StorePlayerMeta(UUID, ReadyMessage.playerMetaDataMessage);
 
                Configuration Config = NetworkServer.Configuration;
@@ -1145,8 +1190,6 @@ namespace BasisServerHandle
                     playerID = (ushort)authClient.Id
                 }
             };
-            BasisServerReductionSystemEvents.AddMessage(authClient, readyMessage.localAvatarSyncMessage, 0);
-            BasisSavedState.AddLastData(authClient, readyMessage);
             return serverReadyMessage;
         }
         /// <summary>

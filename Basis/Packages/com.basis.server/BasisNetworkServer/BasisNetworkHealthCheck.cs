@@ -111,6 +111,7 @@ namespace Basis.Network.Server
                 // Basic hardening / semantics
                 res.Headers["Cache-Control"] = "no-store, max-age=0";
                 res.Headers["X-Content-Type-Options"] = "nosniff";
+                res.Headers["Access-Control-Allow-Origin"] = "*";
 
                 if (!string.Equals(req.HttpMethod, "GET", StringComparison.OrdinalIgnoreCase))
                 {

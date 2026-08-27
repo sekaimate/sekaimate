@@ -77,6 +77,7 @@ public static class BasisNetworkResourceManagement
         if (Resource != null)
         {
             int length = Resource.Length;
+            BNL.Log($"Replaying {length} active resource(s) to peer {NewConnection.Id}");
             NetDataWriter Writer = NetworkServer.RentWriter();
             for (int Index = 0; Index < length; Index++)
             {

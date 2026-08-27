@@ -5,8 +5,9 @@ using UnityEngine;
 public static class BasisAvatarRecorder
 {
     private static bool _isRecording;
-    private static FileStream filestream;
+    private static Stream recordingStream;
     private static BinaryWriter writer;
+    private static string recordingFileName;
 
     // Public so tools (like your editor window) can reason about the file format
     public const int MuscleCount = 95;
@@ -21,24 +22,26 @@ public static class BasisAvatarRecorder
         if (_isRecording)
             return;
 
-        // Create a timestamp safe for all filesystems
         string timestamp = DateTime.UtcNow.ToString("yyyy-MM-dd_HH-mm-ss");
+        recordingFileName = $"AvatarRecord_{timestamp}.dat";
 
-        // Default directory: persistentDataPath/AvatarRecordings
+#if UNITY_WEBGL && !UNITY_EDITOR
+        recordingStream = new MemoryStream();
+        string outputLocation = recordingFileName;
+#else
         string directory = Path.Combine(Application.persistentDataPath, "AvatarRecordings");
-
         if (!Directory.Exists(directory))
         {
             Directory.CreateDirectory(directory);
         }
 
-        string filePath = Path.Combine(directory, $"AvatarRecord_{timestamp}.dat");
-
-        filestream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.Read);
-        writer = new BinaryWriter(filestream);
+        string outputLocation = Path.Combine(directory, recordingFileName);
+        recordingStream = new FileStream(outputLocation, FileMode.Create, FileAccess.Write, FileShare.Read);
+#endif
+        writer = new BinaryWriter(recordingStream);
         _isRecording = true;
 
-        BasisDebug.Log($"Avatar recording started: {filePath}", BasisDebug.LogTag.Device);
+        BasisDebug.Log($"Avatar recording started: {outputLocation}", BasisDebug.LogTag.Device);
     }
 
     public static void StopRecording()
@@ -49,11 +52,17 @@ public static class BasisAvatarRecorder
         }
 
         writer?.Flush();
+#if UNITY_WEBGL && !UNITY_EDITOR
+        if (recordingStream is MemoryStream memoryStream && memoryStream.Length > 0)
+        {
+            BasisWebFileDownload.Save(recordingFileName, memoryStream.ToArray(), "application/octet-stream");
+        }
+#endif
         writer?.Dispose();
-        filestream?.Dispose();
 
         writer = null;
-        filestream = null;
+        recordingStream = null;
+        recordingFileName = null;
         _isRecording = false;
 
         BasisDebug.Log("Avatar recording stopped.", BasisDebug.LogTag.Device);

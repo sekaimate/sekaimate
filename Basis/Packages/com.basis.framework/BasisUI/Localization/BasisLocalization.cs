@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
 using UnityEngine.ResourceManagement.AsyncOperations;
@@ -120,21 +121,20 @@ namespace Basis.BasisUI
         /// user's saved choice is honored even if it differs from the OS.
         /// Safe to call more than once — subsequent calls are no-ops.
         /// </summary>
-        public static void Initialize()
+        public static async Task InitializeAsync()
         {
             if (_initialized)
             {
                 return;
             }
-            _initialized = true;
-
-            LoadAllTables();
+            await LoadAllTablesAsync();
 
             var languageCode = BasisSettingsSystem.LoadString("language", DefaultLanguage);
             if (string.IsNullOrEmpty(languageCode))
                 languageCode = DetectSystemLanguage();
 
             SetLanguage(languageCode, notify: false);
+            _initialized = true;
         }
 
         /// <summary>
@@ -215,11 +215,6 @@ namespace Basis.BasisUI
                 return string.Empty;
             }
 
-            if (!_initialized)
-            {
-                Initialize();
-            }
-
             if (_current.TryGetValue(key, out string translated) && !string.IsNullOrEmpty(translated))
             {
                 return translated;
@@ -254,12 +249,10 @@ namespace Basis.BasisUI
         /// <see cref="LanguageLabel"/> Addressable label, parses each, and
         /// caches the resulting tables plus the available-language dropdown.
         ///
-        /// <para>Uses <c>WaitForCompletion</c> intentionally: language data is
-        /// local, tiny, and must be ready before any UI renders. The content
-        /// is copied into managed dictionaries so the Addressable handle is
-        /// released immediately after parsing.</para>
+        /// <para>The content is copied into managed dictionaries so the
+        /// Addressable handle is released immediately after parsing.</para>
         /// </summary>
-        private static void LoadAllTables()
+        private static async Task LoadAllTablesAsync()
         {
             _allTables.Clear();
             _fallback.Clear();
@@ -273,7 +266,7 @@ namespace Basis.BasisUI
             IList<TextAsset> assets;
             try
             {
-                assets = handle.WaitForCompletion();
+                assets = await handle.Task;
             }
             catch (Exception e)
             {
@@ -282,7 +275,7 @@ namespace Basis.BasisUI
                 {
                     Addressables.Release(handle);
                 }
-                return;
+                throw;
             }
 
             if (handle.Status != AsyncOperationStatus.Succeeded || assets == null || assets.Count == 0)
@@ -292,7 +285,7 @@ namespace Basis.BasisUI
                 {
                     Addressables.Release(handle);
                 }
-                return;
+                throw new InvalidOperationException($"No assets found for Addressable label \"{LanguageLabel}\".");
             }
 
             for (int i = 0; i < assets.Count; i++)
@@ -369,7 +362,10 @@ namespace Basis.BasisUI
                 }
             }
 
-            Addressables.Release(handle);
+            if (handle.IsValid())
+            {
+                Addressables.Release(handle);
+            }
         }
     }
 }

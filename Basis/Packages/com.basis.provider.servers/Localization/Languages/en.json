@@ -39,6 +39,18 @@
       "value": "Networking Stack"
     },
     {
+      "key": "menu.servers.webSocketUri",
+      "value": "WebSocket URI"
+    },
+    {
+      "key": "menu.servers.serverInfoUri",
+      "value": "Server Info URI"
+    },
+    {
+      "key": "menu.servers.browserEndpointRequired",
+      "value": "Browser connections require registered WebSocket and server-info URIs."
+    },
+    {
       "key": "menu.servers.hostStack",
       "value": "Host Networking Stack"
     },

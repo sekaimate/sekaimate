@@ -64,6 +64,11 @@ namespace Basis.BasisUI
                 Handles.Remove(referencePath);
             }
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+            prefab = AddressableAssets.GetPrefab(referencePath);
+            Prefabs[referencePath] = prefab;
+            return prefab;
+#else
             AsyncOperationHandle<GameObject> handle = Addressables.LoadAssetAsync<GameObject>(referencePath);
             prefab = handle.WaitForCompletion();
             if (prefab == null)
@@ -79,6 +84,7 @@ namespace Basis.BasisUI
             Prefabs[referencePath] = prefab;
             Handles[referencePath] = handle;
             return prefab;
+#endif
         }
 
         public static GameObject Instantiate(string referencePath, Transform parent)

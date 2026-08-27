@@ -1,0 +1,11 @@
+services:
+  basis-server:
+    environment:
+      RequireSso: "true"
+      AutoStartSsoBroker: "false"
+      WebSocketEnabled: "true"
+      WebSocketPort: 4297
+      WebSocketPath: /basis
+      WebSocketServerInfoPath: /server-info
+      WebSocketAllowedOrigins: ${BASIS_WEBSOCKET_ALLOWED_ORIGINS:?set BASIS_WEBSOCKET_ALLOWED_ORIGINS}
+      WebSocketUseTls: "false"

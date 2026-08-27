@@ -61,7 +61,11 @@ namespace Basis.Scripts.Common
             reason = null;
             if (string.IsNullOrEmpty(host)) { reason = "missing host"; return true; }
 
-            bool allowLoopback = Application.isEditor;
+            // Local WebGL development builds are commonly served from localhost and may also
+            // receive a local BEE URL from the development Basis Server. Keep this exception
+            // scoped to the Editor/development player; release builds must still reject URLs
+            // supplied by a server that target a client's loopback interface.
+            bool allowLoopback = Application.isEditor || Debug.isDebugBuild;
             string lower = host.ToLowerInvariant();
             if (!allowLoopback && (lower == "localhost" || lower.EndsWith(".localhost")))
             {
@@ -88,7 +92,7 @@ namespace Basis.Scripts.Common
             if (string.IsNullOrEmpty(host)) return null;
             if (IPAddress.TryParse(host.Trim('[', ']'), out _)) return null;
 
-            bool allowLoopback = Application.isEditor;
+            bool allowLoopback = Application.isEditor || Debug.isDebugBuild;
             IPAddress[] addresses;
             try { addresses = await Dns.GetHostAddressesAsync(host); }
             catch (Exception ex) { return $"host '{host}' could not be validated (DNS lookup failed: {ex.Message})."; }

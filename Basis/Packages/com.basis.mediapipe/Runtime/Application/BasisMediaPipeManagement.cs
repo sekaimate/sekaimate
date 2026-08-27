@@ -68,6 +68,7 @@ namespace Basis.MediaPipe
         {
             BasisMediaPipeSettings.LoadAll();
             CameraDeviceName = BasisMediaPipeSettings.Camera.RawValue;
+            Config.CameraDeviceName = CameraDeviceName;
             Config.EnableFace = BasisMediaPipeSettings.EnableFace.RawValue;
             Config.EnableHands = BasisMediaPipeSettings.EnableHands.RawValue;
             Config.EnableHeadPosition = BasisMediaPipeSettings.EnableHeadPosition.RawValue;
@@ -128,7 +129,7 @@ namespace Basis.MediaPipe
         public void SetCamera(string deviceName)
         {
             CameraDeviceName = deviceName;
-            if (_backend != null)
+            if (_backend != null && _backend.UsesUnityCamera)
             {
                 _camera.Start(deviceName, Config.CameraWidth, Config.CameraHeight, Config.TargetFps);
             }
@@ -140,7 +141,7 @@ namespace Basis.MediaPipe
             Config.CameraWidth = BasisMediaPipeSettings.ResolutionWidth.RawValue;
             Config.CameraHeight = BasisMediaPipeSettings.ResolutionHeight.RawValue;
             Config.TargetFps = BasisMediaPipeSettings.CameraFps.RawValue;
-            if (_backend != null)
+            if (_backend != null && _backend.UsesUnityCamera)
             {
                 _camera.Start(CameraDeviceName, Config.CameraWidth, Config.CameraHeight, Config.TargetFps);
             }
@@ -177,7 +178,7 @@ namespace Basis.MediaPipe
                 return;
             }
 
-            if (!_camera.Start(CameraDeviceName, Config.CameraWidth, Config.CameraHeight, Config.TargetFps))
+            if (_backend.UsesUnityCamera && !_camera.Start(CameraDeviceName, Config.CameraWidth, Config.CameraHeight, Config.TargetFps))
             {
                 BasisDebug.LogError("BasisMediaPipe: failed to start webcam.");
             }
@@ -473,7 +474,7 @@ namespace Basis.MediaPipe
             {
                 return;
             }
-            if (_camera.IsReady)
+            if (!_backend.UsesUnityCamera || _camera.IsReady)
             {
                 _backend.SubmitFrame(_camera.Texture, Time.realtimeSinceStartupAsDouble * 1000.0);
             }
@@ -843,7 +844,10 @@ namespace Basis.MediaPipe
                 return "Not running.";
             }
 
-            string status = $"Backend: {_backend.BackendName}\nAvailable: {_backend.IsAvailable}\nCamera: {(_camera.IsReady ? "ready" : "not ready")}";
+            string cameraStatus = _backend.UsesUnityCamera
+                ? (_camera.IsReady ? "ready" : "not ready")
+                : "browser managed";
+            string status = $"Backend: {_backend.BackendName}\nAvailable: {_backend.IsAvailable}\nCamera: {cameraStatus}";
             if (_hasLatest)
             {
                 status += $"\nFace: {_latest.HasFace}   L-Hand: {_latest.HasLeftHand}   R-Hand: {_latest.HasRightHand}   Pose: {_latest.HasPose}";

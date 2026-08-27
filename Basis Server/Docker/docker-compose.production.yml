@@ -1,0 +1,15 @@
+services:
+  basis-server:
+    environment:
+      WebSocketEnabled: "true"
+      WebSocketPort: 4297
+      WebSocketPath: /basis
+      WebSocketServerInfoPath: /server-info
+      WebSocketAllowedOrigins: ${BASIS_WEBSOCKET_ALLOWED_ORIGINS:?set BASIS_WEBSOCKET_ALLOWED_ORIGINS}
+      WebSocketUseTls: "true"
+      WebSocketCertificatePath: /etc/letsencrypt/live/${BASIS_SERVER_HOSTNAME:?set BASIS_SERVER_HOSTNAME}/fullchain.pem
+      WebSocketCertificateKeyPath: /etc/letsencrypt/live/${BASIS_SERVER_HOSTNAME:?set BASIS_SERVER_HOSTNAME}/privkey.pem
+    ports:
+      - "443:4297/tcp"
+    volumes:
+      - ${BASIS_SERVER_LETSENCRYPT_DIRECTORY:-/etc/letsencrypt}:/etc/letsencrypt:ro

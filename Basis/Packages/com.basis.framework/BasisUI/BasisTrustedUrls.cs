@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
 using UnityEngine.ResourceManagement.AsyncOperations;
@@ -19,6 +20,9 @@ namespace Basis.BasisUI
 
         private static HashSet<string> _builtInUrls;
         private static HashSet<string> _userUrls;
+#if UNITY_WEBGL && !UNITY_EDITOR
+        private static Task _initializeTask;
+#endif
 
         public static event Action OnListChanged;
 
@@ -32,8 +36,17 @@ namespace Basis.BasisUI
         {
             if (_userUrls != null) return;
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+            throw new InvalidOperationException("BasisTrustedUrls.InitializeAsync must complete before use on WebGL.");
+#else
+            InitializeCache(LoadDefaults());
+#endif
+        }
+
+        private static void InitializeCache(BasisDefaultTrustedUrlsAsset defaults)
+        {
             _builtInUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            LoadBuiltIns();
+            LoadBuiltIns(defaults);
 
             _userUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -73,9 +86,8 @@ namespace Basis.BasisUI
             if (rewrite && _builtInUrls.Count > 0) Save();
         }
 
-        private static void LoadBuiltIns()
+        private static void LoadBuiltIns(BasisDefaultTrustedUrlsAsset defaults)
         {
-            BasisDefaultTrustedUrlsAsset defaults = LoadDefaults();
             if (defaults == null || defaults.Urls == null) return;
             foreach (string url in defaults.Urls)
             {
@@ -215,10 +227,46 @@ namespace Basis.BasisUI
             return asset;
         }
 
+        public static Task InitializeAsync()
+        {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            if (_userUrls != null) return Task.CompletedTask;
+            return _initializeTask ??= InitializeWebAsync();
+#else
+            EnsureCache();
+            return Task.CompletedTask;
+#endif
+        }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+        private static async Task InitializeWebAsync()
+        {
+            AsyncOperationHandle<BasisDefaultTrustedUrlsAsset> handle =
+                Addressables.LoadAssetAsync<BasisDefaultTrustedUrlsAsset>(DefaultsAddress);
+            try
+            {
+                BasisDefaultTrustedUrlsAsset defaults = await handle.Task;
+                if (defaults == null)
+                {
+                    BasisDebug.LogError($"[BasisTrustedUrls] Could not load defaults asset at address \"{DefaultsAddress}\".");
+                }
+                InitializeCache(defaults);
+            }
+            catch
+            {
+                _initializeTask = null;
+                throw;
+            }
+        }
+#endif
+
         public static void InvalidateCache()
         {
             _builtInUrls = null;
             _userUrls = null;
+#if UNITY_WEBGL && !UNITY_EDITOR
+            _initializeTask = null;
+#endif
         }
     }
 }

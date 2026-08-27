@@ -569,7 +569,7 @@ namespace Basis.Scripts.Device_Management.Devices.Desktop
         public static void OnTabCancelled(InputAction.CallbackContext ctx)
         {
             IsFreeCursor = false;
-            BasisCursorManagement.LockCursor(FreeCursorMode);
+            BasisCursorManagement.LockCursorFromUserGesture(FreeCursorMode);
         }
 
         public static void OnPrimaryGet(InputAction.CallbackContext ctx) => InputState.PrimaryButtonGetState = true;
@@ -593,7 +593,16 @@ namespace Basis.Scripts.Device_Management.Devices.Desktop
                 await BasisDeviceManagement.Instance.SwitchSetMode(BasisConstants.OpenVRLoader);
         }
 
-        public static void OnLeftMouse(InputAction.CallbackContext ctx) => InputState.Trigger = ctx.ReadValue<float>();
+        public static void OnLeftMouse(InputAction.CallbackContext ctx)
+        {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            if (ctx.performed && BasisMainMenu.Instance == null)
+            {
+                BasisCursorManagement.RequestPointerLockFromUserGesture();
+            }
+#endif
+            InputState.Trigger = ctx.ReadValue<float>();
+        }
         public static void OnRightMouse(InputAction.CallbackContext ctx) => InputState.SecondaryTrigger = ctx.ReadValue<float>();
         public static void OnMouseScroll(InputAction.CallbackContext ctx) => InputState.Secondary2DAxisRaw = ctx.ReadValue<Vector2>();
         public static void OnMouseScrollClick(InputAction.CallbackContext ctx) => InputState.Secondary2DAxisClick = ctx.ReadValue<float>() == 1;

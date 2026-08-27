@@ -4,9 +4,9 @@ Webcam-driven avatar tracking for desktop Basis. It turns a normal webcam into "
 input: head/neck/upper-body **trackers**, **finger** curl/splay, **eye** gaze + blink, and
 **face** blendshapes/visemes — so a desktop user can emote and move like a tracked VR user.
 
-Inference uses the [MediaPipe Unity Plugin (homuler)](https://github.com/homuler/MediaPipeUnityPlugin)
-(Apache-2.0). That plugin is an **optional dependency**: this package compiles and ships
-**inert** without it, and lights up automatically once it is installed.
+Native inference uses the [MediaPipe Unity Plugin (homuler)](https://github.com/homuler/MediaPipeUnityPlugin)
+(Apache-2.0). WebGL inference uses Google's `@mediapipe/tasks-vision` package in a browser
+Worker and keeps its models and Wasm runtime in the generated web distribution.
 
 ## Status
 

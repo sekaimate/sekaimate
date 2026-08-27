@@ -1,6 +1,7 @@
 using Basis.Scripts.BasisSdk.Players;
 using Basis.Scripts.Drivers;
 using Basis.Scripts.TransformBinders.BoneControl;
+using Basis.BasisUI;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -41,32 +42,23 @@ namespace Basis.Scripts.Device_Management.Devices.Desktop
         /// </summary>
         public override void StartSDK()
         {
-            if (BasisAvatarEyeInput == null)
-            {
-                BasisLocalCameraDriver.AllowXRRenderering(false);
-
-                GameObject gameObject = new GameObject(DesktopEye);
-                if (BasisLocalPlayer.Instance != null)
-                {
-                    gameObject.transform.parent = BasisLocalPlayer.Instance.transform;
-                }
-
-                BasisAvatarEyeInput = gameObject.AddComponent<BasisDesktopEye>();
-                BasisAvatarEyeInput.Initialize(DesktopEye, nameof(BasisDesktopManagement));
-                BasisDeviceManagement.Instance.TryAdd(BasisAvatarEyeInput);
-            }
+            EnsureDesktopEye();
             if (BasisDeviceManagement.IsMobileHardware() || AlwaysSpawnHeadsUpControls)
             {
+#if UNITY_WEBGL && !UNITY_EDITOR
+                Controls = UnityEngine.Object.Instantiate(
+                    AddressableAssets.GetPrefab(OnScreenControls),
+                    BasisLocalCameraDriver.Instance.transform,
+                    true);
+#else
                 UnityEngine.ResourceManagement.AsyncOperations.AsyncOperationHandle<GameObject> op = Addressables.InstantiateAsync(OnScreenControls, BasisLocalCameraDriver.Instance.transform, true);
                 Controls = op.WaitForCompletion();
+#endif
                 Controls.transform.SetLocalPositionAndRotation(new Vector3(0, 0, 0.3f), Quaternion.identity);
             }
             else
             {
-                if (Controls != null)
-                {
-                    Addressables.ReleaseInstance(Controls);
-                }
+                ReleaseControls();
             }
 
             EnhancedTouchSupport.Enable();
@@ -142,19 +134,8 @@ namespace Basis.Scripts.Device_Management.Devices.Desktop
         /// </summary>
         public override void StopSDK()
         {
-            BasisDeviceManagement.Instance.RemoveDevicesFrom(nameof(BasisDesktopManagement), DesktopEye);
-
-            if (BasisAvatarEyeInput != null)
-            {
-                GameObject.Destroy(BasisAvatarEyeInput.gameObject);
-            }
-
-            BasisDesktopEye.Instance = null;
-            BasisAvatarEyeInput = null;
-            if (Controls != null)
-            {
-                Addressables.ReleaseInstance(Controls);
-            }
+            ReleaseDesktopEye();
+            ReleaseControls();
             foreach (BasisTouchInputDevice Device in Inputs)
             {
                 BasisDeviceManagement.Instance.RemoveDevicesFrom(nameof(BasisDesktopManagement), Device.UniqueDeviceIdentifier);
@@ -163,6 +144,47 @@ namespace Basis.Scripts.Device_Management.Devices.Desktop
             UnityEngine.InputSystem.EnhancedTouch.Touch.onFingerDown -= OnFingerDown;
             UnityEngine.InputSystem.EnhancedTouch.Touch.onFingerUp -= onFingerUp;
             EnhancedTouchSupport.Disable();
+        }
+
+        protected void EnsureDesktopEye()
+        {
+            if (BasisAvatarEyeInput != null)
+            {
+                return;
+            }
+
+            BasisLocalCameraDriver.AllowXRRenderering(false);
+            GameObject gameObject = new GameObject(DesktopEye);
+            if (BasisLocalPlayer.Instance != null)
+            {
+                gameObject.transform.parent = BasisLocalPlayer.Instance.transform;
+            }
+
+            BasisAvatarEyeInput = gameObject.AddComponent<BasisDesktopEye>();
+            BasisAvatarEyeInput.Initialize(DesktopEye, nameof(BasisDesktopManagement));
+            BasisDeviceManagement.Instance.TryAdd(BasisAvatarEyeInput);
+        }
+
+        protected void ReleaseDesktopEye()
+        {
+            BasisDeviceManagement.Instance.RemoveDevicesFrom(nameof(BasisDesktopManagement), DesktopEye);
+            BasisDesktopEye.Instance = null;
+            BasisAvatarEyeInput = null;
+        }
+
+        private void ReleaseControls()
+        {
+            if (Controls == null)
+            {
+                return;
+            }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+            UnityEngine.Object.Destroy(Controls);
+#else
+            Addressables.ReleaseInstance(Controls);
+#endif
+            Controls = null;
         }
         /// <summary>
         /// Determines whether the desktop device can boot based on the provided request string.

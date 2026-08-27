@@ -5,7 +5,7 @@ using UnityEditor;
 using UnityEngine;
 
 /// <summary>
-/// Ensures the 4 expected quality levels (DESKTOP, QUEST, IOS, HEADLESS) always exist
+/// Ensures the expected quality levels always exist
 /// in ProjectSettings/QualitySettings.asset. Exiting play mode can sometimes corrupt
 /// or delete quality profiles — this script regenerates them from code whenever they're wrong.
 /// Runs on domain reload and when exiting play mode.
@@ -13,13 +13,14 @@ using UnityEngine;
 [InitializeOnLoad]
 public static class BasisQualitySettingsGuard
 {
-    private static readonly string[] ExpectedNames = { "DESKTOP", "QUEST", "IOS", "HEADLESS" };
+    private static readonly string[] ExpectedNames = { "DESKTOP", "QUEST", "IOS", "HEADLESS", "WEB" };
 
     // URP pipeline asset paths (the folder name typo "Settiings" is intentional — that's the actual folder)
     private const string DesktopPipelinePath  = "Assets/Basis/Settings/Quality Settiings/Modified - Desktop.asset";
     private const string QuestPipelinePath    = "Assets/Basis/Settings/Quality Settiings/Modified - Android.asset";
     private const string IOSPipelinePath      = "Assets/Basis/Settings/Quality Settiings/Modified - IOS.asset";
     private const string HeadlessPipelinePath = "Assets/Basis/Settings/Quality Settiings/Modified - Headless.asset";
+    private const string WebPipelinePath      = "Assets/Basis/Settings/Quality Settiings/Modified - Web.asset";
 
     static BasisQualitySettingsGuard()
     {
@@ -82,20 +83,23 @@ public static class BasisQualitySettingsGuard
         string questGuid    = AssetDatabase.AssetPathToGUID(QuestPipelinePath);
         string iosGuid      = AssetDatabase.AssetPathToGUID(IOSPipelinePath);
         string headlessGuid = AssetDatabase.AssetPathToGUID(HeadlessPipelinePath);
+        string webGuid      = AssetDatabase.AssetPathToGUID(WebPipelinePath);
 
         if (string.IsNullOrEmpty(desktopGuid) || string.IsNullOrEmpty(questGuid) ||
-            string.IsNullOrEmpty(iosGuid)     || string.IsNullOrEmpty(headlessGuid))
+            string.IsNullOrEmpty(iosGuid)     || string.IsNullOrEmpty(headlessGuid) ||
+            string.IsNullOrEmpty(webGuid))
         {
             Debug.LogError(
                 "[BasisQualitySettingsGuard] Cannot regenerate — URP pipeline asset(s) missing:\n" +
                 $"  Desktop:  {(string.IsNullOrEmpty(desktopGuid)  ? "MISSING" : "OK")} ({DesktopPipelinePath})\n" +
                 $"  Quest:    {(string.IsNullOrEmpty(questGuid)    ? "MISSING" : "OK")} ({QuestPipelinePath})\n" +
                 $"  IOS:      {(string.IsNullOrEmpty(iosGuid)      ? "MISSING" : "OK")} ({IOSPipelinePath})\n" +
-                $"  Headless: {(string.IsNullOrEmpty(headlessGuid) ? "MISSING" : "OK")} ({HeadlessPipelinePath})");
+                $"  Headless: {(string.IsNullOrEmpty(headlessGuid) ? "MISSING" : "OK")} ({HeadlessPipelinePath})\n" +
+                $"  Web:      {(string.IsNullOrEmpty(webGuid)      ? "MISSING" : "OK")} ({WebPipelinePath})");
             return false;
         }
 
-        string yaml = BuildYaml(desktopGuid, questGuid, iosGuid, headlessGuid);
+        string yaml = BuildYaml(desktopGuid, questGuid, iosGuid, headlessGuid, webGuid);
         string path = Path.Combine(Application.dataPath, "..", "ProjectSettings", "QualitySettings.asset");
         File.WriteAllText(path, yaml, new UTF8Encoding(false));
 
@@ -105,7 +109,7 @@ public static class BasisQualitySettingsGuard
 
     // ────────────────────────────── YAML generation ──────────────────────────────
 
-    private static string BuildYaml(string desktopGuid, string questGuid, string iosGuid, string headlessGuid)
+    private static string BuildYaml(string desktopGuid, string questGuid, string iosGuid, string headlessGuid, string webGuid)
     {
         var sb = new StringBuilder(4096);
         L(sb, "%YAML 1.1");
@@ -119,19 +123,22 @@ public static class BasisQualitySettingsGuard
 
         // Index 0 — DESKTOP  (Standalone + Linux)
         AppendLevel(sb, "DESKTOP", antiAliasing: 2, lodCrossFade: 1, pipelineGuid: desktopGuid,
-            excludeAndroid: true, excludeServer: true, excludeIPhone: true, excludeStandalone: false);
+            excludeAndroid: true, excludeServer: true, excludeIPhone: true, excludeStandalone: false, excludeWebGl: true);
 
         // Index 1 — QUEST  (Android)
         AppendLevel(sb, "QUEST", antiAliasing: 2, lodCrossFade: 0, pipelineGuid: questGuid,
-            excludeAndroid: false, excludeServer: true, excludeIPhone: true, excludeStandalone: true);
+            excludeAndroid: false, excludeServer: true, excludeIPhone: true, excludeStandalone: true, excludeWebGl: true);
 
         // Index 2 — IOS  (iPhone)
         AppendLevel(sb, "IOS", antiAliasing: 0, lodCrossFade: 0, pipelineGuid: iosGuid,
-            excludeAndroid: true, excludeServer: true, excludeIPhone: false, excludeStandalone: true);
+            excludeAndroid: true, excludeServer: true, excludeIPhone: false, excludeStandalone: true, excludeWebGl: true);
 
         // Index 3 — HEADLESS  (Server)
         AppendLevel(sb, "HEADLESS", antiAliasing: 0, lodCrossFade: 0, pipelineGuid: headlessGuid,
-            excludeAndroid: true, excludeServer: false, excludeIPhone: true, excludeStandalone: true);
+            excludeAndroid: true, excludeServer: false, excludeIPhone: true, excludeStandalone: true, excludeWebGl: true);
+
+        AppendLevel(sb, "WEB", antiAliasing: 0, lodCrossFade: 0, pipelineGuid: webGuid,
+            excludeAndroid: true, excludeServer: true, excludeIPhone: true, excludeStandalone: true, excludeWebGl: false);
 
         L(sb, "  m_TextureMipmapLimitGroupNames: []");
         L(sb, "  m_PerPlatformDefaultQuality:");
@@ -139,6 +146,7 @@ public static class BasisQualitySettingsGuard
         L(sb, "    Nintendo Switch 2: 0");
         L(sb, "    Server: 0");
         L(sb, "    Standalone: 0");
+        L(sb, "    WebGL: 4");
         L(sb, "    iPhone: 0");
 
         return sb.ToString();
@@ -147,7 +155,7 @@ public static class BasisQualitySettingsGuard
     private static void AppendLevel(
         StringBuilder sb, string name,
         int antiAliasing, int lodCrossFade, string pipelineGuid,
-        bool excludeAndroid, bool excludeServer, bool excludeIPhone, bool excludeStandalone)
+        bool excludeAndroid, bool excludeServer, bool excludeIPhone, bool excludeStandalone, bool excludeWebGl)
     {
         L(sb, "  - serializedVersion: 5");
         L(sb, $"    name: {name}");
@@ -207,6 +215,7 @@ public static class BasisQualitySettingsGuard
         if (excludeServer)     L(sb, "    - Server");
         if (excludeIPhone)     L(sb, "    - iPhone");
         if (excludeStandalone) L(sb, "    - Standalone");
+        if (excludeWebGl)      L(sb, "    - WebGL");
     }
 
     private static void L(StringBuilder sb, string line)

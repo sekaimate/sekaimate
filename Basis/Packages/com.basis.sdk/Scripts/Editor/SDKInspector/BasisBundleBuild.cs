@@ -147,8 +147,13 @@ public static class BasisBundleBuild
     }
     public static bool CheckTarget(BuildTarget target)
     {
-        bool isSupported = BuildPipeline.IsBuildTargetSupported(BuildTargetGroup.Standalone, target) ||
-                           BuildPipeline.IsBuildTargetSupported(BuildTargetGroup.Android, target);
+        return CheckTarget(target, BuildPipeline.IsBuildTargetSupported);
+    }
+
+    public static bool CheckTarget(BuildTarget target, Func<BuildTargetGroup, BuildTarget, bool> isBuildTargetSupported)
+    {
+        BuildTargetGroup targetGroup = BuildPipeline.GetBuildTargetGroup(target);
+        bool isSupported = isBuildTargetSupported(targetGroup, target);
 
         Debug.Log($"{target.ToString()} Build Target Installed: {isSupported}");
         return isSupported;
@@ -478,6 +483,7 @@ public static class BasisBundleBuild
     {
         string generatedID = null;
         string stagingRoot = null;
+        BuildTarget originalActiveTarget = EditorUserBuildSettings.activeBuildTarget;
 
         try
         {
@@ -496,17 +502,22 @@ public static class BasisBundleBuild
                 Debug.Log($"{Length} Pre BuildBundle Event(s)...");
             }
 
+            if (!BasisWebBeeCompatibilityValidator.TryValidate(basisContentBase, targets, out string compatibilityError))
+            {
+                BasisDebug.LogError(compatibilityError);
+                return (false, compatibilityError);
+            }
+
             Debug.Log("Starting BuildBundle...");
             EditorUtility.DisplayProgressBar(BasisEditorLocalization.Get("sdk.bundleBuild.progress.start"), BasisEditorLocalization.Get("sdk.bundleBuild.progress.start"), 0);
-
-            BuildTarget originalActiveTarget = EditorUserBuildSettings.activeBuildTarget;
 
             if (!ErrorChecking(basisContentBase, out string error))
             {
                 return (false, error);
             }
 
-            AdjustBuildTargetOrder(targets);
+            List<BuildTarget> orderedTargets = new List<BuildTarget>(targets);
+            AdjustBuildTargetOrder(orderedTargets);
 
             BasisAssetBundleObject assetBundleObject =
                 AssetDatabase.LoadAssetAtPath<BasisAssetBundleObject>(BasisAssetBundleObject.AssetBundleObject);
@@ -525,13 +536,13 @@ public static class BasisBundleBuild
 
             string Password = useProvidedPassword ? OverriddenPassword : GenerateHexString(32);
 
-            int targetsLength = targets.Count;
+            int targetsLength = orderedTargets.Count;
             List<BasisBundleGenerated> bundles = new List<BasisBundleGenerated>(targetsLength + 1);
             List<string> paths = new List<string>();
 
             for (int Index = 0; Index < targetsLength; Index++)
             {
-                BuildTarget target = targets[Index];
+                BuildTarget target = orderedTargets[Index];
 
                 // CHANGED: pass buildId (generatedID) into buildFunction
                 var (success, result) = await buildFunction(basisContentBase, assetBundleObject, Password, target, generatedID);
@@ -630,10 +641,7 @@ public static class BasisBundleBuild
                 OpenRelativePath(buildOutDir);
             }
 
-            RestoreOriginalBuildTarget(originalActiveTarget);
-
             BasisDebug.Log("Successfully built asset bundle.");
-            EditorUtility.ClearProgressBar();
             return (true, "Success");
         }
         catch (Exception ex)
@@ -649,8 +657,20 @@ public static class BasisBundleBuild
             }
             catch { /* ignore */ }
 
-            EditorUtility.ClearProgressBar();
             return (false, $"BuildBundle Exception: {ex.Message}");
+        }
+        finally
+        {
+            try
+            {
+                RestoreOriginalBuildTarget(originalActiveTarget);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+            }
+
+            EditorUtility.ClearProgressBar();
         }
     }
     private static string EnsureBuildOutputDirectory(string rootOutDir, string folderName, bool deleteIfExists)

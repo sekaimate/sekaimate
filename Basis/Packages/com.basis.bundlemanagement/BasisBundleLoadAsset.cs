@@ -122,6 +122,9 @@ public static class BasisBundleLoadAsset
         string UniqueID = BasisGenerateUniqueID.GenerateUniqueID();
         bool AssignedIncrement = false;
         string[] scenePaths = bundle.AssetBundle.GetAllScenePaths();
+        BasisDebug.Log(
+            $"Preparing AssetBundle scene load: bundleLoaded={bundle.AssetBundle != null}, sceneCount={scenePaths.Length}",
+            BasisDebug.LogTag.Scene);
         if (scenePaths.Length == 0)
         {
             BasisDebug.LogError("No scenes found in AssetBundle.");
@@ -138,6 +141,7 @@ public static class BasisBundleLoadAsset
             string sceneName = System.IO.Path.GetFileNameWithoutExtension(scenePaths[0]);
             // Load the scene asynchronously
             AsyncOperation asyncLoad = SceneManager.LoadSceneAsync(scenePaths[0], LoadSceneMode.Additive);
+            BasisDebug.Log($"Started AssetBundle scene activation: path={scenePaths[0]}", BasisDebug.LogTag.Scene);
             asyncLoad.allowSceneActivation = true;
             while (!asyncLoad.isDone)
             {

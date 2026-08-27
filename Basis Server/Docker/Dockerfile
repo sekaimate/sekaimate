@@ -12,7 +12,7 @@ RUN dotnet restore ./BasisNetworkConsole.csproj
 RUN dotnet publish -c Release --no-restore -o /app/publish
 
 # Stage 2: Create runtime image
-FROM mcr.microsoft.com/dotnet/runtime:10.0-noble
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble
 
 # Install Curl for healthcheck
 RUN apt-get update && \
@@ -40,6 +40,7 @@ ENV SetPort=4296 \
 
 # Expose UDP port for game traffic and TCP port for health checks
 EXPOSE ${SetPort}/udp
+EXPOSE 4297/tcp
 EXPOSE ${HealthCheckPort}/tcp
 EXPOSE ${PromethusPort}/tcp
 

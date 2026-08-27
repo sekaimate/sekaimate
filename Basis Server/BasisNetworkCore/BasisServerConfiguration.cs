@@ -1,6 +1,7 @@
 using Basis.Network.Core;
 using BasisNetworkCore.Security;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -52,7 +53,38 @@ public class Configuration
     public string Password = "default_password";
     public bool UseAuth = true;
     public bool UseAuthIdentity = true;
+    /// <summary>Enables the encrypted OIDC pre-authentication handshake. Old clients are rejected.</summary>
+    public bool RequireSso = false;
+    [XmlArray("SsoProviders")]
+    [XmlArrayItem("Provider")]
+    public List<SsoProviderConfiguration> SsoProviders = new List<SsoProviderConfiguration>();
+    /// <summary>Base64url X25519 private key for the server transport. Do not distribute this value.</summary>
+    public string SsoTransportPrivateKey = "";
+    /// <summary>Base64url X25519 public key copied into client basis-sso.json files.</summary>
+    public string SsoTransportPublicKey = "";
+    /// <summary>Shared only with the HTTPS admission broker; never expose this to clients or admin UI.</summary>
+    public string SsoAdmissionTicketSigningKey = "";
+    /// <summary>When RequireSso is enabled, start the colocated HTTPS admission broker with the server process.</summary>
+    public bool AutoStartSsoBroker = true;
+    /// <summary>Directory containing the published BasisSsoBroker.dll. Relative paths are resolved from the server executable.</summary>
+    public string SsoBrokerDirectory = "sso-broker";
+    /// <summary>Loopback URL used by the colocated broker. Put a TLS reverse proxy in front of it for public client access.</summary>
+    public string SsoBrokerBindUrl = "http://127.0.0.1:5080";
     public string NetworkStackId = "";
+    public bool WebSocketEnabled = true;
+    public ushort WebSocketPort = 4297;
+    public string WebSocketPath = "/basis";
+    public string WebSocketServerInfoPath = "/server-info";
+    public int WebSocketMaximumPayloadLength = 1024 * 1024;
+    public int WebSocketPendingSendCapacity = 64;
+    public string[] WebSocketAllowedOrigins = new[]
+    {
+        "http://127.0.0.1:4173",
+        "http://localhost:4173",
+    };
+    public bool WebSocketUseTls = false;
+    public string WebSocketCertificatePath = "";
+    public string WebSocketCertificateKeyPath = "";
     public BasisUserRestrictionMode BasisUserRestrictionMode;
     public int HowManyDuplicateAuthCanExist = 2;
     public int AuthValidationTimeOutMiliseconds = 9000;
@@ -285,6 +317,11 @@ public class Configuration
             result.WriteXml(filePath);
         }
 
+        if (result.RequireSso && BasisSsoTransportKeys.Ensure(result, out bool generatedKeyPair) && generatedKeyPair)
+        {
+            result.WriteXml(filePath);
+        }
+
         string configDir = Path.GetDirectoryName(filePath);
         BasisTransportConfigStore.LoadAll(configDir);
         return result;
@@ -362,6 +399,20 @@ public class Configuration
         FieldInfo[] fields = type.GetFields(BindingFlags.Public | BindingFlags.Instance);
         foreach (var field in fields)
         {
+            if (field.FieldType == typeof(string[]))
+            {
+                string arrayValue = Environment.GetEnvironmentVariable(field.Name);
+                if (arrayValue == null) continue;
+
+                string[] values = arrayValue.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
+                for (int index = 0; index < values.Length; index++)
+                {
+                    values[index] = values[index].Trim();
+                }
+                field.SetValue(target, Array.FindAll(values, value => value.Length > 0));
+                BNL.Log($"Applying Environmental Override with Field:{field.Name} Value:{arrayValue}");
+                continue;
+            }
             if (!field.FieldType.IsPrimitive && field.FieldType != typeof(string) && field.FieldType.IsClass)
             {
                 object nested = field.GetValue(target);
@@ -404,4 +455,15 @@ public class Configuration
             }
         }
     }
+}
+
+[Serializable]
+public class SsoProviderConfiguration
+{
+    public string Id = "";
+    public string Issuer = "";
+    public string ClientId = "";
+    public string JwksUri = "";
+    public string AllowedHostedDomains = "";
+    public string AllowedGroups = "";
 }

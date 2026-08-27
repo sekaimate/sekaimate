@@ -449,8 +449,29 @@ namespace Basis.Scripts.BasisSdk.Interactions
         {
             // Load the highlight material, the same one as `BasisPickupInteractable` (because it looks cool).
             AsyncOperationHandle<Material> op = Addressables.LoadAssetAsync<Material>(k_LoadMaterialAddress);
-            _colliderHighlightMat = op.WaitForCompletion();
             _asyncOperationHighlightMat = op;
+#if UNITY_WEBGL && !UNITY_EDITOR
+            LoadSeatHighlightAsync(op);
+#else
+            _colliderHighlightMat = op.WaitForCompletion();
+            CreateSeatHighlight();
+#endif
+        }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+        private async void LoadSeatHighlightAsync(AsyncOperationHandle<Material> op)
+        {
+            _colliderHighlightMat = await op.Task;
+            if (this == null)
+            {
+                return;
+            }
+            CreateSeatHighlight();
+        }
+#endif
+
+        private void CreateSeatHighlight()
+        {
             // Create a mesh gizmo for the seat highlight.
             _seatHighlightObject = new GameObject("SeatHighlight");
             _seatHighlightObject.transform.SetParent(transform, false);

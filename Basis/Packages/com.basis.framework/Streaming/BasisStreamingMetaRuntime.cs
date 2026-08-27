@@ -18,7 +18,11 @@ namespace Basis.Streaming
 
         private static BasisStreamingMetaRuntime instance;
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+        private bool browserPublishing;
+#else
         private BasisStreamingMetaServer server;
+#endif
         private bool subscribed;
         private int activePort;
 
@@ -98,6 +102,9 @@ namespace Basis.Streaming
 
         private void HandlePortChanged(string _)
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            return;
+#else
             if (!BasisSettingsDefaults.EnableStreamingMeta.RawValue)
             {
                 return;
@@ -110,6 +117,7 @@ namespace Basis.Streaming
 
             StopServer();
             StartServer();
+#endif
         }
 
         private void ApplyCurrentSetting()
@@ -136,6 +144,15 @@ namespace Basis.Streaming
 
         private void StartServer()
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            if (browserPublishing)
+            {
+                return;
+            }
+
+            browserPublishing = true;
+            InvokeRepeating(nameof(PublishTick), PublishInterval, PublishInterval);
+#else
             if (server != null)
             {
                 return;
@@ -154,10 +171,21 @@ namespace Basis.Streaming
                 BasisDebug.LogWarning($"[BasisStreamingMeta] failed to bind http://{Host}:{port}: {ex.Message}", BasisDebug.LogTag.LocalNetwork);
                 server = null;
             }
+#endif
         }
 
         private void StopServer()
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            if (!browserPublishing)
+            {
+                return;
+            }
+
+            CancelInvoke(nameof(PublishTick));
+            BasisWebStreamingMetaBridge.Clear();
+            browserPublishing = false;
+#else
             if (server == null)
             {
                 return;
@@ -166,11 +194,16 @@ namespace Basis.Streaming
             CancelInvoke(nameof(PublishTick));
             server.Dispose();
             server = null;
+#endif
         }
 
         private void PublishTick()
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            if (!browserPublishing)
+#else
             if (server == null)
+#endif
             {
                 return;
             }
@@ -194,7 +227,11 @@ namespace Basis.Streaming
                 snapshot.PingMs = peer.Ping;
             }
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+            BasisWebStreamingMetaBridge.Publish(snapshot);
+#else
             server.PublishSnapshot(snapshot);
+#endif
         }
     }
 }

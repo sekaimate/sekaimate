@@ -1,0 +1,26 @@
+{
+  "_comment": "Copy to Assets/StreamingAssets/basis-sso.json for a WebGL build. This file contains only public OIDC client data.",
+  "defaultProviderId": "google",
+  "serverTransport": {
+    "serverPublicKey": "REPLACE_WITH_SERVER_X25519_PUBLIC_KEY",
+    "admissionEndpoint": "https://YOUR_BASIS_AUTH_BROKER.example/admission/YOUR_SERVER_ID"
+  },
+  "providers": [
+    {
+      "id": "google",
+      "label": "Google",
+      "issuer": "https://accounts.google.com",
+      "clientId": "REPLACE_WITH_GOOGLE_WEB_CLIENT_ID",
+      "scopes": ["openid", "email", "profile"],
+      "displayNameClaims": ["name", "email"],
+      "access": { "allowedGroups": [], "allowedClaims": [] }
+    }
+  ],
+  "redirect": {
+    "mode": "browser",
+    "path": "/sso-callback"
+  },
+  "enforcement": {
+    "allowOfflineWithinTokenValidity": true
+  }
+}

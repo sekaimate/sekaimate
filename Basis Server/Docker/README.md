@@ -72,6 +72,8 @@ Commonly used environment variables:
 | `EnableStatistics`   | `true`                          | Enables the statistics module.                    |
 | `EnableConsole`      | `false`                         | Enables the interactive server console (CLI).     |
 | `DisallowHeadless`   | `false`                         | Disconnects connected headless clients and blocks new ones. |
+| `WebSocketEnabled`   | `false`                         | Enables the browser WebSocket transport on port 4297. |
+| `WebSocketAllowedOrigins` | empty                    | Comma-separated browser origins accepted by the WebSocket endpoint. |
 
 A more comprehensive list of configurable settings can typically be found by inspecting the generated `config/config.xml` after an initial run, or by checking the server's internal documentation if available.
 
@@ -142,6 +144,45 @@ services:
     ```bash
     docker compose down
     ```
+
+## Local browser E2E with WSS
+
+The browser E2E override terminates TLS inside the Basis Server Kestrel endpoint. Create a locally trusted PEM certificate containing both localhost names and pass its directory to Compose:
+
+```bash
+mkcert -install
+mkcert -cert-file basis-local.pem -key-file basis-local-key.pem localhost 127.0.0.1 ::1
+
+BASIS_SERVER_CERTIFICATE_DIRECTORY=/absolute/path/to/certificate-directory \
+BASIS_SERVER_CONFIG_DIR=/absolute/path/to/disposable-config \
+BASIS_SERVER_INITIAL_RESOURCES_DIR=/absolute/path/to/initialresources \
+docker compose -f docker-compose.yml -f docker-compose.web-e2e.yml up -d --build
+```
+
+The browser endpoint is `wss://127.0.0.1:4297/basis` and its CORS-enabled server-info endpoint is `https://127.0.0.1:4297/server-info`. Set `BASIS_WEBSOCKET_ALLOWED_ORIGINS` when the WebGL build is served from an origin other than the two local port 4173 defaults.
+
+## Public browser server without a reverse proxy
+
+Direct browser connections require a publicly trusted TLS certificate. Obtain it with the operating system's Certbot package:
+
+```bash
+sudo certbot certonly --standalone --domain global.kanaru.me
+```
+
+Start the server with the production Compose overlay:
+
+```bash
+BASIS_SERVER_HOSTNAME=global.kanaru.me \
+BASIS_WEBSOCKET_ALLOWED_ORIGINS=https://sekaimate.akaaku.net \
+docker compose -f docker-compose.yml -f docker-compose.production.yml up -d
+```
+
+The server reads Certbot's PEM certificate and private key directly. PKCS#12 conversion and a certificate password are not required. The mappings are:
+
+- `4296/udp` on the VM to `4296/udp` in the container
+- `443/tcp` on the VM to the TLS WebSocket listener on `4297/tcp` in the container
+
+TCP port 80 is needed only for Certbot's HTTP-01 issuance and renewal. Restart the server container after certificate renewal. The browser endpoints are `wss://<hostname>/basis` and `https://<hostname>/server-info`.
 
 ## Customizing Configuration
 

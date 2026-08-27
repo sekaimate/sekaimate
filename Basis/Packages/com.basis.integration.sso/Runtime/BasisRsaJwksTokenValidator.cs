@@ -58,7 +58,7 @@ namespace Basis.Integration.Sso
             bool verified;
             try
             {
-                verified = await VerifySignatureAsync(parts, kid, p.JwksUri, ct);
+                verified = await VerifySignatureAsync(parts, kid, p.Jwks, p.JwksUri, ct);
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception e)
@@ -103,12 +103,12 @@ namespace Basis.Integration.Sso
             };
         }
 
-        private async Task<bool> VerifySignatureAsync(string[] parts, string kid, string jwksUri, CancellationToken ct)
+        private async Task<bool> VerifySignatureAsync(string[] parts, string kid, JArray suppliedKeys, string jwksUri, CancellationToken ct)
         {
             byte[] signedData = Encoding.ASCII.GetBytes(parts[0] + "." + parts[1]);
             byte[] signature = BasisSsoUtil.Base64UrlDecode(parts[2]);
 
-            JObject jwk = await ResolveKeyAsync(kid, jwksUri, allowRefresh: true, ct);
+            JObject jwk = await ResolveKeyAsync(kid, suppliedKeys, jwksUri, allowRefresh: true, ct);
             if (jwk == null) return false;
 
             RSAParameters rsaParams = new RSAParameters
@@ -121,8 +121,9 @@ namespace Basis.Integration.Sso
             return rsa.VerifyData(signedData, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         }
 
-        private async Task<JObject> ResolveKeyAsync(string kid, string jwksUri, bool allowRefresh, CancellationToken ct)
+        private async Task<JObject> ResolveKeyAsync(string kid, JArray suppliedKeys, string jwksUri, bool allowRefresh, CancellationToken ct)
         {
+            if (suppliedKeys != null) return FindKey(suppliedKeys, kid);
             JArray keys = await GetKeysAsync(jwksUri, forceRefresh: false, ct);
             JObject match = FindKey(keys, kid);
             if (match == null && allowRefresh)

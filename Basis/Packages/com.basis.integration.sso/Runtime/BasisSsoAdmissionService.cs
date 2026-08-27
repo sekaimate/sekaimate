@@ -28,6 +28,9 @@ namespace Basis.Integration.Sso
             {
                 return await PostToTrustedLoopbackBroker(endpoint, body.ToString(Newtonsoft.Json.Formatting.None), password, serverPublicKey, ct);
             }
+#if UNITY_WEBGL && !UNITY_EDITOR
+            return await PostToBrowserBroker(endpoint, body.ToString(Newtonsoft.Json.Formatting.None), password, serverPublicKey, ct);
+#else
             using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
             {
                 Content = new StringContent(body.ToString(Newtonsoft.Json.Formatting.None), Encoding.UTF8, "application/json")
@@ -45,7 +48,51 @@ namespace Basis.Integration.Sso
             }
             BasisDebug.Log($"[SSO] Prepared encrypted admission payload ({payload.Length} bytes).", BasisDebug.LogTag.System);
             return payload;
+#endif
         }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+        private static async Task<byte[]> PostToBrowserBroker(string endpoint, string json, string password,
+            string serverPublicKey, CancellationToken ct)
+        {
+            using var request = new UnityWebRequest(endpoint, UnityWebRequest.kHttpVerbPOST)
+            {
+                uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json)),
+                downloadHandler = new DownloadHandlerBuffer(),
+            };
+            request.SetRequestHeader("Content-Type", "application/json");
+            var operation = request.SendWebRequest();
+            while (!operation.isDone)
+            {
+                ct.ThrowIfCancellationRequested();
+                await Task.Yield();
+            }
+            if (request.result != UnityWebRequest.Result.Success)
+            {
+                BasisDebug.LogError("[SSO] Browser broker admission request failed: " + request.error);
+                return null;
+            }
+            try
+            {
+                JObject response = JObject.Parse(request.downloadHandler.text);
+                string ticket = (string)response["ticket"];
+                if (string.IsNullOrWhiteSpace(ticket)) return null;
+                byte[] payload = SsoConnectionAuthPayload.EncodeEncrypted(password, ticket, serverPublicKey);
+                if (payload == null)
+                {
+                    BasisDebug.LogError("[SSO] Could not encrypt the server admission payload. Check the pinned server public key.");
+                    return null;
+                }
+                BasisDebug.Log($"[SSO] Prepared encrypted admission payload ({payload.Length} bytes).", BasisDebug.LogTag.System);
+                return payload;
+            }
+            catch (Exception e)
+            {
+                BasisDebug.LogError("[SSO] Browser broker admission response was invalid: " + e.Message);
+                return null;
+            }
+        }
+#endif
 
         private static async Task<byte[]> PostToTrustedLoopbackBroker(string endpoint, string json, string password,
             string serverPublicKey, CancellationToken ct)

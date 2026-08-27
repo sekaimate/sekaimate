@@ -322,6 +322,23 @@
       "source": "embedded",
       "dependencies": {}
     },
+    "com.coplaydev.unity-mcp": {
+      "version": "https://github.com/CoplayDev/unity-mcp.git?path=/MCPForUnity#v10.1.0",
+      "depth": 0,
+      "source": "git",
+      "dependencies": {
+        "com.unity.modules.animation": "1.0.0",
+        "com.unity.modules.imageconversion": "1.0.0",
+        "com.unity.modules.physics": "1.0.0",
+        "com.unity.modules.physics2d": "1.0.0",
+        "com.unity.modules.uielements": "1.0.0",
+        "com.unity.modules.screencapture": "1.0.0",
+        "com.unity.modules.unitywebrequest": "1.0.0",
+        "com.unity.nuget.newtonsoft-json": "3.0.2",
+        "com.unity.test-framework": "1.1.31"
+      },
+      "hash": "c14de1e6dc01ab42d2bb358730cff954bce0ce6b"
+    },
     "com.cqf.urpvolumetricfog": {
       "version": "file:com.cqf.urpvolumetricfog",
       "depth": 0,
@@ -404,7 +421,7 @@
       "url": "https://packages.unity.com"
     },
     "com.unity.burst": {
-      "version": "1.8.30",
+      "version": "1.8.29",
       "depth": 1,
       "source": "registry",
       "dependencies": {
@@ -512,7 +529,7 @@
     },
     "com.unity.nuget.newtonsoft-json": {
       "version": "3.2.2",
-      "depth": 2,
+      "depth": 1,
       "source": "registry",
       "dependencies": {},
       "url": "https://packages.unity.com"
@@ -755,14 +772,13 @@
       "url": "https://packages.unity.com"
     },
     "com.valvesoftware.openxr.utils": {
-      "version": "https://github.com/ValveSoftware/Unity.git?path=com.valvesoftware.openxr.utils#28c3b8d9a4ecd7a128906e11c398944d3c8524dc",
+      "version": "file:com.valvesoftware.openxr.utils",
       "depth": 0,
-      "source": "git",
+      "source": "embedded",
       "dependencies": {
         "com.unity.xr.openxr": "1.10.0",
         "com.unity.inputsystem": "1.7.0"
-      },
-      "hash": "28c3b8d9a4ecd7a128906e11c398944d3c8524dc"
+      }
     },
     "com.valvesoftware.unity.openvr": {
       "version": "file:com.valvesoftware.unity.openvr",

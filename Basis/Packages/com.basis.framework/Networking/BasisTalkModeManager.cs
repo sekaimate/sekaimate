@@ -214,12 +214,18 @@ namespace Basis.Scripts.Networking
                 np != null && np.Player is BasisRemotePlayer remote)
             {
                 remote.SetTalkMode((BasisTalkMode)modeByte);
+#if UNITY_WEBGL && !UNITY_EDITOR
+                BasisWebAudioDiagnosticsBridge.MarkRemoteTalkMode(modeByte);
+#endif
             }
         }
 
         private static void ApplyMode(BasisTalkMode mode)
         {
             CurrentMode = mode;
+#if UNITY_WEBGL && !UNITY_EDITOR
+            BasisWebAudioDiagnosticsBridge.MarkTalkMode((byte)mode);
+#endif
             BasisTransmissionResults.ForceVoiceRecipientResend = true;
             BroadcastLocalMode();
             OnLocalTalkModeChanged?.Invoke();
@@ -262,6 +268,9 @@ namespace Basis.Scripts.Networking
                 np != null && np.Player is BasisRemotePlayer remote)
             {
                 remote.SetSelfMuted(muted);
+#if UNITY_WEBGL && !UNITY_EDITOR
+                BasisWebAudioDiagnosticsBridge.MarkRemoteMuted(muted);
+#endif
             }
         }
 

@@ -111,6 +111,7 @@ namespace Basis.Network.Server
                 // Basic hardening / semantics
                 res.Headers["Cache-Control"] = "no-store, max-age=0";
                 res.Headers["X-Content-Type-Options"] = "nosniff";
+                res.Headers["Access-Control-Allow-Origin"] = "*";
 
                 if (!string.Equals(req.HttpMethod, "GET", StringComparison.OrdinalIgnoreCase))
                 {
@@ -143,7 +144,7 @@ namespace Basis.Network.Server
 
                 if (NetworkServer.Configuration.EnableStatistics && NetworkServer.Server != null)
                 {
-                    int visitors = NetworkServer.Server.ConnectedPeersCount;
+                    int visitors = NetworkServer.ConnectedPeerCount;
                     long sent = NetworkServer.Server.Statistics.BytesSent;
                     long recv = NetworkServer.Server.Statistics.BytesReceived;
                     int capacity = NetworkServer.Configuration.PeerLimit;

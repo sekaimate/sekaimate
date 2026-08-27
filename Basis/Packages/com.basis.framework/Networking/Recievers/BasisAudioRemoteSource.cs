@@ -1,5 +1,6 @@
 using Basis.Scripts.Drivers;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
 namespace Basis.Scripts.Networking.Receivers
@@ -16,7 +17,7 @@ namespace Basis.Scripts.Networking.Receivers
 
         public static int PoolCount => pool.Count;
 
-        public static void Initialize()
+        public static async Task InitializeAsync()
         {
             Loadable = Addressables.LoadAssetAsync<GameObject>(AudioSourcePath);
             if (Loadable.IsValid() == false)
@@ -24,7 +25,7 @@ namespace Basis.Scripts.Networking.Receivers
                 BasisDebug.LogError("Can't Find Audio Source!");
                 return;
             }
-            LoadableAudioSource = Loadable.WaitForCompletion();
+            LoadableAudioSource = await Loadable.Task;
             if (LoadableAudioSource.TryGetComponent<AudioSource>(out AudioSource v))
             {
             }

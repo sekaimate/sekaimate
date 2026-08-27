@@ -1,5 +1,10 @@
 public static class BasisBeeConstants
 {
+#if UNITY_WEBGL && !UNITY_EDITOR
+    public const bool ContinueOnCapturedContext = true;
+#else
+    public const bool ContinueOnCapturedContext = false;
+#endif
     public static readonly string BasisMetaExtension = ".BME";
     public static readonly string BasisEncryptedExtension = ".BEE";
     public static readonly string BasisConnectorExtension = ".BEC";

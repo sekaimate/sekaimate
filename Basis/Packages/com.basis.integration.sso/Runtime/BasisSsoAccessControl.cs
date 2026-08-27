@@ -43,7 +43,18 @@ namespace Basis.Integration.Sso
                     if (rule == null || string.IsNullOrEmpty(rule.Claim)) continue;
                     IReadOnlyList<string> userValues = session.GetClaim(rule.Claim);
                     if (!AnyValueMatches(userValues, rule.Values))
+                    {
+                        if (string.Equals(rule.Claim, "hd", StringComparison.OrdinalIgnoreCase))
+                        {
+                            string allowedDomains = rule.Values == null || rule.Values.Count == 0
+                                ? "configured organization domains"
+                                : string.Join(", ", rule.Values);
+                            return SsoAccessDecision.Deny(
+                                $"This Google account is not from an allowed organization domain. Allowed domains: {allowedDomains}.");
+                        }
+
                         return SsoAccessDecision.Deny($"Your '{rule.Claim}' claim does not meet the access requirement.");
+                    }
                 }
             }
 
@@ -64,7 +75,9 @@ namespace Basis.Integration.Sso
             if (userValues == null || allowed == null || allowed.Count == 0) return false;
             foreach (string v in userValues)
                 foreach (string a in allowed)
-                    if (string.Equals(v, a, StringComparison.OrdinalIgnoreCase)) return true;
+                    if (a == "*"
+                        ? !string.IsNullOrWhiteSpace(v)
+                        : string.Equals(v, a, StringComparison.OrdinalIgnoreCase)) return true;
             return false;
         }
     }

@@ -1,0 +1,14 @@
+services:
+  basis-server:
+    environment:
+      Password: ${BASIS_SERVER_PASSWORD:-default_password}
+      BasisFirstAdmin: ${BASIS_FIRST_ADMIN:-did:key:basis-local-web-admin}
+      RequireSso: "true"
+      AutoStartSsoBroker: "false"
+      WebSocketEnabled: "true"
+      WebSocketPort: 4297
+      WebSocketPath: /basis
+      WebSocketServerInfoPath: /server-info
+      WebSocketAllowedOrigins: ${BASIS_WEBSOCKET_ALLOWED_ORIGINS:-http://127.0.0.1:4173,http://localhost:4173}
+      WebSocketUseTls: "false"
+      WorldsLocked: "false"

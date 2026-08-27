@@ -1,3 +1,5 @@
+using System;
+using System.Threading.Tasks;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
@@ -8,74 +10,74 @@ namespace Basis.BasisUI.Styling
         public static UiStyleLibrary Library;
         public static UiStylePalette Palette;
 
-        // Runtime clone the palette is applied to, so the StylePalette asset is never mutated at runtime.
         private static UiStylePalette _runtimePalette;
+        private static Task _initializationTask;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void ResetRuntimeClone()
         {
             _runtimePalette = null;
+            _initializationTask = null;
+        }
+
+        public static Task InitializeAsync()
+        {
+            if (Library != null && Palette != null)
+            {
+                return Task.CompletedTask;
+            }
+
+            return _initializationTask ??= LoadRuntimeAssetsAsync();
+        }
+
+        private static async Task LoadRuntimeAssetsAsync()
+        {
+#if UNITY_EDITOR
+            Library = AssetDatabase.LoadAssetAtPath<UiStyleLibrary>(
+                "Packages/com.basis.sdk/Settings/StyleLibrary.asset");
+            Palette = AssetDatabase.LoadAssetAtPath<UiStylePalette>(
+                "Packages/com.basis.sdk/Settings/StylePalette.asset");
+#else
+            Library = await Addressables.LoadAssetAsync<UiStyleLibrary>("StyleLibrary").Task;
+            Palette = await Addressables.LoadAssetAsync<UiStylePalette>("StylePalette").Task;
+#endif
         }
 
         public static UiStyleLibrary GetActiveStyles()
         {
-            #if UNITY_EDITOR
-                // In the editor, use AssetDatabase directly instead of Addressable.
+#if UNITY_EDITOR
                 if (Library == null)
                 {
                     Library = AssetDatabase.LoadAssetAtPath<UiStyleLibrary>(
                         "Packages/com.basis.sdk/Settings/StyleLibrary.asset");
                 }
-                // In editor, never fall through to Addressables
-                if (Library == null)
-                {
-                    BasisDebug.LogError("Missing Library! Asset not found at expected path.");
-                }
-                return Library;
-            #else
-                // At runtime, Addressables is the correct loading mechanism.
-                if (Library == null)
-                {
-                    var Data = Addressables.LoadAssetAsync<UiStyleLibrary>("StyleLibrary");
-                    Library = Data.WaitForCompletion();
-                }
-                if (Library == null)
-                {
-                    BasisDebug.LogError("Missing Library!");
-                }
-                return Library;
-            #endif
+#endif
+            if (Library == null)
+            {
+                throw new InvalidOperationException($"{nameof(UiStyleSettings)} must be initialized before use.");
+            }
+            return Library;
         }
 
         public static UiStylePalette GetActivePalette()
         {
-            #if UNITY_EDITOR
-                if (Palette == null)
-                {
-                    Palette = AssetDatabase.LoadAssetAtPath<UiStylePalette>(
-                        "Packages/com.basis.sdk/Settings/StylePalette.asset");
-                }
-                if (Palette == null)
-                {
-                    BasisDebug.LogError("Missing Palette! Asset not found at expected path.");
-                }
-            #else
-                if (Palette == null)
-                {
-                    var Data = Addressables.LoadAssetAsync<UiStylePalette>("StylePalette");
-                    Palette = Data.WaitForCompletion();
-                }
-                if (Palette == null)
-                {
-                    BasisDebug.LogError("Missing Palette!");
-                }
-            #endif
+#if UNITY_EDITOR
+            if (Palette == null)
+            {
+                Palette = AssetDatabase.LoadAssetAtPath<UiStylePalette>(
+                    "Packages/com.basis.sdk/Settings/StylePalette.asset");
+            }
+#endif
+            if (Palette == null)
+            {
+                throw new InvalidOperationException($"{nameof(UiStyleSettings)} must be initialized before use.");
+            }
 
             if (Application.isPlaying)
             {
                 if (_runtimePalette == null && Palette != null)
                 {
-                    _runtimePalette = Object.Instantiate(Palette);
+                    _runtimePalette = UnityEngine.Object.Instantiate(Palette);
                 }
                 return _runtimePalette;
             }
@@ -104,9 +106,8 @@ namespace Basis.BasisUI.Styling
 
         public static void UpdateAllStyleComponents()
         {
-            // This works at runtime too (2022+). If you're on older Unity, switch to Object.FindObjectsOfType<BaseUiStyleComponent>()
             BaseUiStyleComponent[] components =
-                Object.FindObjectsByType<BaseUiStyleComponent>(
+                UnityEngine.Object.FindObjectsByType<BaseUiStyleComponent>(
                     FindObjectsInactive.Include,
                     FindObjectsSortMode.None);
 
@@ -114,7 +115,7 @@ namespace Basis.BasisUI.Styling
             {
                 if (!comp || !comp.enabled) continue;
 
-                UiStyleUtilities.RecordComponent(comp); // assuming this is runtime-safe
+                UiStyleUtilities.RecordComponent(comp);
                 comp.ApplyActiveStyle();
             }
         }

@@ -857,7 +857,12 @@ namespace Basis.BasisUI
             root = networkPage.Descriptor.ContentParent;
 
             // ---- Direct Connection (P2P) controls ----
-            var p2pGroup = PanelElementDescriptor.CreateNew(PanelElementDescriptor.ElementStyles.Group, root);
+            PanelElementDescriptor directConnPingField = null;
+            PanelElementDescriptor p2pGroup = null;
+            BasisPanelTint.Handle directConnPingTint = null;
+            if (BasisNetworkPlatformCapabilities.SupportsDirectPeerConnections)
+            {
+            p2pGroup = PanelElementDescriptor.CreateNew(PanelElementDescriptor.ElementStyles.Group, root);
             p2pGroup.SetTitle(BasisLocalization.Get("menu.individualPlayer.directConnection"));
             p2pGroup.SetDescription(BasisLocalization.Get("menu.individualPlayer.directConnection.description"));
 
@@ -1011,14 +1016,14 @@ namespace Basis.BasisUI
             };
             Basis.Scripts.Networking.BasisP2PManager.OnSessionStateChanged += p2pHandler;
 
-            var directConnPingField = PanelElementDescriptor.CreateNew(PanelElementDescriptor.ElementStyles.Group, p2pGroup.ContentParent);
+            directConnPingField = PanelElementDescriptor.CreateNew(PanelElementDescriptor.ElementStyles.Group, p2pGroup.ContentParent);
             directConnPingField.SetTitle(BasisLocalization.Get("menu.individualPlayer.directConnection.ping"));
             directConnPingField.SetDescription(BasisLocalization.Get("menu.individualPlayer.directConnection.ping.value", 0));
             // Hidden until the updater observes a Connected P2P session — see
             // IndividualPlayerPanelUpdater.UpdateDirectConnPingField, which also grades the
             // round trip onto the shared tint.
             directConnPingField.SetActive(false);
-            BasisPanelTint.Handle directConnPingTint = BasisPanelTint.Capture(directConnPingField);
+            directConnPingTint = BasisPanelTint.Capture(directConnPingField);
 
             // Per-person policy for *incoming* direct-connection requests from this
             // player. Saved to disc and consulted by BasisP2PIncomingDialog before it
@@ -1044,6 +1049,7 @@ namespace Basis.BasisUI
                     if (idx < 0) idx = 0;
                     BasisTrustedConnections.SetPolicy(remotePlayer.UUID, (BasisDirectConnectionPolicy)idx);
                 };
+            }
             }
 
             // The live per-player network readouts that used to sit here now live on the Debug
@@ -1283,7 +1289,7 @@ namespace Basis.BasisUI
             AddPage(blockTabKey, blockPage);
 
             // ---- Admin moderation section (only visible to admins) ----
-            if (BasisNetworkManagement.LocalPermissions.Contains(PermNodes.PermissionsView))
+            if (IndividualPlayerActionPermissions.CanViewSection(BasisNetworkManagement.LocalPermissions))
             {
                 // ================= Admin =================
                 const string adminTabKey = "settings.tab.admin";
@@ -1299,6 +1305,9 @@ namespace Basis.BasisUI
                 PanelButton kickBtn = PanelButton.CreateNew(adminGroup.ContentParent);
                 kickBtn.Descriptor.SetTitle(BasisLocalization.Get("menu.individualPlayer.kick"));
                 kickBtn.Descriptor.SetDescription(BasisLocalization.Get("menu.individualPlayer.kick.description"));
+                kickBtn.gameObject.SetActive(IndividualPlayerActionPermissions.CanUse(
+                    BasisNetworkManagement.LocalPermissions,
+                    IndividualPlayerAdminAction.Kick));
                 kickBtn.OnClicked += () =>
                 {
                     BasisMainMenu.Instance.OpenDialogue(
@@ -1312,6 +1321,9 @@ namespace Basis.BasisUI
                 PanelButton banBtn = PanelButton.CreateNew(adminGroup.ContentParent);
                 banBtn.Descriptor.SetTitle(BasisLocalization.Get("menu.individualPlayer.ban"));
                 banBtn.Descriptor.SetDescription(BasisLocalization.Get("menu.individualPlayer.ban.description"));
+                banBtn.gameObject.SetActive(IndividualPlayerActionPermissions.CanUse(
+                    BasisNetworkManagement.LocalPermissions,
+                    IndividualPlayerAdminAction.Ban));
                 banBtn.OnClicked += () =>
                 {
                     BasisMainMenu.Instance.OpenDialogue(
@@ -1325,6 +1337,9 @@ namespace Basis.BasisUI
                 PanelButton ipBanBtn = PanelButton.CreateNew(adminGroup.ContentParent);
                 ipBanBtn.Descriptor.SetTitle(BasisLocalization.Get("menu.individualPlayer.ipBan"));
                 ipBanBtn.Descriptor.SetDescription(BasisLocalization.Get("menu.individualPlayer.ipBan.description"));
+                ipBanBtn.gameObject.SetActive(IndividualPlayerActionPermissions.CanUse(
+                    BasisNetworkManagement.LocalPermissions,
+                    IndividualPlayerAdminAction.IpBan));
                 ipBanBtn.OnClicked += () =>
                 {
                     BasisMainMenu.Instance.OpenDialogue(
@@ -1338,6 +1353,9 @@ namespace Basis.BasisUI
                 PanelButton teleportToBtn = PanelButton.CreateNew(adminGroup.ContentParent);
                 teleportToBtn.Descriptor.SetTitle(BasisLocalization.Get("menu.individualPlayer.teleportTo"));
                 teleportToBtn.Descriptor.SetDescription(BasisLocalization.Get("menu.individualPlayer.teleportTo.description"));
+                teleportToBtn.gameObject.SetActive(IndividualPlayerActionPermissions.CanUse(
+                    BasisNetworkManagement.LocalPermissions,
+                    IndividualPlayerAdminAction.Teleport));
                 teleportToBtn.OnClicked += () =>
                 {
                     if (BasisNetworkPlayers.PlayerToNetworkedPlayer(remotePlayer, out BasisNetworkPlayer np))
@@ -1347,6 +1365,9 @@ namespace Basis.BasisUI
                 PanelButton teleportHereBtn = PanelButton.CreateNew(adminGroup.ContentParent);
                 teleportHereBtn.Descriptor.SetTitle(BasisLocalization.Get("menu.individualPlayer.teleportHere"));
                 teleportHereBtn.Descriptor.SetDescription(BasisLocalization.Get("menu.individualPlayer.teleportHere.description"));
+                teleportHereBtn.gameObject.SetActive(IndividualPlayerActionPermissions.CanUse(
+                    BasisNetworkManagement.LocalPermissions,
+                    IndividualPlayerAdminAction.Teleport));
                 teleportHereBtn.OnClicked += () =>
                 {
                     if (BasisNetworkPlayers.PlayerToNetworkedPlayer(remotePlayer, out BasisNetworkPlayer np))
@@ -1355,6 +1376,9 @@ namespace Basis.BasisUI
 
                 PanelButton shoutBtn = PanelButton.CreateNew(adminGroup.ContentParent);
                 shoutBtn.Descriptor.SetDescription(BasisLocalization.Get("menu.individualPlayer.shout.description"));
+                shoutBtn.gameObject.SetActive(IndividualPlayerActionPermissions.CanUse(
+                    BasisNetworkManagement.LocalPermissions,
+                    IndividualPlayerAdminAction.Shout));
                 bool hasShoutTarget = BasisNetworkPlayers.PlayerToNetworkedPlayer(remotePlayer, out BasisNetworkPlayer shoutNp);
                 ushort shoutPlayerId = hasShoutTarget ? shoutNp.playerId : (ushort)0;
 
@@ -1368,7 +1392,6 @@ namespace Basis.BasisUI
                 }
                 PaintDetailShout();
                 sync.Shout += PaintDetailShout;
-
                 shoutBtn.OnClicked += () =>
                 {
                     if (!hasShoutTarget) return;
@@ -1381,10 +1404,16 @@ namespace Basis.BasisUI
                 PanelTextField msgField = PanelTextField.CreateNewEntry(adminGroup.ContentParent);
                 msgField.Descriptor.SetTitle(BasisLocalization.Get("menu.individualPlayer.message"));
                 msgField.Descriptor.SetDescription(BasisLocalization.Get("menu.individualPlayer.message.description"));
+                msgField.gameObject.SetActive(IndividualPlayerActionPermissions.CanUse(
+                    BasisNetworkManagement.LocalPermissions,
+                    IndividualPlayerAdminAction.Message));
 
                 PanelButton sendMsgBtn = PanelButton.CreateNew(adminGroup.ContentParent);
                 sendMsgBtn.Descriptor.SetTitle(BasisLocalization.Get("menu.individualPlayer.sendMessage"));
                 sendMsgBtn.Descriptor.SetDescription(BasisLocalization.Get("menu.individualPlayer.sendMessage.description"));
+                sendMsgBtn.gameObject.SetActive(IndividualPlayerActionPermissions.CanUse(
+                    BasisNetworkManagement.LocalPermissions,
+                    IndividualPlayerAdminAction.Message));
                 sendMsgBtn.OnClicked += () =>
                 {
                     string msg = msgField.Value;
@@ -1404,6 +1433,9 @@ namespace Basis.BasisUI
                 var permGroup = PanelElementDescriptor.CreateNew(PanelElementDescriptor.ElementStyles.Group, adminGroup.ContentParent);
                 permGroup.SetTitle(BasisLocalization.Get("menu.individualPlayer.permissions"));
                 permGroup.SetDescription(BasisLocalization.Get("menu.individualPlayer.permissions.description"));
+                permGroup.gameObject.SetActive(IndividualPlayerActionPermissions.CanUse(
+                    BasisNetworkManagement.LocalPermissions,
+                    IndividualPlayerAdminAction.EditPermissions));
 
                 var knownNodes = new System.Collections.Generic.List<string>
                 {
@@ -1472,6 +1504,9 @@ namespace Basis.BasisUI
                 var groupSection = PanelElementDescriptor.CreateNew(PanelElementDescriptor.ElementStyles.Group, adminGroup.ContentParent);
                 groupSection.SetTitle(BasisLocalization.Get("menu.individualPlayer.groups"));
                 groupSection.SetDescription(BasisLocalization.Get("menu.individualPlayer.groups.description"));
+                groupSection.gameObject.SetActive(IndividualPlayerActionPermissions.CanUse(
+                    BasisNetworkManagement.LocalPermissions,
+                    IndividualPlayerAdminAction.EditPermissions));
 
                 PanelTextField groupField = PanelTextField.CreateNewEntry(groupSection.ContentParent);
                 groupField.Descriptor.SetTitle(BasisLocalization.Get("menu.individualPlayer.groupName"));
@@ -1630,7 +1665,7 @@ namespace Basis.BasisUI
             updater.BufferField = bufferField;
             updater.DirectConnPingField = directConnPingField;
             updater.DirectConnPingTint = directConnPingTint;
-            updater.DirectConnRebuildFrom = p2pGroup.ContentParent;
+            updater.DirectConnRebuildFrom = p2pGroup?.ContentParent;
             updater.DirectConnRebuildStopAt = networkPage.Descriptor.ContentParent;
 
             // Wire audio debug fields

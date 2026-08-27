@@ -3,6 +3,7 @@ using Basis.Scripts.BasisSdk.Players;
 using Basis.Scripts.Device_Management;
 using Basis.Scripts.Networking;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using TMPro;
 using Unity.Burst;
 using Unity.Collections;
@@ -139,12 +140,11 @@ namespace Basis.Scripts.UI.NamePlate
         /// after device init completes; safe to call again after <see cref="Dispose"/>.
         /// Loads runtime-only assets (materials + TMP baking object) from Addressables on first call.
         /// </summary>
-        public static void Initialize()
+        public static async Task InitializeAsync()
         {
             if (_initialized) return;
-            _initialized = true;
 
-            EnsureAssetsLoaded();
+            await EnsureAssetsLoadedAsync();
 
             SelectedNamePlateMaterial = BasisDeviceManagement.IsMobileHardware()
                 ? OpaqueNamePlateMaterial
@@ -165,6 +165,7 @@ namespace Basis.Scripts.UI.NamePlate
             PrecomputeCornerData();
             EnsureUnicodeFallbacksOnNameplateFont();
             EnsureGlobalRendererReady();
+            _initialized = true;
         }
 
         /// <summary>
@@ -196,19 +197,19 @@ namespace Basis.Scripts.UI.NamePlate
         /// Baker is parented under the BasisDeviceManagement root so it inherits the
         /// framework's lifetime instead of needing DontDestroyOnLoad.
         /// </summary>
-        private static void EnsureAssetsLoaded()
+        private static async Task EnsureAssetsLoadedAsync()
         {
             if (TransParentNamePlateMaterial == null)
             {
-                TransParentNamePlateMaterial = Addressables.LoadAssetAsync<Material>(TransparentMaterialAddress).WaitForCompletion();
+                TransParentNamePlateMaterial = await Addressables.LoadAssetAsync<Material>(TransparentMaterialAddress).Task;
             }
             if (OpaqueNamePlateMaterial == null)
             {
-                OpaqueNamePlateMaterial = Addressables.LoadAssetAsync<Material>(OpaqueMaterialAddress).WaitForCompletion();
+                OpaqueNamePlateMaterial = await Addressables.LoadAssetAsync<Material>(OpaqueMaterialAddress).Task;
             }
             if (Text == null)
             {
-                var font = Addressables.LoadAssetAsync<TMP_FontAsset>(FontAddress).WaitForCompletion();
+                var font = await Addressables.LoadAssetAsync<TMP_FontAsset>(FontAddress).Task;
 
                 var bakingGO = new GameObject("BasisNameplateBaker");
                 bakingGO.transform.SetParent(BasisDeviceManagement.Instance.transform, false);

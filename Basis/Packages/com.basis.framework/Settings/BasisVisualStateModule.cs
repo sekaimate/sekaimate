@@ -185,8 +185,12 @@ public class BasisVisualStateModule : BasisSettingsBase
         RangeCircle rc = existing ?? new RangeCircle();
         if (rc.Instance == null)
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            GameObject prefab = AddressableAssets.GetPrefab(AdaptiveCircleId);
+#else
             rc.Handle = Addressables.LoadAssetAsync<GameObject>(AdaptiveCircleId);
             GameObject prefab = rc.Handle.WaitForCompletion();
+#endif
             rc.Instance = Object.Instantiate(prefab, BasisLocalPlayer.Instance.transform);
             rc.Instance.transform.localPosition = new Vector3(0f, yOffset, 0f);
             rc.Instance.TryGetComponent(out rc.Circle);

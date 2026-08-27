@@ -3,8 +3,10 @@ using System.Collections;
 using System.Threading;
 using Basis.BasisUI;
 using Basis.Integration.Sso;
+using Basis.Scripts.Device_Management;
 using Basis.Scripts.Networking;
 using UnityEngine;
+using UnityEngine.Networking;
 
 namespace Basis.Integration.Sso.FrameworkGate
 {
@@ -19,13 +21,25 @@ namespace Basis.Integration.Sso.FrameworkGate
     public static class BasisSsoGate
     {
         internal const string BlockedReason = "Please sign in before connecting.";
-        private static bool _activated;
+        private static bool _hooksInstalled;
+        private static bool _runnerStarted;
 
-        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         private static void Bootstrap()
         {
+            // Register the Account tab before the Settings UI builds its tab list.
+            // Runtime enrollment can arrive after the menu is already available;
+            // delaying registration until the config is applied makes the tab
+            // disappear for that first session even though sign-in succeeded.
+            BasisSsoAccountTab.Register();
             BasisSsoAuthController.RuntimeConfigurationApplied -= ActivateRuntimeConfiguration;
             BasisSsoAuthController.RuntimeConfigurationApplied += ActivateRuntimeConfiguration;
+#if UNITY_WEBGL && !UNITY_EDITOR
+            InstallConnectionHooks();
+            GameObject loader = new GameObject("BasisSsoConfigLoader");
+            UnityEngine.Object.DontDestroyOnLoad(loader);
+            loader.AddComponent<BasisSsoConfigLoader>();
+#else
             if (!BasisSsoAuthController.EnsureConfigLoaded())
             {
                 BasisDebug.Log("[SSO] No OIDC config found; launch gate disabled.");
@@ -33,6 +47,7 @@ namespace Basis.Integration.Sso.FrameworkGate
             }
 
             ActivateConfiguredGate();
+#endif
         }
 
         /// <summary>Enables the gate after a broker-issued runtime configuration arrives.</summary>
@@ -44,17 +59,33 @@ namespace Basis.Integration.Sso.FrameworkGate
 
         private static void ActivateConfiguredGate()
         {
-            if (_activated) return;
-            _activated = true;
+            InstallConnectionHooks();
+            if (_runnerStarted) return;
+            _runnerStarted = true;
+            BasisSsoGateRunner.Begin();
+        }
+
+        private static void InstallConnectionHooks()
+        {
+            if (_hooksInstalled) return;
+            _hooksInstalled = true;
             // Block startup auto-connect and every manual/CLI connect until sign-in completes.
             BasisConnectionService.AutoConnectAttempted = true;
             BasisConnectionService.ConnectionBlockedReason = () =>
-                (BasisSsoAuthController.IsConfigured && !BasisSsoAuthController.IsSignedIn) ? BlockedReason : null;
+                !BasisSsoAuthController.IsConfigured
+                    ? "SSO configuration is loading."
+                    : (!BasisSsoAuthController.IsSignedIn ? BlockedReason : null);
             BasisConnectionService.ConnectionAuthenticationPayloadProvider = password =>
                 BasisSsoAdmissionService.CreateConnectionPayloadAsync(password);
+        }
 
-            BasisSsoAccountTab.Register();
-            BasisSsoGateRunner.Begin();
+        private static void DisableConnectionHooks()
+        {
+            if (!_hooksInstalled) return;
+            _hooksInstalled = false;
+            BasisConnectionService.AutoConnectAttempted = false;
+            BasisConnectionService.ConnectionBlockedReason = null;
+            BasisConnectionService.ConnectionAuthenticationPayloadProvider = null;
         }
 
         /// <summary>Called once sign-in succeeds: let connections through again.</summary>
@@ -62,6 +93,7 @@ namespace Basis.Integration.Sso.FrameworkGate
         {
             // Allow the Servers panel's auto-connect to run on next open now that we're signed in.
             BasisConnectionService.AutoConnectAttempted = false;
+            BasisConnectionService.NotifyConnectionPermissionChanged();
         }
 
         /// <summary>Called on sign-out: re-arm the block so nothing connects until sign-in again.</summary>
@@ -69,6 +101,45 @@ namespace Basis.Integration.Sso.FrameworkGate
         {
             BasisConnectionService.AutoConnectAttempted = true;
         }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+        private sealed class BasisSsoConfigLoader : MonoBehaviour
+        {
+            private void Start()
+            {
+                StartCoroutine(LoadConfigCoroutine());
+            }
+
+            private IEnumerator LoadConfigCoroutine()
+            {
+                using UnityWebRequest request = UnityWebRequest.Get(BasisOidcConfig.StreamingPath);
+                yield return request.SendWebRequest();
+                if (request.result != UnityWebRequest.Result.Success)
+                {
+                    if (request.responseCode != 404)
+                        BasisDebug.LogWarning($"[SSO] Failed to read streaming config '{BasisOidcConfig.StreamingPath}': {request.error}");
+                    Destroy(gameObject);
+                    DisableConnectionHooks();
+                    yield break;
+                }
+
+                string json = request.downloadHandler.text;
+                if (BasisOidcConfig.IsEmptyPlaceholder(json))
+                {
+                    Destroy(gameObject);
+                    DisableConnectionHooks();
+                    yield break;
+                }
+
+                if (!BasisSsoAuthController.ApplyRuntimeConfiguration(json, out string error))
+                {
+                    BasisDebug.LogError($"[SSO] Failed to load streaming config: {error}");
+                    DisableConnectionHooks();
+                }
+                Destroy(gameObject);
+            }
+        }
+#endif
     }
 
     /// <summary>
@@ -101,7 +172,11 @@ namespace Basis.Integration.Sso.FrameworkGate
         private void Start()
         {
             BasisSsoAuthController.StateChanged += OnStateChanged;
+#if UNITY_WEBGL && !UNITY_EDITOR
+            StartCoroutine(StartFlowWhenDeviceReady());
+#else
             StartFlow();
+#endif
         }
 
         private void OnDestroy()
@@ -149,29 +224,46 @@ namespace Basis.Integration.Sso.FrameworkGate
         {
             try
             {
+#if UNITY_WEBGL && !UNITY_EDITOR
+                if (BasisSsoAuthController.HasPendingBrowserCallback)
+                {
+                    BeginInteractiveSignIn();
+                    return;
+                }
+#endif
                 // 1) Try to reuse a stored session (silent renew / offline).
                 SsoAuthResult silent = await BasisSsoAuthController.InitializeAsync(_cts.Token);
                 if (silent.Success)
                 {
-                    Succeed();
+                    Succeed(false);
                     return;
                 }
 
                 // 2) Need interactive sign-in — present the prompt through the menu.
-                await EnsureMenuReadyAsync();
-                PresentSignInPrompt();
+                StartCoroutine(EnsureMenuReadyThen(PresentSignInPrompt));
             }
             catch (OperationCanceledException) { /* re-gate cancelled */ }
             catch (Exception e)
             {
                 BasisDebug.LogError($"[SSO] Gate failure: {e}");
-                await EnsureMenuReadyAsync();
-                ShowDialog("Sign-in error", e.Message, "Retry", "Quit", ok =>
+                StartCoroutine(EnsureMenuReadyThen(() => ShowDialog("Sign-in error", e.Message, "Retry", "Quit", ok =>
                 {
                     if (ok) StartFlow(); else Quit();
-                });
+                })));
             }
         }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+        private IEnumerator StartFlowWhenDeviceReady()
+        {
+            while (!BasisDeviceManagement.OnInitializationComplete)
+            {
+                yield return null;
+            }
+
+            StartFlow();
+        }
+#endif
 
         // ── Dialog steps ───────────────────────────────────────────────────
 
@@ -214,16 +306,26 @@ namespace Basis.Integration.Sso.FrameworkGate
                 });
         }
 
-        private static string ProviderLabel(BasisOidcConfig.ProviderConfig provider) =>
-            !string.IsNullOrWhiteSpace(provider?.Label) ? provider.Label : provider?.Id ?? "Sign in";
+        private static string ProviderLabel(BasisOidcConfig.ProviderConfig provider)
+        {
+            if (string.Equals(provider?.Id, "google", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(provider.Label, "Google Workspace", StringComparison.OrdinalIgnoreCase))
+                return "Google organization account";
+            return !string.IsNullOrWhiteSpace(provider?.Label) ? provider.Label : provider?.Id ?? "Sign in";
+        }
 
         private async void BeginInteractiveSignIn()
         {
+#if !UNITY_WEBGL || UNITY_EDITOR
+            // Desktop opens an external browser, so keep a small status dialog while the
+            // user completes the round trip. WebGL meeting links stay unobstructed; the
+            // browser is already the visible authentication surface there.
             ShowDialog(
                 "Signing in…",
                 "Complete the sign-in in your web browser, then return here.",
                 "Cancel",
                 _ => _cts?.Cancel());
+#endif
 
             SsoAuthResult result;
             try
@@ -241,7 +343,7 @@ namespace Basis.Integration.Sso.FrameworkGate
 
             if (result.Success)
             {
-                Succeed();
+                Succeed(true);
             }
             else if (result.AccessDenied)
             {
@@ -267,12 +369,20 @@ namespace Basis.Integration.Sso.FrameworkGate
             }
         }
 
-        private void Succeed()
+        private void Succeed(bool showConfirmation)
         {
             ReleaseDialogue();
             BasisSsoGate.OnSignedIn();
             _flowActive = false;
             BasisDebug.Log($"[SSO] Signed in as '{BasisSsoAuthController.ActiveDisplayName}'.");
+            if (showConfirmation)
+            {
+                ShowDialog(
+                    "Signed in",
+                    $"Signed in as {BasisSsoAuthController.ActiveDisplayName}.",
+                    "Continue",
+                    _ => ReleaseDialogue());
+            }
         }
 
         // ── Helpers ────────────────────────────────────────────────────────
@@ -285,6 +395,11 @@ namespace Basis.Integration.Sso.FrameworkGate
 
         private IEnumerator EnsureMenuReadyCoroutine(Action done)
         {
+            while (!BasisDeviceManagement.OnInitializationComplete)
+            {
+                yield return null;
+            }
+
             float deadline = Time.realtimeSinceStartup + 20f;
             while (Time.realtimeSinceStartup < deadline)
             {
@@ -304,11 +419,10 @@ namespace Basis.Integration.Sso.FrameworkGate
             done?.Invoke();
         }
 
-        private System.Threading.Tasks.Task EnsureMenuReadyAsync()
+        private IEnumerator EnsureMenuReadyThen(Action action)
         {
-            var tcs = new System.Threading.Tasks.TaskCompletionSource<bool>();
-            StartCoroutine(EnsureMenuReadyCoroutine(() => tcs.TrySetResult(true)));
-            return tcs.Task;
+            yield return EnsureMenuReadyCoroutine(null);
+            action?.Invoke();
         }
 
         private static void ShowDialog(string title, string desc, string accept, string deny, Action<bool> cb)

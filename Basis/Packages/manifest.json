@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "com.coplaydev.unity-mcp": "https://github.com/CoplayDev/unity-mcp.git?path=/MCPForUnity#v10.1.0",
     "com.github.homuler.mediapipe": "file:com.github.homuler.mediapipe-0.16.3.tgz",
     "com.llealloo.audiolink": "https://github.com/llealloo/audiolink.git?path=Packages/com.llealloo.audiolink#3.1.2",
     "com.unity.2d.sprite": "1.0.0",
@@ -22,7 +23,7 @@
     "com.unity.xr.hands": "1.8.1",
     "com.unity.xr.management": "4.5.4",
     "com.unity.xr.openxr": "1.17.1",
-    "com.valvesoftware.openxr.utils": "https://github.com/ValveSoftware/Unity.git?path=com.valvesoftware.openxr.utils#28c3b8d9a4ecd7a128906e11c398944d3c8524dc",
+    "com.valvesoftware.openxr.utils": "file:com.valvesoftware.openxr.utils",
     "com.valvesoftware.unity.openvr": "file:com.valvesoftware.unity.openvr-1.2.1.tgz",
     "com.xiph.rnnoise": "https://github.com/BasisVR/RNNoise.Net.git",
     "org.basisvr.base128": "file:org.basisvr.base128-1.2.2.tgz",

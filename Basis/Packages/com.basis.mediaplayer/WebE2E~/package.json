@@ -1,0 +1,15 @@
+{
+  "name": "basis-web-media-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx server.ts",
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.55.0",
+    "@types/node": "24.3.0",
+    "tsx": "4.20.5",
+    "typescript": "5.9.2"
+  }
+}

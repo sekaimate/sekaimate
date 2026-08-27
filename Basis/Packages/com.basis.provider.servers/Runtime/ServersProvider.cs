@@ -16,12 +16,14 @@ using UnityEngine.UI;
 
 namespace Basis.BasisUI
 {
-    public class ServersProvider : BasisMenuActionProvider<BasisMainMenu>
+    public partial class ServersProvider : BasisMenuActionProvider<BasisMainMenu>
     {
         [RuntimeInitializeOnLoadMethod]
         public static void AddToMenu()
         {
-            BasisMenuBase<BasisMainMenu>.AddProvider(new ServersProvider());
+            ServersProvider provider = new ServersProvider();
+            BasisMenuBase<BasisMainMenu>.AddProvider(provider);
+            BasisConnectionService.RegisterWebMeetingConnectionHandler(provider.QueueWebMeetingConnection);
         }
 
         public const string TitleKey = "menu.provider.servers";
@@ -55,6 +57,7 @@ namespace Basis.BasisUI
         private string _editingId;
         private readonly List<IServerDirectorySource> _subscribedSources = new List<IServerDirectorySource>();
         private bool _pendingDefaultHighlight;
+        private ServerDirectoryEntry _pendingConnectionEntry;
 
         private static bool IsDefault(ServerDirectoryEntry entry) =>
             entry != null && SavedServersDirectorySource.IsDefaultEntryId(entry.Id);
@@ -110,6 +113,9 @@ namespace Basis.BasisUI
                 BasisMenuPanel.PanelStyles.Page);
             BoundButton?.BindActiveStateToAddressablesInstance(panel);
             _panel = panel;
+#if UNITY_WEBGL && !UNITY_EDITOR && DEVELOPMENT_BUILD
+            ActiveInstance = this;
+#endif
 
             panel.OnInstanceReleased += OnPanelClosed;
 
@@ -154,6 +160,8 @@ namespace Basis.BasisUI
         private void SubscribeSourceEvents()
         {
             UnsubscribeSourceEvents();
+            BasisConnectionService.ConnectionStateChanged -= OnConnectionStateChanged;
+            BasisConnectionService.ConnectionStateChanged += OnConnectionStateChanged;
             BasisServerDirectoryRegistry.SourcesChanged += OnSourcesChanged;
             foreach (IServerDirectorySource source in BasisServerDirectoryRegistry.Sources)
             {
@@ -164,12 +172,23 @@ namespace Basis.BasisUI
 
         private void UnsubscribeSourceEvents()
         {
+            BasisConnectionService.ConnectionStateChanged -= OnConnectionStateChanged;
             BasisServerDirectoryRegistry.SourcesChanged -= OnSourcesChanged;
             foreach (IServerDirectorySource source in _subscribedSources)
             {
                 source.SourceChanged -= OnSourceChanged;
             }
             _subscribedSources.Clear();
+        }
+
+        private void OnConnectionStateChanged()
+        {
+            if (_panel == null || !BasisNetworkConnection.LocalPlayerIsConnected)
+            {
+                return;
+            }
+
+            _ = RefreshAllAsync();
         }
 
         private void OnSourcesChanged()
@@ -263,6 +282,16 @@ namespace Basis.BasisUI
             _advancedToggle.SetTitle(BasisLocalization.Get("ui.advanced"));
             int advancedStart = container.childCount;
 
+#if !UNITY_WEBGL || UNITY_EDITOR
+            BuildHostSection(container);
+#endif
+            BuildAutoConnectSection(container);
+
+            PanelSectionToggleHelpers.FinalizeFlatSectionFromIndex(_advancedToggle, container, advancedStart, false, null);
+        }
+
+        private void BuildHostSection(RectTransform container)
+        {
             _hostStackDropdown = PanelDropdown.CreateNewEntry(container);
             _hostStackDropdown.Descriptor.SetTitle(BasisLocalization.Get("menu.servers.hostStack"));
             PopulateHostStackDropdown();
@@ -349,13 +378,14 @@ namespace Basis.BasisUI
             _hostButton.Descriptor.SetDescription(BasisLocalization.Get("menu.servers.hostMode.description"));
             _hostButton.Descriptor.SetHeight(70);
             _hostButton.OnClicked += () => _ = ConnectToAsync(CreateHostEntry(ReadHostStackId()), isHostMode: true);
+        }
 
+        private void BuildAutoConnectSection(RectTransform container)
+        {
             _autoConnectToggle = PanelToggle.CreateNewEntry(container);
             _autoConnectToggle.Descriptor.SetTitle(BasisLocalization.Get("menu.servers.autoConnect"));
             _autoConnectToggle.Descriptor.SetDescription(BasisLocalization.Get("menu.servers.autoConnect.description"));
             _autoConnectToggle.AssignBinding(BasisSettingsDefaults.AutoConnect);
-
-            PanelSectionToggleHelpers.FinalizeBoxedSectionFromIndex(_advancedToggle, container, advancedStart, false, null);
         }
 
         private void PopulateHostStackDropdown()
@@ -601,6 +631,11 @@ namespace Basis.BasisUI
                 return;
             }
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+            string webSocketUri = BrowserServerEndpoints.WebSocketUri(address);
+            string serverInfoUri = BrowserServerEndpoints.ServerInfoUri(address);
+#endif
+
             List<SavedServerEntry> saved = SavedServerStore.Load();
             SavedServerEntry entry;
             if (string.IsNullOrEmpty(_editingId))
@@ -625,6 +660,10 @@ namespace Basis.BasisUI
             entry.Password = finalPassword;
             entry.HasPassword = !string.IsNullOrEmpty(finalPassword);
             entry.NetworkStackId = ReadStackDropdownId();
+#if UNITY_WEBGL && !UNITY_EDITOR
+            entry.WebSocketUri = webSocketUri;
+            entry.ServerInfoUri = serverInfoUri;
+#endif
 
             SavedServerStore.Save(saved);
 
@@ -689,7 +728,14 @@ namespace Basis.BasisUI
                 && BasisNetworkManagement.Port == portForDisplay;
             row.ConnectButton.Descriptor.SetTitle(BasisLocalization.Get(
                 isCurrentServer ? "menu.servers.reconnect" : "menu.servers.connect"));
-            row.ConnectButton.OnClicked += () => _ = ConnectToAsync(entry);
+            row.ConnectButton.OnClicked += () => ConnectEntry(entry);
+#if UNITY_WEBGL && !UNITY_EDITOR
+            if (!HasBrowserEndpoints(entry))
+            {
+                row.ConnectButton.SetInteractable(false, BasisLocalization.Get("menu.servers.browserEndpointRequired"));
+                row.Group.SetDescription(BasisLocalization.Get("menu.servers.browserEndpointRequired"));
+            }
+#endif
 
             if (entry.CanEdit)
             {
@@ -825,10 +871,26 @@ namespace Basis.BasisUI
 
         private async Task QueryAndUpdateAsync(ServerDirectoryEntry entry, CancellationToken ct)
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            if (!HasBrowserEndpoints(entry))
+            {
+                if (_rows.TryGetValue(entry.Id, out ServerRow unavailableRow)
+                    && unavailableRow.Group != null
+                    && unavailableRow.Group.gameObject != null)
+                {
+                    unavailableRow.Group.SetDescription(BasisLocalization.Get("menu.servers.browserEndpointRequired"));
+                }
+                return;
+            }
+#endif
             ServerProbeResult result;
             try
             {
+#if UNITY_WEBGL && !UNITY_EDITOR
+                result = await BasisWebServerInfoClient.ProbeAsync(entry.ServerInfoUri, 3000, ct);
+#else
                 result = await BasisNetworkStackRegistry.ProbeAsync(entry.Target, 3000, ct);
+#endif
             }
             catch (OperationCanceledException) { return; }
 
@@ -912,7 +974,7 @@ namespace Basis.BasisUI
             if (target == null) return;
 
             _usernameField?.SetValueWithoutNotify(username);
-            _ = ConnectToAsync(target);
+            ConnectEntry(target);
         }
 
         private ServerDirectoryEntry ResolveAutoConnectTarget(string lastId)
@@ -920,9 +982,84 @@ namespace Basis.BasisUI
             if (!string.IsNullOrEmpty(lastId))
             {
                 ServerDirectoryEntry found = FindEntry(lastId);
-                if (found != null) return found;
+                if (IsConnectableInCurrentPlayer(found)) return found;
             }
-            return FindEntry(SavedServersDirectorySource.DefaultServerId);
+            ServerDirectoryEntry defaultEntry = FindEntry(SavedServersDirectorySource.DefaultServerId);
+            return IsConnectableInCurrentPlayer(defaultEntry) ? defaultEntry : null;
+        }
+
+        private static bool IsConnectableInCurrentPlayer(ServerDirectoryEntry entry)
+        {
+            if (entry == null) return false;
+#if UNITY_WEBGL && !UNITY_EDITOR
+            return HasBrowserEndpoints(entry);
+#else
+            return true;
+#endif
+        }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+        private static bool HasBrowserEndpoints(ServerDirectoryEntry entry) =>
+            entry != null
+            && !string.IsNullOrWhiteSpace(entry.WebSocketUri)
+            && !string.IsNullOrWhiteSpace(entry.ServerInfoUri);
+#endif
+
+        private void QueueWebMeetingConnection(ServerDirectoryEntry entry, string userName)
+        {
+            // URL-based meetings may arrive while the Servers panel is still visible during
+            // framework/player initialization. Close it before readiness waits so the panel
+            // never flashes in front of the connection loading bar.
+            BasisMainMenu.Close();
+            BasisCursorManagement.OnReset();
+            QueueConnection(entry, userName);
+        }
+
+        private void QueueConnection(ServerDirectoryEntry entry, string userNameOverride = null)
+        {
+            string normalizedUserName = userNameOverride?.Trim();
+            if (!string.IsNullOrEmpty(normalizedUserName))
+            {
+                BasisDataStore.SaveString(normalizedUserName, BasisConnectionService.UsernameFileName);
+                _usernameField?.SetValueWithoutNotify(normalizedUserName);
+            }
+            _pendingConnectionEntry = entry;
+            BasisNetworkManagement.OnIstanceCreated -= TryStartPendingWebMeetingConnection;
+            BasisNetworkManagement.OnIstanceCreated += TryStartPendingWebMeetingConnection;
+            BasisConnectionService.ConnectionPermissionChanged -= TryStartPendingWebMeetingConnection;
+            BasisConnectionService.ConnectionPermissionChanged += TryStartPendingWebMeetingConnection;
+            BasisLocalPlayerData.OnLocalPlayerInitialized -= TryStartPendingWebMeetingConnection;
+            BasisLocalPlayerData.OnLocalPlayerInitialized += TryStartPendingWebMeetingConnection;
+            TryStartPendingWebMeetingConnection();
+        }
+
+        private void TryStartPendingWebMeetingConnection()
+        {
+            bool connectionPermitted = string.IsNullOrWhiteSpace(
+                BasisConnectionService.ConnectionBlockedReason?.Invoke());
+            bool localPlayerInitialized = BasisLocalPlayer.PlayerReady && BasisLocalPlayer.Instance != null;
+            bool localPlayerSetupCompleted = BasisLocalPlayerData.PlayerReady;
+            if (!WebMeetingConnectionReadiness.IsReady(
+                    _pendingConnectionEntry != null,
+                    BasisNetworkManagement.IsInitialized,
+                    connectionPermitted,
+                    localPlayerInitialized,
+                    localPlayerSetupCompleted))
+            {
+                return;
+            }
+
+            BasisNetworkManagement.OnIstanceCreated -= TryStartPendingWebMeetingConnection;
+            BasisConnectionService.ConnectionPermissionChanged -= TryStartPendingWebMeetingConnection;
+            BasisLocalPlayerData.OnLocalPlayerInitialized -= TryStartPendingWebMeetingConnection;
+            ServerDirectoryEntry entry = _pendingConnectionEntry;
+            _pendingConnectionEntry = null;
+            ConnectEntry(entry);
+        }
+
+        private void ConnectEntry(ServerDirectoryEntry entry)
+        {
+            _ = ConnectToAsync(entry);
         }
 
         private async Task ConnectToAsync(ServerDirectoryEntry entry, bool isHostMode = false)
@@ -950,6 +1087,17 @@ namespace Basis.BasisUI
             {
                 return;
             }
+#if UNITY_WEBGL && !UNITY_EDITOR
+            try
+            {
+                SavedServerWebSocketUriValidator.Validate(entry?.WebSocketUri, true);
+            }
+            catch (Exception exception) when (exception is InvalidOperationException || exception is FormatException)
+            {
+                BasisConnectionService.ReportConnectionError(exception.Message);
+                return;
+            }
+#endif
 
             if (isHostMode)
             {

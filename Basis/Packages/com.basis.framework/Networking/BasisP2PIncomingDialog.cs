@@ -10,6 +10,10 @@ namespace Basis.Scripts.Networking
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Install()
         {
+            if (!BasisNetworkPlatformCapabilities.SupportsDirectPeerConnections)
+            {
+                return;
+            }
             BasisP2PManager.OnIncomingRequest -= OnIncoming;
             BasisP2PManager.OnIncomingRequest += OnIncoming;
         }

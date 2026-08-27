@@ -1,0 +1,22 @@
+{
+    "name": "Basis.Integration.Sso.Tests",
+    "rootNamespace": "Basis.Integration.Sso.Tests",
+    "references": [
+        "Basis.Integration.Sso"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

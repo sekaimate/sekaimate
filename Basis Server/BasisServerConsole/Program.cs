@@ -1,5 +1,7 @@
 using Basis.Network;
 using Basis.Network.Server;
+using Basis.Network.Core;
+using Basis.Network.WebSocketServer;
 using BasisNetworkConsole;
 using BasisNetworking.InitialData;
 using BasisNetworkServer.BasisNetworkingReductionSystem;
@@ -8,6 +10,7 @@ namespace Basis
     class Program
     {
         public static BasisNetworkHealthCheck Check;
+        public static BasisWebSocketServerTransport WebSocketTransport;
 #if !UNITY_2017_1_OR_NEWER
         public static BasisRestApiHandler Api;
 #endif
@@ -29,10 +32,16 @@ namespace Basis
             bool isFirstBoot = !File.Exists(configFilePath);
             Configuration config = Configuration.LoadFromXml(configFilePath);
             config.ProcessEnvironmentalOverrides();
+            // Environment-driven/Docker first boots enable RequireSso after LoadFromXml has
+            // created the default configuration. Generate and persist the needed stable keys
+            // before either the UDP server or a colocated broker starts.
+            if (config.RequireSso && Basis.Network.Core.BasisSsoTransportKeys.Ensure(config, out bool generatedSsoKeys) && generatedSsoKeys)
+            {
+                config.SaveToXml(configFilePath);
+            }
 
             string folderPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, Configuration.LogsFolderName);
             BasisServerSideLogging.Initialize(config, folderPath);
-
             // Brand-new server: walk the operator through core settings and force them to
             // designate an admin before anything boots.
             if (isFirstBoot)
@@ -47,7 +56,11 @@ namespace Basis
                 Api = new BasisRestApiHandler(config);
 #endif
 
+            var ssoBroker = new BasisSsoBrokerProcess();
+            ssoBroker.Start(config, baseDir);
+
             NetworkServer.StartServer(config);
+            StartWebSocketTransport(config);
             
             // Handle legacy resource directory name migrations and similar.
             // after a version bump or two this should be removed
@@ -89,8 +102,10 @@ namespace Basis
 #if !UNITY_2017_1_OR_NEWER
                 Api?.Dispose();
 #endif
+                ssoBroker.Dispose();
                 BasisServerReductionSystemEvents.Shutdown();
                 if (config.EnableStatistics) BasisStatistics.StopWorkerThread();
+                StopNetworkTransports();
                 await BasisServerSideLogging.ShutdownAsync();
                 BNL.Log("Server shut down successfully.");
             };
@@ -107,6 +122,56 @@ namespace Basis
             }
             // Wait for shutdown signal
             shutdownEvent.Wait();
+        }
+
+        private static void StartWebSocketTransport(Configuration config)
+        {
+            if (!config.WebSocketEnabled) return;
+            if (NetworkServer.Server is not LNLNetManager udpServer)
+            {
+                throw new InvalidOperationException("The additional WebSocket endpoint requires the LiteNetLib UDP server.");
+            }
+            if (config.PeerLimit <= 0)
+            {
+                throw new InvalidOperationException("PeerLimit must be positive when the WebSocket endpoint is enabled.");
+            }
+
+            WebSocketServerTransportOptions options = WebSocketServerTransportOptions.FromConfiguration(config);
+            ServerInfoHttpEndpointOptions serverInfoOptions = ServerInfoHttpEndpointOptions.FromConfiguration(config);
+            WebSocketEventBridge bridge = new(NetworkServer.Listener, options.MaximumPayloadLength);
+            int maximumPeerId = Math.Min(config.PeerLimit, ushort.MaxValue) - 1;
+            WebSocketPeerIdAllocator peerIdAllocator = new(
+                0,
+                maximumPeerId,
+                descending: true,
+                id => udpServer.manager.GetPeerById(id) != null);
+            udpServer.manager.PeerIdUnavailable = peerIdAllocator.IsLeased;
+            NetworkServer.AdditionalConnectedPeersCountProvider = () => peerIdAllocator.LeasedCount;
+            WebSocketTransport = new BasisWebSocketServerTransport(
+                options,
+                bridge,
+                serverInfoOptions,
+                () => ServerInfoSnapshot.FromConfiguration(
+                    NetworkServer.Configuration,
+                    NetworkServer.AuthenticatedPeers.Count),
+                peerIdAllocator);
+            WebSocketTransport.StartAsync().GetAwaiter().GetResult();
+            BNL.Log($"Listening for WebSocket upgrades on port {options.Port} at {options.Path}");
+            BNL.Log($"Serving browser server info at {serverInfoOptions.Path}");
+        }
+
+        private static void StopNetworkTransports()
+        {
+            if (WebSocketTransport != null)
+            {
+                WebSocketTransport.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                WebSocketTransport = null;
+            }
+            if (NetworkServer.Server is LNLNetManager udpServer)
+            {
+                udpServer.manager.PeerIdUnavailable = null;
+            }
+            NetworkServer.StopServer();
         }
 
         private static void CurrentDomain_UnhandledException(object sender, UnhandledExceptionEventArgs e)

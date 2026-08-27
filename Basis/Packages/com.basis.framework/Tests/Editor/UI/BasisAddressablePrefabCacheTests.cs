@@ -81,6 +81,14 @@ namespace Basis.Tests.UI
         }
 
         [Test]
+        public void GetPrefab_ReturnsLoadedPrefab()
+        {
+            GameObject prefab = BasisAddressablePrefabCache.GetPrefab(KnownPath);
+
+            Assert.That(prefab, Is.SameAs(_template));
+        }
+
+        [Test]
         public void Instantiate_ProducesDistinctInstances()
         {
             RectTransform parent = CreateParent();
