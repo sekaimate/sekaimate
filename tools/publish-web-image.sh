@@ -77,6 +77,23 @@ cp -R -- "${repository_root}/Build/Web/." "$build_context/Build/Web/"
 cp -- "${repository_root}/tools/serve-web.mjs" "$build_context/tools/serve-web.mjs"
 cp -- "${repository_root}/concierge/web.Dockerfile" "$build_context/web.Dockerfile"
 
+# Browsers refuse to store a cache entry larger than a fraction of their disk
+# cache, and the uncompressed wasm is over 120MB, so reloading the deployed
+# client downloads it again every time. Precompressing here keeps the stored
+# entry small; tools/serve-web.mjs serves the .gz sibling with
+# Content-Encoding: gzip and falls back to the original file for clients that
+# do not accept gzip and for Range requests. Compressing the temporary context
+# instead of Build/Web leaves the developer's build output untouched, and
+# doing it here instead of in the Dockerfile avoids running gzip under QEMU
+# emulation for the foreign architecture.
+for artifact in \
+  "$build_context"/Build/Web/Build/*.wasm \
+  "$build_context"/Build/Web/Build/*.data \
+  "$build_context"/Build/Web/Build/*.framework.js; do
+  [[ -f "$artifact" ]] || continue
+  gzip -c -- "$artifact" > "$artifact.gz"
+done
+
 # Developers pull this image on both arm64 and amd64 machines, so publish a
 # manifest list. Building the foreign architecture uses QEMU emulation, which
 # the Podman machine and Docker Desktop both provide.

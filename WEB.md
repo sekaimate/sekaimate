@@ -73,6 +73,8 @@ BEEはGit管理外の`local/BEE/world.BEE`から自動的に配置され、イ�
 
 現在のビルドはGzip圧縮を使用します。`.gz`ファイルには`Content-Encoding: gzip`が必要です。また、WebAssemblyには`Content-Type: application/wasm`、JavaScriptには`Content-Type: application/javascript`、`.data`と`.bundle`には`Content-Type: application/octet-stream`を設定します。圧縮済みファイルの配信要件は[Unity公式ドキュメント](https://docs.unity3d.com/6000.5/Documentation/Manual/webgl-deploying.html)に基づいています。
 
+`tools/serve-web.mjs`は、すべてのレスポンスへ`ETag`を付け、`If-None-Match`が一致したときは`304`を返します。同名の`.gz`ファイルがある場合は、`Accept-Encoding: gzip`を送るクライアントへそのファイルを`Content-Encoding: gzip`で返し、Range付きのリクエストには非圧縮のファイルを使います。開発ビルドの`.wasm`は非圧縮で120MBを超え、そのままではブラウザーがキャッシュへ保存しません。そのため`tools/publish-web-image.sh`は、イメージ用の一時ディレクトリで`.wasm`、`.data`、`.framework.js`をgzip化してから同梱します。
+
 対応ブラウザはWebGL 2、WebAssembly、64bitをサポートするデスクトップ版Chrome、Firefox、Safari、Edgeです。詳細は[Unityのブラウザ互換性](https://docs.unity3d.com/6000.5/Documentation/Manual/webgl-browsercompatibility.html)を参照してください。
 
 ## Prop BEEのWebGL検証

@@ -42,6 +42,37 @@ const callbackHtml = `<!doctype html>
 </script>
 <p>Returning to Basis…</p>`;
 
+// Browsers reuse a stored response only when the server offers a validator.
+// The size and mtime pair changes whenever a new build lands in the image, and
+// hashing 120MB of wasm on every request would not be worth the accuracy.
+function etagFor(stat) {
+  return `"${stat.size.toString(16)}-${Math.trunc(stat.mtimeMs).toString(16)}"`;
+}
+
+function matchesEntityTag(header, entityTag) {
+  if (!header) return false;
+  return header.split(",").some((candidate) => candidate.trim().replace(/^W\//, "") === entityTag);
+}
+
+// tools/publish-web-image.sh precompresses the large Unity artifacts next to
+// the originals. Range requests keep using the uncompressed file, because a
+// byte range of a gzip stream is not the range the client asked for.
+async function precompressedVariant(filePath, request) {
+  if (request.headers.range) return null;
+  if (filePath.endsWith(".gz") || filePath.endsWith(".br")) return null;
+  const acceptsGzip = (request.headers["accept-encoding"] || "")
+    .split(",")
+    .some((value) => value.trim().split(";")[0] === "gzip");
+  if (!acceptsGzip) return null;
+
+  const candidate = `${filePath}.gz`;
+  try {
+    return { path: candidate, stat: await fs.stat(candidate) };
+  } catch {
+    return null;
+  }
+}
+
 function safePath(urlPath) {
   const pathname = decodeURIComponent(urlPath.split("?")[0]);
   const candidate = path.resolve(root, `.${pathname}`);
@@ -96,6 +127,24 @@ const server = createServer(async (request, response) => {
     if (stat.isDirectory()) {
       filePath = path.join(filePath, "index.html");
       stat = await fs.stat(filePath);
+    }
+
+    const precompressed = await precompressedVariant(filePath, request);
+    if (precompressed) {
+      filePath = precompressed.path;
+      stat = precompressed.stat;
+    }
+
+    const entityTag = etagFor(stat);
+    if (matchesEntityTag(request.headers["if-none-match"], entityTag)) {
+      response.writeHead(304, {
+        "cache-control": "no-cache",
+        etag: entityTag,
+        vary: "accept-encoding",
+        "access-control-allow-origin": "*",
+      });
+      response.end();
+      return;
     }
 
     const fileSize = stat.size;
@@ -155,6 +204,8 @@ const server = createServer(async (request, response) => {
       "content-length": String(contentLength),
       "accept-ranges": "bytes",
       "cache-control": "no-cache",
+      "etag": entityTag,
+      "vary": "accept-encoding",
       "access-control-allow-origin": "*",
       "access-control-expose-headers": "Content-Range, Content-Length, Accept-Ranges, ETag",
     };
