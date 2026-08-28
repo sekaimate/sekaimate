@@ -229,6 +229,24 @@ func ValidateBrowserEndpointTemplates(webSocketTemplate, serverInfoTemplate stri
 	return nil
 }
 
+// ValidateManagedGameServerHost validates the public host native clients use
+// for Agones-managed rooms. The port always comes from Agones, so the value
+// must be a bare DNS name or IP literal: no scheme, port or path.
+func ValidateManagedGameServerHost(raw string) error {
+	host := strings.TrimSpace(raw)
+	if host == "" {
+		return nil
+	}
+	if net.ParseIP(host) != nil {
+		return nil
+	}
+	u, err := url.Parse("//" + host)
+	if err != nil || u.Host != host || u.Hostname() == "" || u.Port() != "" {
+		return errors.New("must be a bare host name or IP address without scheme, port or path")
+	}
+	return nil
+}
+
 func validateWebSocketURI(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil || u.IsAbs() == false || u.Host == "" || u.User != nil || u.Fragment != "" || (u.Scheme != "ws" && u.Scheme != "wss") {
@@ -329,6 +347,12 @@ type BrokerConfig struct {
 	// are replaced, and no scheme/ingress path is guessed.
 	ManagedWebSocketUriTemplate  string `json:"ManagedWebSocketUriTemplate,omitempty"`
 	ManagedServerInfoUriTemplate string `json:"ManagedServerInfoUriTemplate,omitempty"`
+	// ManagedGameServerHost is the public host native clients dial over UDP
+	// for concierge-managed rooms. Agones reports the node address, which is
+	// a private address on a single-node deployment behind a firewall, so the
+	// operator names the reachable host explicitly. Empty keeps the Agones
+	// address.
+	ManagedGameServerHost string `json:"ManagedGameServerHost,omitempty"`
 }
 
 type fileWrapper struct {
@@ -369,6 +393,9 @@ func Load(path string) (*Store, error) {
 	}
 	if err := ValidateBrowserEndpointTemplates(wrapper.Broker.ManagedWebSocketUriTemplate, wrapper.Broker.ManagedServerInfoUriTemplate); err != nil {
 		return nil, fmt.Errorf("config: managed browser endpoint templates: %w", err)
+	}
+	if err := ValidateManagedGameServerHost(wrapper.Broker.ManagedGameServerHost); err != nil {
+		return nil, fmt.Errorf("config: managed game server host: %w", err)
 	}
 	for _, raw := range wrapper.Broker.TrustedProxyCIDRs {
 		if _, _, err := net.ParseCIDR(strings.TrimSpace(raw)); err != nil {
@@ -660,6 +687,14 @@ func (s *Store) ManagedBrowserEndpointTemplates() (webSocketURI, serverInfoURI s
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.cfg.ManagedWebSocketUriTemplate, s.cfg.ManagedServerInfoUriTemplate
+}
+
+// ManagedGameServerHost returns the public host native clients dial for
+// Agones-managed rooms. An empty value keeps the address Agones reports.
+func (s *Store) ManagedGameServerHost() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cfg.ManagedGameServerHost
 }
 
 // AllowUnauthenticatedAdmin reports the configured dev-only admin bypass.

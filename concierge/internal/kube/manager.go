@@ -102,6 +102,11 @@ type ManagerConfig struct {
 	WebSocketAllowedOrigins    []string
 	WebSocketUriTemplate       string
 	ServerInfoUriTemplate      string
+	// GameServerHost replaces the address Agones reports when native clients
+	// have to reach the room through a public name instead of the node
+	// address (a single-node deployment whose node only has a private IP).
+	// Empty keeps GameServer.Status.Address.
+	GameServerHost string
 	// WorldBEEURL and WorldBEEPassword describe the world loaded by every
 	// managed Basis Server at startup. The URL is browser-facing: clients,
 	// rather than the GameServer pod, download the BEE file.
@@ -431,7 +436,13 @@ func (m *Manager) watchReady(meetingID string) {
 			if !ok {
 				break
 			}
-			m.meetings.UpdateStatus(meetingID, "ready", "Kubernetes GameServer is ready.", gs.Status.Address, uint16(udpPort))
+			// Only the host is operator-supplied: the UDP port is always the
+			// one Agones assigned on that host.
+			host := gs.Status.Address
+			if m.cfg.GameServerHost != "" {
+				host = m.cfg.GameServerHost
+			}
+			m.meetings.UpdateStatus(meetingID, "ready", "Kubernetes GameServer is ready.", host, uint16(udpPort))
 			if m.cfg.WebSocketEnabled {
 				record, _ := m.meetings.Find(meetingID)
 				webSocketURI := record.WebSocketUri

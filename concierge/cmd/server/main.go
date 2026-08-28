@@ -193,6 +193,15 @@ func buildProvisioner(cfg *config.Store, meetings *controlplane.Store) kube.Room
 	if err := config.ValidateBrowserEndpointTemplates(webSocketTemplate, serverInfoTemplate); err != nil {
 		log.Fatalf("concierge: invalid managed browser URI templates: %v", err)
 	}
+
+	gameServerHost := cfg.ManagedGameServerHost()
+	if value := os.Getenv("BASIS_SERVER_PUBLIC_HOST"); value != "" {
+		gameServerHost = value
+	}
+	gameServerHost = strings.TrimSpace(gameServerHost)
+	if err := config.ValidateManagedGameServerHost(gameServerHost); err != nil {
+		log.Fatalf("concierge: invalid managed game server host: %v", err)
+	}
 	var tlsSecretName, tlsCertificateKey, tlsPrivateKeyKey, tlsMountPath string
 	if kubernetesConfig := cfg.GetKubernetes(); kubernetesConfig != nil {
 		tlsSecretName = kubernetesConfig.WebSocketTlsSecretName
@@ -218,6 +227,7 @@ func buildProvisioner(cfg *config.Store, meetings *controlplane.Store) kube.Room
 		WebSocketAllowedOrigins:     allowedOrigins,
 		WebSocketUriTemplate:        webSocketTemplate,
 		ServerInfoUriTemplate:       serverInfoTemplate,
+		GameServerHost:              gameServerHost,
 		WorldBEEURL:                 envOrDefault("BASIS_WORLD_BEE_URL", "http://127.0.0.1:4173/BEE/world.BEE"),
 		WorldBEEPassword:            os.Getenv("BASIS_WORLD_BEE_PASSWORD"),
 		ReadyTimeout:                readyTimeout,

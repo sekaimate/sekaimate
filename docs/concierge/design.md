@@ -297,6 +297,7 @@ basis-k8s の `/servers`(`POST`/`GET`/`GET {name}`/`DELETE`)相当の操作は�
 | `appsettings.json` `Broker.Organization` | 同左。 |
 | `Broker.Servers[].WebSocketUri` / `ServerInfoUri` | WebGL 用の完全な接続 URI。2 つはペアで指定し、scheme/TLS/loopback を検証する。空なら既存の UDP/native 接続を維持する。 |
 | `Broker.ManagedWebSocketUriTemplate` / `ManagedServerInfoUriTemplate` | Agones 管理下の会議へ適用する明示的 URI テンプレート。`{host}`/`{port}` のみ置換し、Ingress/TLS は推測しない。環境変数の同名 template 設定が優先される。 |
+| `Broker.ManagedGameServerHost` | Agones 管理下の会議へネイティブクライアントが UDP で接続する公開ホスト。ノードがプライベート IP しか持たない構成で `Status.Address` を置き換える。port は常に Agones が割り当てた値を使う。 |
 | `BASIS_SSO_BROKER_CONFIG_PATH` | 同名の環境変数、または concierge 独自の設定ファイルパス環境変数として維持(名称は既存踏襲を基本とし、変更する場合はユーザーに確認する)。 |
 | `BASIS_CONTROL_PLANE_STORE_PATH` | 同左(`control-plane.json` 相当ファイルの保存先)。 |
 | `BASIS_CONTROL_PLANE_ALLOW_MANUAL_MEETINGS` | 同左。 |
@@ -309,6 +310,7 @@ basis-k8s の `/servers`(`POST`/`GET`/`GET {name}`/`DELETE`)相当の操作は�
 | （新規）`BASIS_SERVER_WEBSOCKET_USE_TLS` / `BASIS_SERVER_WEBSOCKET_ALLOWED_ORIGINS` | TLS と CORS 許可 origin を明示設定する。Ingress や証明書の自動推測は行わない。 |
 | `Broker.Kubernetes.WebSocketTlsSecretName` / `CertificateKey` / `PrivateKeyKey` / `MountPath` | Basis Server 自身で TLS を終端する managed GameServer 用の Secret 設定。4 項目を全て指定すると Secret を read-only mount し、mount 内の証明書パスを `WebSocketCertificatePath`/`WebSocketCertificateKeyPath` として注入する。TLS 無効時は無視する。 |
 | （新規）`BASIS_SERVER_WEBSOCKET_URI_TEMPLATE` / `BASIS_SERVER_INFO_URI_TEMPLATE` | Agones Status の address と named TCP port から外部 URI を組み立てるテンプレート。2 つとも明示する。 |
+| （新規）`BASIS_SERVER_PUBLIC_HOST` | ネイティブクライアント向けの公開ホスト。明示した場合だけ Agones Status の address を置き換える。 |
 
 ### 8.2 設定ファイル
 

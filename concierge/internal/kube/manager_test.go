@@ -380,6 +380,46 @@ func TestCreate_WatchReadySuccess(t *testing.T) {
 	}
 }
 
+// TestCreate_WatchReadyUsesConfiguredGameServerHost checks that native
+// clients get the operator-supplied public host instead of the node address
+// Agones reports, while the port stays the one Agones assigned.
+func TestCreate_WatchReadyUsesConfiguredGameServerHost(t *testing.T) {
+	meetings := newTestStore(t)
+	if err := meetings.Add(controlplane.MeetingRecord{Id: "public-room", Title: "Public", Status: "provisioning"}); err != nil {
+		t.Fatalf("seed meeting record: %v", err)
+	}
+	m, agones, _ := newTestManager(t, meetings, ManagerConfig{
+		GameServerHost: "rooms.example.com",
+		PollInterval:   10 * time.Millisecond, ReadyTimeout: 2 * time.Second,
+	})
+	if err := m.Create(context.Background(), "public-room", testKeys()); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	gs, err := agones.AgonesV1().GameServers(testNamespace).Get(context.Background(), "basis-public-room", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get gameserver: %v", err)
+	}
+	gs.Status = agonesv1.GameServerStatus{
+		State: agonesv1.GameServerStateReady, Address: "10.0.0.9",
+		Ports: []agonesv1.GameServerStatusPort{{Name: "game", Port: 7777}},
+	}
+	if _, err := agones.AgonesV1().GameServers(testNamespace).Update(context.Background(), gs, metav1.UpdateOptions{}); err != nil {
+		t.Fatalf("update gameserver status: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		rec, _ := meetings.Find("public-room")
+		if rec.Status == "ready" {
+			if rec.Host != "rooms.example.com" || rec.Port != 7777 {
+				t.Fatalf("record host/port = %s/%d, want rooms.example.com/7777", rec.Host, rec.Port)
+			}
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("meeting did not become ready")
+}
+
 func TestCreate_WatchReadyExpandsBrowserEndpoints(t *testing.T) {
 	meetings := newTestStore(t)
 	if err := meetings.Add(controlplane.MeetingRecord{Id: "web-room", Title: "Web", Status: "provisioning"}); err != nil {

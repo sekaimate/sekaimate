@@ -166,6 +166,28 @@ func TestValidateBrowserEndpointTemplates(t *testing.T) {
 	}
 }
 
+func TestValidateManagedGameServerHost(t *testing.T) {
+	cases := []struct {
+		name, host string
+		wantErr    bool
+	}{
+		{"empty", "", false},
+		{"dns name", "rooms.example.com", false},
+		{"ipv4", "203.0.113.10", false},
+		{"ipv6", "2001:db8::1", false},
+		{"with port", "rooms.example.com:7777", true},
+		{"with scheme", "https://rooms.example.com", true},
+		{"with path", "rooms.example.com/basis", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := ValidateManagedGameServerHost(tc.host); (err != nil) != tc.wantErr {
+				t.Fatalf("ValidateManagedGameServerHost(%q) error = %v, wantErr %v", tc.host, err, tc.wantErr)
+			}
+		})
+	}
+}
+
 func TestStore_UpdateBrowserEndpoints(t *testing.T) {
 	s, err := Load(filepath.Join(t.TempDir(), "appsettings.json"))
 	if err != nil {

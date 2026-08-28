@@ -191,6 +191,7 @@ kubectl -n "$namespace" create configmap concierge-endpoints \
   --from-literal="BASIS_SERVER_WEBSOCKET_ENABLED=true" \
   --from-literal="BASIS_SERVER_WEBSOCKET_USE_TLS=true" \
   --from-literal="BASIS_SERVER_WEBSOCKET_ALLOWED_ORIGINS=https://${web_domain}" \
+  --from-literal="BASIS_SERVER_PUBLIC_HOST=${rooms_domain}" \
   --from-literal="BASIS_WORLD_BEE_URL=https://${web_domain}/BEE/world.BEE" \
   --dry-run=client -o yaml | kubectl apply -f -
 

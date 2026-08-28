@@ -403,6 +403,7 @@ implementation.md phase 1 の §8 で「未実装」としていた、静的 `Se
 | `BASIS_SERVER_WEBSOCKET_ALLOWED_ORIGINS` | (空) | カンマ/セミコロン区切りの CORS origin。 |
 | `BASIS_SERVER_WEBSOCKET_CERTIFICATE_PATH` / `BASIS_SERVER_WEBSOCKET_CERTIFICATE_KEY_PATH` | (空) | TLS を Basis Server 自身で終端する場合の証明書/秘密鍵パス。指定時は WebGL enabled GameServer の環境変数へ同名で注入する。通常の Ingress 終端では未設定のままにする。 |
 | `BASIS_SERVER_WEBSOCKET_URI_TEMPLATE` / `BASIS_SERVER_INFO_URI_TEMPLATE` | (空) | `{host}`/`{port}`だけを置換する完全な外部 URI。appsettings の `Broker.Managed*Template` でも指定可能で、環境変数が優先される。 |
+| `BASIS_SERVER_PUBLIC_HOST` | (空) | ネイティブクライアントが UDP で接続する公開ホスト。scheme/port/path を含まない host のみを指定し、`watchReady` が Agones の `Status.Address` の代わりに会議へ記録する。appsettings の `Broker.ManagedGameServerHost` でも指定可能で、環境変数が優先される。 |
 | `GAMESERVER_READY_TIMEOUT_SECONDS` | `120` | `watchReady` が Ready を待つ上限秒数。超過すると会議は `failed` になり、自動リトライしない(`design.md` §12 決定事項 3)。 |
 
 `Broker.Kubernetes` は managed GameServer が Basis Server 自身で TLS を終端する場合の
